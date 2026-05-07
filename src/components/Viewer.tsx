@@ -1,19 +1,31 @@
 import { useEffect, useImperativeHandle, useRef, forwardRef } from 'react';
-import { NiivueViewer } from '../lib/viewer/niivue';
-import type { Bytes } from '../types';
+import { NiivueViewer, type OverlayColorMap } from '../lib/viewer/niivue';
+import type { Bytes, VolumeMetadata } from '../types';
+
+export interface LoadedFromViewer {
+  voxels: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array;
+  meta: VolumeMetadata;
+}
 
 export interface ViewerHandle {
-  loadVolumeFromBytes(name: string, bytes: Bytes): Promise<{
-    voxels: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array;
-    meta: { dims: [number, number, number]; spacing: [number, number, number]; origin: [number, number, number]; dtype: 'int16' | 'uint16' | 'int32' | 'float32' | 'uint8' };
-  }>;
+  loadPrimary(name: string, bytes: Bytes): Promise<LoadedFromViewer>;
+  loadSecondary(name: string, bytes: Bytes, opacity?: number, colormap?: OverlayColorMap): Promise<LoadedFromViewer>;
+  removeSecondary(): void;
   addMaskOverlay(
     name: string,
     mask: Uint8Array,
     dims: [number, number, number],
-    spacing: [number, number, number]
+    spacing: [number, number, number],
+    colormap?: OverlayColorMap,
+    opacity?: number
   ): Promise<void>;
-  removeOverlays(): void;
+  removeMaskOverlay(): void;
+  setMaskOpacity(opacity: number): void;
+  setMaskColormap(colormap: OverlayColorMap): void;
+  setWindow(level: number, width: number): void;
+  setDrawingEnabled(on: boolean): void;
+  setBrushLabel(label: number): void;
+  undoLastBrushStroke(): void;
 }
 
 export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
@@ -34,17 +46,42 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
 
   useImperativeHandle(
     ref,
-    () => ({
-      async loadVolumeFromBytes(name, bytes) {
+    (): ViewerHandle => ({
+      async loadPrimary(name, bytes) {
         if (!viewerRef.current) throw new Error('Viewer not ready');
-        return viewerRef.current.loadVolumeFromBytes(name, bytes);
+        return viewerRef.current.loadPrimaryFromBytes(name, bytes);
       },
-      async addMaskOverlay(name, mask, dims, spacing) {
+      async loadSecondary(name, bytes, opacity, colormap) {
         if (!viewerRef.current) throw new Error('Viewer not ready');
-        await viewerRef.current.addMaskOverlay(name, mask, dims, spacing);
+        return viewerRef.current.loadSecondaryFromBytes(name, bytes, opacity, colormap);
       },
-      removeOverlays() {
-        viewerRef.current?.removeOverlays();
+      removeSecondary() {
+        viewerRef.current?.removeSecondary();
+      },
+      async addMaskOverlay(name, mask, dims, spacing, colormap, opacity) {
+        if (!viewerRef.current) throw new Error('Viewer not ready');
+        await viewerRef.current.addMaskOverlay(name, mask, dims, spacing, colormap, opacity);
+      },
+      removeMaskOverlay() {
+        viewerRef.current?.removeMaskOverlay();
+      },
+      setMaskOpacity(opacity) {
+        viewerRef.current?.setMaskOpacity(opacity);
+      },
+      setMaskColormap(colormap) {
+        viewerRef.current?.setMaskColormap(colormap);
+      },
+      setWindow(level, width) {
+        viewerRef.current?.setWindow(level, width);
+      },
+      setDrawingEnabled(on) {
+        viewerRef.current?.setDrawingEnabled(on);
+      },
+      setBrushLabel(label) {
+        viewerRef.current?.setBrushLabel(label);
+      },
+      undoLastBrushStroke() {
+        viewerRef.current?.undoLastBrushStroke();
       },
     }),
     []

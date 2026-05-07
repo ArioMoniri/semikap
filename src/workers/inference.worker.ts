@@ -4,7 +4,7 @@ import type { Bytes, ModelManifest, RunResult } from '../types';
 import { preparePreprocessing } from '../lib/inference/preprocess';
 import { resampleNearest, labelCounts } from '../lib/inference/postprocess';
 import { slidingWindowInference } from '../lib/inference/sliding-window';
-import { createSession } from '../lib/inference/ort';
+import { createSession, type Provider } from '../lib/inference/ort';
 import type { Tensor } from 'onnxruntime-web';
 
 export interface InferenceInputs {
@@ -27,7 +27,7 @@ export interface InferenceApi {
   run(
     inputs: InferenceInputs,
     onProgress: (e: InferenceProgressEvent) => void
-  ): Promise<RunResult & { provider: 'webgpu' | 'wasm' }>;
+  ): Promise<RunResult & { provider: Provider; attempted: Provider[] }>;
 }
 
 const api: InferenceApi = {
@@ -43,7 +43,7 @@ const api: InferenceApi = {
     );
 
     onProgress({ stage: 'inference', fraction: 0, message: 'Loading model…' });
-    const { session, provider } = await createSession(inputs.modelBytes);
+    const { session, provider, attempted } = await createSession(inputs.modelBytes);
 
     let modelMask: Bytes;
     let modelDims: [number, number, number];
@@ -115,6 +115,7 @@ const api: InferenceApi = {
       labelCounts: counts,
       elapsedMs,
       provider,
+      attempted,
     };
   },
 };

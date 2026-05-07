@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { Progress } from './ui/Progress';
 import { Badge } from './ui/Badge';
+import { appendAudit } from '../lib/fs/audit';
 
 interface Props {
   onResultMask(mask: Uint8Array, dims: [number, number, number], spacing: [number, number, number]): Promise<void> | void;
@@ -22,8 +23,12 @@ export function InferencePanel({ onResultMask }: Props) {
 
   const ready = !!volume && !!model && !progress.active;
 
+  const setRunMeta = useAppStore((s) => s.setRunMeta);
+
   const handleRun = useCallback(async () => {
     if (!volume || !model) return;
+    const startedAt = new Date().toISOString();
+    setRunMeta(null);
     setProgress({ active: true, stage: 'starting', fraction: 0 });
     const worker = new Worker(
       new URL('../workers/inference.worker.ts', import.meta.url),
@@ -51,6 +56,7 @@ export function InferencePanel({ onResultMask }: Props) {
         },
         onProgress
       );
+      setRunMeta({ provider: res.provider, attempted: res.attempted, startedAt });
       setResult({
         mask: res.mask,
         dims: res.dims,
@@ -60,14 +66,25 @@ export function InferencePanel({ onResultMask }: Props) {
         elapsedMs: res.elapsedMs,
       });
       await onResultMask(res.mask, res.dims, res.spacing);
-      setProgress({ active: false, stage: 'done', fraction: 1, message: `via ${res.provider}` });
+      setProgress({
+        active: false,
+        stage: 'done',
+        fraction: 1,
+        message: `via ${res.provider} (${(res.elapsedMs / 1000).toFixed(1)}s)`,
+      });
     } catch (e) {
-      pushError(`Inference failed: ${(e as Error).message}`);
+      const msg = (e as Error).message;
+      pushError(`Inference failed: ${msg}`);
       setProgress({ active: false, stage: 'error', fraction: 0 });
+      void appendAudit({
+        kind: 'app-error',
+        message: `Inference failed: ${msg}`,
+        details: { model: model.manifest.name, modelHash: model.hash },
+      });
     } finally {
       worker.terminate();
     }
-  }, [volume, model, setProgress, setResult, pushError, onResultMask]);
+  }, [volume, model, setProgress, setResult, setRunMeta, pushError, onResultMask]);
 
   const pct = progress.fraction >= 0 ? Math.round(progress.fraction * 100) : 0;
 

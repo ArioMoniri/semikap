@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ShieldCheck, X } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { detectBackend } from '../lib/diagnostics/gpu';
@@ -9,10 +9,14 @@ import type { ViewerHandle } from './Viewer';
 import { InferencePanel } from './InferencePanel';
 import { ExportPanel } from './ExportPanel';
 import { GpuInfoPanel } from './GpuInfoPanel';
+import { OverlayControls } from './OverlayControls';
+import { AnnotationPanel } from './AnnotationPanel';
+import { SettingsPanel } from './SettingsPanel';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
 import { Separator } from './ui/Separator';
+import { appendAudit } from '../lib/fs/audit';
 import type { PickedFile } from '../lib/fs/filesystem';
 
 export function AppShell() {
@@ -27,10 +31,20 @@ export function AppShell() {
   const pushError = useAppStore((s) => s.pushError);
 
   const viewerRef = useRef<ViewerHandle | null>(null);
+  const [studyHint, setStudyHint] = useState<string>('');
 
   useEffect(() => {
     detectBackend()
-      .then(setBackend)
+      .then((b) => {
+        setBackend(b);
+        void appendAudit({
+          kind: 'app-start',
+          message: `Booted on ${b.provider.toUpperCase()}${
+            b.adapter ? ` (${b.adapter.vendor})` : ''
+          }`,
+          details: { provider: b.provider, isolated: b.crossOriginIsolated },
+        });
+      })
       .catch((e: Error) => pushError(`GPU detection failed: ${e.message}`));
   }, [setBackend, pushError]);
 
@@ -38,8 +52,9 @@ export function AppShell() {
     async (file: PickedFile) => {
       try {
         if (!viewerRef.current) throw new Error('Viewer not ready');
-        const loaded = await viewerRef.current.loadVolumeFromBytes(file.name, file.bytes);
+        const loaded = await viewerRef.current.loadPrimary(file.name, file.bytes);
         setVolume({ source: file, voxels: loaded.voxels, meta: loaded.meta });
+        setStudyHint(file.name);
       } catch (e) {
         pushError(`Failed to load image: ${(e as Error).message}`);
       }
@@ -48,13 +63,35 @@ export function AppShell() {
   );
 
   const handleResultMask = useCallback(
-    async (mask: Uint8Array, dims: [number, number, number], spacing: [number, number, number]) => {
+    async (
+      mask: Uint8Array,
+      dims: [number, number, number],
+      spacing: [number, number, number]
+    ) => {
       if (!viewerRef.current) return;
-      viewerRef.current.removeOverlays();
-      await viewerRef.current.addMaskOverlay('mask', mask, dims, spacing);
+      const overlay = useAppStore.getState().overlay;
+      await viewerRef.current.addMaskOverlay(
+        'mask',
+        mask,
+        dims,
+        spacing,
+        overlay.colormap,
+        overlay.opacity
+      );
     },
     []
   );
+
+  const studyMeta = useMemo(() => {
+    if (!volume) return null;
+    const [x, y, z] = volume.meta.dims;
+    const [sx, sy, sz] = volume.meta.spacing;
+    return {
+      dims: `${x} × ${y} × ${z}`,
+      spacing: `${sx.toFixed(2)} × ${sy.toFixed(2)} × ${sz.toFixed(2)} mm`,
+      dtype: volume.meta.dtype,
+    };
+  }, [volume]);
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -74,16 +111,20 @@ export function AppShell() {
               {backend.adapter ? ` · ${backend.adapter.vendor}` : ''}
             </Badge>
           )}
+          <Badge variant="outline">v{__APP_VERSION__}</Badge>
         </div>
       </header>
 
-      <main className="grid flex-1 min-h-0 grid-cols-1 lg:grid-cols-[380px_1fr]">
+      <main className="grid flex-1 min-h-0 grid-cols-1 lg:grid-cols-[400px_1fr]">
         <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto border-r border-slate-200 bg-slate-50 p-3">
           <GpuInfoPanel backend={backend} />
           <LocalFilePicker onPicked={handleImagePicked} current={volume?.source ?? null} />
           <ModelPicker onLoaded={setModel} current={model} />
           <InferencePanel onResultMask={handleResultMask} />
+          <OverlayControls viewerRef={viewerRef} />
+          <AnnotationPanel viewerRef={viewerRef} />
           <ExportPanel />
+          <SettingsPanel />
           {errors.length > 0 && (
             <Card className="border-red-200 bg-red-50">
               <CardHeader className="flex-row items-center justify-between space-y-0 pb-1">
@@ -110,6 +151,20 @@ export function AppShell() {
         </aside>
         <section className="relative min-h-0 bg-black">
           <Viewer ref={viewerRef} />
+          {studyMeta && (
+            <div
+              className="pointer-events-none absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[11px] text-white/80 backdrop-blur"
+              role="status"
+              aria-label="Study metadata"
+            >
+              <div className="truncate font-medium" title={studyHint}>
+                {studyHint}
+              </div>
+              <div className="text-white/60">
+                {studyMeta.dims} · {studyMeta.spacing} · {studyMeta.dtype}
+              </div>
+            </div>
+          )}
           {!volume && (
             <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-white/50">
               <div className="space-y-1 text-center">

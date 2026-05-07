@@ -12,48 +12,62 @@ export function configureOrt(): void {
   if (configured) return;
   configured = true;
 
-  // ORT ships its WASM artefacts under the package; Vite copies them to the
-  // bundle when we expose the path explicitly. We use the CDN-style "wasmPaths"
-  // string so ORT resolves the right binary at runtime.
   const isolated = (self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated;
   const cores = (self as unknown as { navigator?: { hardwareConcurrency?: number } }).navigator
     ?.hardwareConcurrency;
 
   ort.env.wasm.numThreads = isolated ? Math.min(cores ?? 1, 8) : 1;
   ort.env.wasm.simd = true;
-  // Reduce noise.
   ort.env.logLevel = 'error';
 }
 
-/**
- * Create an InferenceSession from raw ONNX bytes. Tries WebGPU first, then
- * falls back to WASM. The returned object also reports which provider was
- * actually used so the UI can display it.
- */
+export type Provider = 'webgpu' | 'webnn' | 'wasm';
+
 export interface CreatedSession {
   session: ort.InferenceSession;
-  provider: 'webgpu' | 'wasm';
+  /** The provider that actually serviced this session. */
+  provider: Provider;
+  /** Providers that were attempted before the successful one. */
+  attempted: Provider[];
 }
 
+/**
+ * Create an InferenceSession from raw ONNX bytes.
+ *
+ * Provider chain (best to worst):
+ *   1. WebGPU  — broadest GPU coverage (Metal / D3D12 / Vulkan)
+ *   2. WebNN   — platform NN accelerator (NPU / ANE / CoreML / DirectML)
+ *   3. WASM    — multi-threaded SIMD CPU fallback
+ *
+ * WebNN is tried after WebGPU because driver maturity for WebNN+f32 medical
+ * segmentation models is still uneven; the WebGPU path is consistently fast
+ * across vendors today. As WebNN matures we'll surface a manifest hint to
+ * prefer it for specific models.
+ */
 export async function createSession(bytes: Uint8Array): Promise<CreatedSession> {
   configureOrt();
 
-  // WebGPU first.
-  try {
-    const session = await ort.InferenceSession.create(bytes, {
-      executionProviders: ['webgpu'],
-      graphOptimizationLevel: 'all',
-    });
-    return { session, provider: 'webgpu' };
-  } catch (err) {
-    // Fall through to WASM. We surface a debug hint in the worker log so
-    // operators can see why WebGPU failed (e.g. unsupported op, no adapter).
-    console.warn('[TAMIAS] WebGPU EP unavailable; falling back to WASM:', err);
+  const attempted: Provider[] = [];
+
+  const tryProvider = async (provider: Provider): Promise<ort.InferenceSession | null> => {
+    attempted.push(provider);
+    try {
+      return await ort.InferenceSession.create(bytes, {
+        executionProviders: [provider],
+        graphOptimizationLevel: 'all',
+      });
+    } catch (err) {
+      console.warn(`[TAMIAS] EP "${provider}" unavailable:`, err);
+      return null;
+    }
+  };
+
+  for (const provider of ['webgpu', 'webnn', 'wasm'] as const) {
+    const session = await tryProvider(provider);
+    if (session) return { session, provider, attempted };
   }
 
-  const session = await ort.InferenceSession.create(bytes, {
-    executionProviders: ['wasm'],
-    graphOptimizationLevel: 'all',
-  });
-  return { session, provider: 'wasm' };
+  throw new Error(
+    `Failed to create inference session on any provider (tried: ${attempted.join(', ')}).`
+  );
 }

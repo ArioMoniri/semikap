@@ -4,6 +4,9 @@
 export {};
 
 declare global {
+  /** App version, injected at build time from package.json. */
+  const __APP_VERSION__: string;
+
   interface ShowOpenFilePickerOptions {
     multiple?: boolean;
     excludeAcceptAllOption?: boolean;

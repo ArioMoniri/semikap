@@ -23,6 +23,27 @@ export interface ProgressState {
   message?: string;
 }
 
+export interface RunMeta {
+  /** Resolved EP. */
+  provider: 'webgpu' | 'webnn' | 'wasm';
+  /** EPs attempted, in order. */
+  attempted: string[];
+  /** ISO timestamp the run started. */
+  startedAt: string;
+}
+
+export interface OverlaySettings {
+  opacity: number;
+  colormap: 'red' | 'green' | 'blue' | 'roi_i256';
+}
+
+export interface ViewerSettings {
+  /** Window centre (level), in source-image units. -1 means "auto". */
+  level: number;
+  /** Window width, in source-image units. -1 means "auto". */
+  width: number;
+}
+
 interface AppState {
   backend: BackendInfo | null;
   setBackend(b: BackendInfo): void;
@@ -35,6 +56,15 @@ interface AppState {
 
   result: RunResult | null;
   setResult(r: RunResult | null): void;
+
+  runMeta: RunMeta | null;
+  setRunMeta(m: RunMeta | null): void;
+
+  overlay: OverlaySettings;
+  setOverlay(o: Partial<OverlaySettings>): void;
+
+  viewer: ViewerSettings;
+  setViewer(v: Partial<ViewerSettings>): void;
 
   progress: ProgressState;
   setProgress(p: Partial<ProgressState>): void;
@@ -56,6 +86,15 @@ export const useAppStore = create<AppState>((set) => ({
 
   result: null,
   setResult: (r) => set({ result: r }),
+
+  runMeta: null,
+  setRunMeta: (m) => set({ runMeta: m }),
+
+  overlay: { opacity: 0.55, colormap: 'red' },
+  setOverlay: (o) => set((s) => ({ overlay: { ...s.overlay, ...o } as OverlaySettings })),
+
+  viewer: { level: -1, width: -1 },
+  setViewer: (v) => set((s) => ({ viewer: { ...s.viewer, ...v } as ViewerSettings })),
 
   progress: { active: false, stage: 'idle', fraction: 0 },
   setProgress: (p) =>
