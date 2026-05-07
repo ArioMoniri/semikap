@@ -21,6 +21,22 @@ export function asBytes(input: Uint8Array): Bytes {
   return out as Bytes;
 }
 
+/**
+ * Loose tag for the on-disk format the user picked. Determines which export
+ * paths are valid (DICOM-SEG only when the source is DICOM, etc.).
+ */
+export type SourceFormat = 'dicom' | 'nifti' | 'nrrd' | 'mha' | 'mgz' | 'other';
+
+export function detectSourceFormat(filename: string): SourceFormat {
+  const f = filename.toLowerCase();
+  if (f.endsWith('.dcm') || f.endsWith('.dicom')) return 'dicom';
+  if (f.endsWith('.nii') || f.endsWith('.nii.gz')) return 'nifti';
+  if (f.endsWith('.nrrd') || f.endsWith('.nhdr')) return 'nrrd';
+  if (f.endsWith('.mha') || f.endsWith('.mhd')) return 'mha';
+  if (f.endsWith('.mgz') || f.endsWith('.mgh')) return 'mgz';
+  return 'other';
+}
+
 export type Modality = 'CT' | 'MR' | 'PT' | 'XR' | 'US' | 'Other';
 
 export type Orientation = 'RAS' | 'LPS' | 'LAS' | 'RAI';

@@ -4,12 +4,34 @@ import { useAppStore } from '../lib/state/store';
 import type { ViewerHandle } from './Viewer';
 import type { OverlayColorMap } from '../lib/viewer/niivue';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
+import { Badge } from './ui/Badge';
 
 interface Props {
   viewerRef: React.MutableRefObject<ViewerHandle | null>;
 }
 
 const COLORMAPS: OverlayColorMap[] = ['red', 'green', 'blue', 'roi_i256'];
+
+interface WindowPreset {
+  name: string;
+  modality: 'CT' | 'MR';
+  level: number;
+  width: number;
+}
+
+/**
+ * Standard window/level presets used clinically. CT presets are in HU; MR
+ * presets are in raw signal intensity (NiiVue auto-windows on load, so MR
+ * defaults are intentionally relative — adjust the slider after loading).
+ */
+const PRESETS: WindowPreset[] = [
+  { name: 'CT abdomen', modality: 'CT', level: 60, width: 400 },
+  { name: 'CT lung', modality: 'CT', level: -600, width: 1500 },
+  { name: 'CT bone', modality: 'CT', level: 400, width: 1800 },
+  { name: 'CT brain', modality: 'CT', level: 40, width: 80 },
+  { name: 'CT mediastinum', modality: 'CT', level: 50, width: 350 },
+  { name: 'CT liver', modality: 'CT', level: 60, width: 150 },
+];
 
 export function OverlayControls({ viewerRef }: Props) {
   const overlay = useAppStore((s) => s.overlay);
@@ -58,6 +80,38 @@ export function OverlayControls({ viewerRef }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-xs">
+        <div className="flex flex-wrap gap-1">
+          {PRESETS.map((p) => {
+            const active = viewer.level === p.level && viewer.width === p.width;
+            return (
+              <button
+                key={p.name}
+                type="button"
+                onClick={() => setViewer({ level: p.level, width: p.width })}
+                disabled={disabled}
+                className={`rounded border px-2 py-0.5 text-[11px] transition-colors disabled:opacity-50 ${
+                  active
+                    ? 'border-tamias-accent bg-blue-50 text-tamias-ink'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {p.name}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => setViewer({ level: -1, width: -1 })}
+            disabled={disabled}
+            className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+            title="Restore NiiVue's auto-windowing"
+          >
+            auto
+          </button>
+        </div>
+        <Badge variant="outline" className="text-[10px]">
+          Presets are CT-oriented (HU). For MR, drag the sliders.
+        </Badge>
         <div>
           <div className="mb-1 flex items-center justify-between">
             <span className="font-medium text-slate-600">Window centre</span>

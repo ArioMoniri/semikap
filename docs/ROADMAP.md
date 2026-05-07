@@ -46,10 +46,22 @@ A browser-only PWA for running ONNX medical-imaging models on local DICOM/NIfTI/
 - Tile-overlap with Gaussian-weighted blending
 - Per-model warm cache in OPFS with SHA-256 verification
 
-### Phase 4 — Optional companion app
+### Phase 4 — Optional companion app ✅ shipped
 
-- Tauri desktop wrapper for users who need PyTorch→ONNX conversion locally
-- Helm chart for departmental shared-GPU deployment (re-uses the same web UI against a localhost daemon)
+- Tauri desktop wrapper (`src-tauri/`) — native window around the same browser engine
+- GitHub Actions release pipeline producing macOS / Windows / Linux installers on `v*` tags
+- Helm chart (`deploy/helm/tamias`) for departmental K8s deployments
+
+### Phase 5 — Clinical-grade integrations
+
+- 🩻 **DICOM-SEG export** ✅ shipped (single-file DICOM source)
+- 🩻 DICOM-SEG: full series support (multi-file ingest)
+- 🩻 RT-STRUCT export
+- 📡 DICOMweb push (STOW-RS) — opt-in, with explicit per-server allow-list
+- 🧠 WebNN preference field in manifest (`preferredEP: "webnn" | "webgpu" | "auto"`)
+- 🧪 Test-time augmentation (flip + average) flag in the manifest
+- 🔬 Per-class softmax probability map export (in addition to argmax)
+- 🌗 Light/dark theme toggle
 
 ## Supported file types (Phase 1)
 

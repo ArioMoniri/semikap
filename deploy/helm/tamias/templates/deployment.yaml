@@ -39,13 +39,13 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           livenessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: http
             initialDelaySeconds: 5
             periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: http
             initialDelaySeconds: 1
             periodSeconds: 10

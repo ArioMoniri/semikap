@@ -29,4 +29,7 @@ EXPOSE 5180
 RUN addgroup -S app && adduser -S -G app app
 USER app
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- "http://127.0.0.1:${PORT:-5180}/healthz" || exit 1
+
 CMD ["node", "scripts/serve.mjs"]

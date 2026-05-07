@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, FileJson, ShieldAlert, Image as ImageIcon, Brush } from 'lucide-react';
+import {
+  Download,
+  FileJson,
+  ShieldAlert,
+  Image as ImageIcon,
+  Brush,
+  FileBox,
+} from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { writeNifti1Uint8 } from '../lib/export/nifti';
 import { buildReproducibilityBundle, bundleToBytes } from '../lib/export/repro';
+import { writeDicomSeg } from '../lib/export/dicom-seg';
 import { saveBytes } from '../lib/fs/filesystem';
 import { appendAudit } from '../lib/fs/audit';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
@@ -97,6 +105,37 @@ export function ExportPanel({ viewerRef }: Props) {
     }
   }, [result, viewerRef, baseName, modelTag, model, pushError]);
 
+  const handleExportDicomSeg = useCallback(async () => {
+    if (!result || !volume || !model) return;
+    if (volume.sourceFormat !== 'dicom') {
+      pushError('DICOM-SEG export requires a DICOM source.');
+      return;
+    }
+    setBusy('seg');
+    try {
+      const bytes = writeDicomSeg({
+        sourceDicomBytes: volume.source.bytes,
+        mask: result.mask,
+        dims: result.dims,
+        manifest: model.manifest,
+        algorithm: { name: `TAMIAS:${model.manifest.name}`, version: model.manifest.version },
+      });
+      const suggested = `${baseName}__${modelTag}__seg.dcm`;
+      const ok = await saveBytes(bytes, suggested, 'DICOM Segmentation', '.dcm');
+      if (ok) {
+        await appendAudit({
+          kind: 'export',
+          message: `Exported DICOM-SEG ${suggested}`,
+          details: { model: model.manifest.name, modelHash: model.hash, dims: result.dims },
+        });
+      }
+    } catch (e) {
+      pushError(`DICOM-SEG export failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }, [result, volume, model, baseName, modelTag, pushError]);
+
   const handleExportRepro = useCallback(async () => {
     if (!result || !volume || !model) return;
     setBusy('repro');
@@ -186,6 +225,20 @@ export function ExportPanel({ viewerRef }: Props) {
             title="Export the AI mask merged with your brush corrections."
           >
             <Brush className="h-3.5 w-3.5" /> {busy === 'corrected' ? 'Saving…' : 'Save corrected'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExportDicomSeg}
+            disabled={busy !== null || volume?.sourceFormat !== 'dicom'}
+            className="gap-1.5"
+            title={
+              volume?.sourceFormat === 'dicom'
+                ? 'Write a DICOM Segmentation referencing the source DICOM.'
+                : 'Available only when the source image is a DICOM file.'
+            }
+          >
+            <FileBox className="h-3.5 w-3.5" /> {busy === 'seg' ? 'Saving…' : 'DICOM-SEG'}
           </Button>
           <Button
             size="sm"

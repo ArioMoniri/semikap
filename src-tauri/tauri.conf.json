@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TAMIAS",
+  "version": "0.1.0",
+  "identifier": "io.github.ariomoniri.tamias",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "TAMIAS",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' blob: data: ipc: http://ipc.localhost; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ],
+    "category": "Healthcare",
+    "shortDescription": "Transparent locAl Medical Image AnalysiS Tool",
+    "longDescription": "Browser-only PWA for running ONNX medical-imaging models on local DICOM/NIfTI/NRRD files, packaged as a desktop application. No upload, no server-side inference, all processing runs on the user's device GPU via WebGPU."
+  }
+}

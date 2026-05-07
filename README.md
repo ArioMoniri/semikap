@@ -5,12 +5,33 @@
 > 🛡️ **No upload.** 🌐 **No server-side inference.** 🖥️ **No command-line install for clinicians.** 🔌 **Any GPU vendor via WebGPU.**
 
 <p align="center">
-  <a href="#-deploy-on-a-server-clone--run"><img src="https://img.shields.io/badge/deploy-1--command-1d4ed8?style=for-the-badge" alt="deploy 1 command" /></a>
+  <a href="#-deploy-on-a-server-clone--run"><img src="https://img.shields.io/badge/deploy-1%E2%80%91line%20install-1d4ed8?style=for-the-badge" alt="1-line install" /></a>
+  <a href="#-desktop-app-tauri"><img src="https://img.shields.io/badge/desktop-Tauri-24c8db?style=for-the-badge" alt="Tauri desktop" /></a>
   <a href="https://www.w3.org/TR/webgpu/"><img src="https://img.shields.io/badge/inference-WebGPU-8b5cf6?style=for-the-badge" alt="WebGPU" /></a>
   <a href="https://onnxruntime.ai/docs/tutorials/web/"><img src="https://img.shields.io/badge/runtime-onnxruntime--web-2563eb?style=for-the-badge" alt="ORT Web" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-22c55e?style=for-the-badge" alt="Apache 2.0" /></a>
-  <a href="docs/ROADMAP.md"><img src="https://img.shields.io/badge/status-Phase%201-f59e0b?style=for-the-badge" alt="Phase 1" /></a>
+  <a href="docs/ROADMAP.md"><img src="https://img.shields.io/badge/roadmap-Phase%201%E2%80%934-f59e0b?style=for-the-badge" alt="Roadmap Phase 1-4" /></a>
 </p>
+
+<p align="center">
+  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="https://img.shields.io/badge/Download-macOS%20(.dmg)-000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS .dmg" /></a>
+  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="https://img.shields.io/badge/Download-Windows%20(.msi)-0078d4?style=for-the-badge&logo=windows11&logoColor=white" alt="Windows .msi" /></a>
+  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="https://img.shields.io/badge/Download-Linux%20(.AppImage)-fcc624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux .AppImage" /></a>
+</p>
+
+> 📦 The download buttons above point at the latest GitHub release. Releases are produced by [`.github/workflows/tauri-release.yml`](.github/workflows/tauri-release.yml) on every `v*` git tag. Tag with `git tag v0.1.0 && git push --tags` to trigger a build and publish a draft release with macOS / Windows / Linux artifacts.
+
+---
+
+## ⚡ One-liner install on a server
+
+> 🟦 **Quickstart**
+>
+> ```sh
+> curl -fsSL https://raw.githubusercontent.com/ArioMoniri/semikap/main/install.sh | sh
+> ```
+>
+> Clones the repo into `./tamias`, runs `npm ci && npm run build`, and starts the static server. Look for the line `TAMIAS_PORT=<port>` in the output and point your reverse proxy at that port. See [Configuration](#-configuration-everything-overridable) to override defaults.
 
 ---
 
@@ -48,19 +69,22 @@ Every box runs **inside the browser tab**. The only network traffic is the initi
 |---|---|---|
 | 🛡️ | Strict CSP, `connect-src 'self'` | Browser physically cannot upload your images |
 | 🌐 | PWA — install with one click | Desktop icon, full offline use after first visit |
+| 🖥️ | Native desktop wrapper (Tauri) | Optional .dmg / .msi / .AppImage releases; same browser engine, no chrome |
 | 🚀 | WebGPU → WebNN → WASM fallback chain | Any GPU vendor + NPU/ANE/CoreML where available |
 | 🖼️ | NiiVue viewer | DICOM, NIfTI, NRRD, MetaImage, MGZ; MPR + 3D out of the box |
 | 🌫️ | Gaussian-weighted sliding-window | Eliminates seams at organ boundaries (MONAI σ = patch/8) |
 | 🧱 | Tiled 3D inference | Full-resolution CT/MR volumes within browser memory |
-| 🎚️ | WW/WL + opacity + colormap controls | Live, hardware-accelerated viewer adjustments |
+| 🎚️ | WW/WL presets (CT lung/bone/brain/…) + opacity + colormap | Live, hardware-accelerated viewer adjustments |
 | 🖌️ | Brush + eraser correction | Per-label palette from manifest; undo |
 | 🩻 | Multi-series overlay | Load PET on CT, T2 on T1 — second pick, opacity + color controls |
 | 📋 | Sidecar JSON manifest | No magic numbers — preprocessing is data-driven and auditable |
 | 🔒 | SHA-256 model verification | Optional `sha256` field in manifest is checked before loading |
 | 💽 | OPFS warm cache | Cached models keyed by hash, one-click reload, integrity-verified |
 | 💾 | Local-disk save via FSA | NIfTI mask + reproducibility-bundle JSON, no download dialogs |
+| 🩻 | **DICOM-SEG export** (when source is DICOM) | Round-trip back to PACS as a real Segmentation IOD via dcmjs |
 | 🧾 | Reproducibility bundle | Input hash + model hash + manifest + EP chain + per-label volumes |
 | 📒 | Local audit log (NDJSON in OPFS) | Every run/export logged on the user's device, exportable |
+| ❤️ | `/healthz` endpoint | Cheap liveness/readiness for Kubernetes / Docker / load balancers |
 | 🪪 | Per-result RUO stamp | "Research Use Only" badge on every export |
 
 ---
@@ -159,7 +183,23 @@ helm install tamias deploy/helm/tamias \
 
 > 💡 The ingress controller must **preserve `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy`** from the upstream — see the comment in `deploy/helm/tamias/values.yaml` for the nginx-ingress snippet.
 
-### Option D — Run as a systemd service
+### Option D — Desktop app (Tauri)
+
+For users who want TAMIAS as a native application instead of a browser tab:
+
+```sh
+git clone https://github.com/ArioMoniri/semikap.git
+cd semikap
+npm ci
+npm run desktop:dev          # opens a Tauri dev window with HMR
+npm run desktop:build        # produces a distributable .dmg / .msi / .AppImage
+```
+
+> ⚙️ **Requires the [Rust toolchain](https://www.rust-lang.org/tools/install) (≥ 1.77)**, plus the Tauri OS prerequisites for your platform (WebKit on Linux, Xcode CLT on macOS, MSVC on Windows). See the [Tauri prerequisites](https://tauri.app/start/prerequisites/) page.
+>
+> 🚚 You usually **don't need to build locally** — the [Desktop release](.github/workflows/tauri-release.yml) workflow builds and publishes installers automatically when you push a `v*` git tag. Use the download buttons at the top of this README.
+
+### Option E — Run as a systemd service
 
 `/etc/systemd/system/tamias.service`:
 

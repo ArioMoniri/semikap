@@ -83,6 +83,19 @@ const server = createServer(async (req, res) => {
   setBaseHeaders(res);
 
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? HOST}`);
+
+  // Lightweight health endpoint for Kubernetes / Docker / load-balancer probes.
+  // Cheap (no disk read) and bypasses the SPA fallback so a 200 here means the
+  // process is alive and the event loop is responsive — not just that any path
+  // returns the static index.html.
+  if (url.pathname === '/healthz') {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+    return;
+  }
+
   // Defend against path traversal: resolve and require the result to start
   // with the dist root + separator.
   const requested = decodeURIComponent(url.pathname);

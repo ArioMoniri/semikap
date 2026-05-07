@@ -15,12 +15,16 @@ export default {
       keyframes: {
         'accordion-down': {
           from: { height: '0' },
-          to: { height: 'var(--radix-accordion-content-height)' },
+          to: { height: 'var(--radix-collapsible-content-height)' },
         },
         'accordion-up': {
-          from: { height: 'var(--radix-accordion-content-height)' },
+          from: { height: 'var(--radix-collapsible-content-height)' },
           to: { height: '0' },
         },
+      },
+      animation: {
+        'accordion-down': 'accordion-down 180ms ease-out',
+        'accordion-up': 'accordion-up 180ms ease-out',
       },
     },
   },

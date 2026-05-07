@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ShieldCheck, X, Crosshair } from 'lucide-react';
+import { ShieldCheck, X, Crosshair, ExternalLink } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { detectBackend } from '../lib/diagnostics/gpu';
 import type { ProbeReading } from './Viewer';
@@ -14,12 +14,17 @@ import { GpuInfoPanel } from './GpuInfoPanel';
 import { OverlayControls } from './OverlayControls';
 import { AnnotationPanel } from './AnnotationPanel';
 import { SettingsPanel } from './SettingsPanel';
+import { Logo } from './Logo';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
 import { Separator } from './ui/Separator';
+import { CollapsibleSection } from './ui/Collapsible';
 import { appendAudit } from '../lib/fs/audit';
+import { detectSourceFormat } from '../types';
 import type { PickedFile } from '../lib/fs/filesystem';
+
+const REPO_URL = 'https://github.com/ArioMoniri/semikap';
 
 export function AppShell() {
   const backend = useAppStore((s) => s.backend);
@@ -31,20 +36,19 @@ export function AppShell() {
   const errors = useAppStore((s) => s.errors);
   const clearErrors = useAppStore((s) => s.clearErrors);
   const pushError = useAppStore((s) => s.pushError);
+  const result = useAppStore((s) => s.result);
 
   const viewerRef = useRef<ViewerHandle | null>(null);
   const [studyHint, setStudyHint] = useState<string>('');
   const [probe, setProbe] = useState<ProbeReading | null>(null);
 
   useEffect(() => {
-    // Wait one tick so the imperative handle is wired up before subscribing.
+    let cleanup: (() => void) | undefined;
     const id = window.setTimeout(() => {
       const v = viewerRef.current;
       if (!v) return;
-      const off = v.onProbe(setProbe);
-      cleanup = off;
+      cleanup = v.onProbe(setProbe);
     }, 0);
-    let cleanup: (() => void) | undefined;
     return () => {
       window.clearTimeout(id);
       cleanup?.();
@@ -71,7 +75,12 @@ export function AppShell() {
       try {
         if (!viewerRef.current) throw new Error('Viewer not ready');
         const loaded = await viewerRef.current.loadPrimary(file.name, file.bytes);
-        setVolume({ source: file, voxels: loaded.voxels, meta: loaded.meta });
+        setVolume({
+          source: file,
+          voxels: loaded.voxels,
+          meta: loaded.meta,
+          sourceFormat: detectSourceFormat(file.name),
+        });
         setStudyHint(file.name);
       } catch (e) {
         pushError(`Failed to load image: ${(e as Error).message}`);
@@ -112,12 +121,15 @@ export function AppShell() {
   }, [volume]);
 
   return (
-    <div className="flex h-full w-full flex-col">
-      <header className="flex items-center justify-between border-b border-slate-800 bg-tamias-ink px-4 py-2 text-white">
-        <div className="flex items-center gap-3">
-          <div className="font-bold tracking-wide">TAMIAS</div>
-          <Separator orientation="vertical" className="h-4 bg-white/20" />
-          <span className="text-xs text-white/70">Transparent locAl Medical Image AnalysiS</span>
+    <div className="flex h-full w-full flex-col bg-slate-100">
+      {/* Header */}
+      <header className="relative flex items-center justify-between border-b border-slate-900/40 bg-gradient-to-r from-tamias-ink via-slate-900 to-tamias-ink px-4 py-2.5 text-white shadow">
+        <div className="flex items-center gap-4">
+          <Logo />
+          <Separator orientation="vertical" className="h-5 bg-white/15" />
+          <div className="hidden text-xs text-white/60 sm:block">
+            Transparent locAl Medical Image AnalysiS — runs entirely in your browser
+          </div>
         </div>
         <div className="flex items-center gap-2 text-xs">
           <Badge variant="ok" className="gap-1">
@@ -130,20 +142,56 @@ export function AppShell() {
             </Badge>
           )}
           <Badge variant="outline">v{__APP_VERSION__}</Badge>
+          <a
+            href={REPO_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="ml-1 inline-flex items-center gap-1 rounded-md border border-white/15 bg-white/10 px-2 py-1 text-[11px] text-white/80 hover:bg-white/15"
+          >
+            GitHub <ExternalLink className="h-3 w-3" />
+          </a>
         </div>
       </header>
 
+      {/* Main */}
       <main className="grid flex-1 min-h-0 grid-cols-1 lg:grid-cols-[400px_1fr]">
-        <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto border-r border-slate-200 bg-slate-50 p-3">
+        <aside className="flex min-h-0 flex-col gap-2.5 overflow-y-auto border-r border-slate-200 bg-slate-50 p-3">
           <GpuInfoPanel backend={backend} />
-          <LocalFilePicker onPicked={handleImagePicked} current={volume?.source ?? null} />
-          <SecondarySeriesPicker viewerRef={viewerRef} />
-          <ModelPicker onLoaded={setModel} current={model} />
-          <InferencePanel onResultMask={handleResultMask} />
-          <OverlayControls viewerRef={viewerRef} />
-          <AnnotationPanel viewerRef={viewerRef} />
-          <ExportPanel viewerRef={viewerRef} />
-          <SettingsPanel />
+
+          <CollapsibleSection title="Inputs" defaultOpen trailing={volume ? 'loaded' : 'pick'}>
+            <div className="space-y-2.5">
+              <LocalFilePicker
+                onPicked={handleImagePicked}
+                current={volume?.source ?? null}
+              />
+              <SecondarySeriesPicker viewerRef={viewerRef} />
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Model" defaultOpen trailing={model ? 'ready' : 'pick'}>
+            <ModelPicker onLoaded={setModel} current={model} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Inference" defaultOpen trailing={result ? 'done' : ''}>
+            <InferencePanel onResultMask={handleResultMask} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Display" defaultOpen={false}>
+            <OverlayControls viewerRef={viewerRef} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Correction" defaultOpen={false}>
+            <AnnotationPanel viewerRef={viewerRef} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Export" defaultOpen={!!result}>
+            <ExportPanel viewerRef={viewerRef} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Settings" defaultOpen={false}>
+            <SettingsPanel />
+          </CollapsibleSection>
+
           {errors.length > 0 && (
             <Card className="border-red-200 bg-red-50">
               <CardHeader className="flex-row items-center justify-between space-y-0 pb-1">
@@ -168,33 +216,39 @@ export function AppShell() {
             </Card>
           )}
         </aside>
-        <section id="viewer" tabIndex={-1} className="relative min-h-0 bg-black" aria-label="Image viewer">
+
+        <section
+          id="viewer"
+          tabIndex={-1}
+          className="relative min-h-0 bg-black"
+          aria-label="Image viewer"
+        >
           <Viewer ref={viewerRef} />
           {studyMeta && (
             <div
-              className="pointer-events-none absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[11px] text-white/80 backdrop-blur"
+              className="pointer-events-none absolute left-2 top-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"
               role="status"
               aria-label="Study metadata"
             >
               <div className="truncate font-medium" title={studyHint}>
                 {studyHint}
               </div>
-              <div className="text-white/60">
+              <div className="text-white/55">
                 {studyMeta.dims} · {studyMeta.spacing} · {studyMeta.dtype}
               </div>
             </div>
           )}
           {probe && volume && (
             <div
-              className="pointer-events-none absolute right-2 top-2 flex items-center gap-2 rounded bg-black/60 px-2 py-1 text-[11px] text-white/80 backdrop-blur"
+              className="pointer-events-none absolute right-2 top-2 flex items-center gap-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"
               role="status"
               aria-label="Cursor probe"
             >
               <Crosshair className="h-3 w-3" />
-              <div className="tabular-nums text-white/70">
+              <div className="tabular-nums text-white/65">
                 vox [{probe.voxel.map((n) => n.toFixed(0)).join(', ')}]
               </div>
-              <div className="tabular-nums text-white/70">
+              <div className="tabular-nums text-white/65">
                 mm [{probe.mm.map((n) => n.toFixed(1)).join(', ')}]
               </div>
               <div className="tabular-nums text-white">
@@ -203,10 +257,15 @@ export function AppShell() {
             </div>
           )}
           {!volume && (
-            <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-white/50">
-              <div className="space-y-1 text-center">
-                <div className="text-base font-semibold text-white/70">No image loaded</div>
+            <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-white/55">
+              <div className="space-y-2 text-center">
+                <div className="text-base font-semibold text-white/75">
+                  No image loaded
+                </div>
                 <div>Pick a DICOM, NIfTI, or NRRD on the left to begin.</div>
+                <div className="text-xs text-white/40">
+                  Inference runs on this device. Bytes never leave your browser.
+                </div>
               </div>
             </div>
           )}

@@ -1,5 +1,12 @@
 import { create } from 'zustand';
-import type { BackendInfo, Bytes, ModelManifest, RunResult, VolumeMetadata } from '../../types';
+import type {
+  BackendInfo,
+  Bytes,
+  ModelManifest,
+  RunResult,
+  SourceFormat,
+  VolumeMetadata,
+} from '../../types';
 import type { PickedFile } from '../fs/filesystem';
 
 export interface VolumeRecord {
@@ -7,6 +14,8 @@ export interface VolumeRecord {
   /** Raw voxel data exposed by the viewer after loading. */
   voxels: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array;
   meta: VolumeMetadata;
+  /** On-disk source format, derived from the file name at pick time. */
+  sourceFormat: SourceFormat;
 }
 
 export interface ModelRecord {
