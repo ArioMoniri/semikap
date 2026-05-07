@@ -28,7 +28,7 @@
 
 <p align="center">
   <img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-22c55e?style=flat-square"/>
-  <img alt="App version" src="https://img.shields.io/badge/version-0.2.0-1d4ed8?style=flat-square"/>
+  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/ArioMoniri/semikap?label=version&color=1d4ed8&style=flat-square"/></a>
   <img alt="Stars" src="https://img.shields.io/github/stars/ArioMoniri/semikap?style=flat-square&color=facc15"/>
   <img alt="Forks" src="https://img.shields.io/github/forks/ArioMoniri/semikap?style=flat-square&color=22c8db"/>
   <img alt="Contributors" src="https://img.shields.io/github/contributors/ArioMoniri/semikap?style=flat-square&color=a855f7"/>
@@ -165,6 +165,7 @@ The diagram below regenerates on every push to `main` ([repo-visualizer](https:/
 - **[ROADMAP](docs/ROADMAP.md)** — phased delivery & what's next
 - **[DEPLOY](docs/DEPLOY.md)** — every supported deploy mode + reverse-proxy + configuration
 - **[UPDATER](docs/UPDATER.md)** — auto-update setup, signing keys, release flow, **from-zero new-machine guide**
+- **[SIGNING](docs/SIGNING.md)** — Apple Developer code-signing + notarisation (fix the "DMG is damaged" warning), Windows Authenticode
 - **[CHANGELOG](CHANGELOG.md)** — release notes
 - **[CONTRIBUTING](CONTRIBUTING.md)** — what we accept and the dev loop
 - **[SECURITY](SECURITY.md)** — threat model and reporting

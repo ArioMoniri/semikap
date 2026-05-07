@@ -75,16 +75,34 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Tauri build (signed)
+      - name: Tauri build (signed + notarised)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Set these two repository secrets after running
-          # `node scripts/init-updater.mjs` once locally. The action
-          # signs each desktop bundle with the private key so the in-app
-          # updater can verify it against the embedded public key.
+
+          # Tauri updater signing — the in-app auto-updater verifies each
+          # bundle against the public key embedded in tauri.conf.json.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+          # Apple Developer code signing + notarisation (macOS only).
+          # tauri-action picks these up automatically; the build still runs
+          # if they are absent (bundle ships unsigned with a Gatekeeper
+          # warning). See docs/SIGNING.md to provision.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+          # Windows code signing (Authenticode). Optional. tauri.conf.json
+          # references env vars in bundle.windows.signCommand when set, OR
+          # tauri-action's WINDOWS_CERTIFICATE flow can be used. Add the
+          # secrets and uncomment the relevant tauri.conf.json lines per
+          # docs/SIGNING.md when ready.
+          # WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          # WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'TAMIAS ${{ github.ref_name }}'
