@@ -86,6 +86,8 @@ Every box runs **inside the browser tab**. The only network traffic is the initi
 | 📒 | Local audit log (NDJSON in OPFS) | Every run/export logged on the user's device, exportable |
 | ❤️ | `/healthz` endpoint | Cheap liveness/readiness for Kubernetes / Docker / load balancers |
 | 🪪 | Per-result RUO stamp | "Research Use Only" badge on every export |
+| 🌗 | Light / Dark / System theme | Persisted in localStorage, tracks OS when set to System |
+| 🔄 | Tauri auto-updater (signed) | Desktop installs self-update from a signed `latest.json` manifest |
 
 ---
 
@@ -182,6 +184,31 @@ helm install tamias deploy/helm/tamias \
 ```
 
 > 💡 The ingress controller must **preserve `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy`** from the upstream — see the comment in `deploy/helm/tamias/values.yaml` for the nginx-ingress snippet.
+
+### 🔄 Auto-updates (Tauri Sparkle-style)
+
+The desktop app self-updates. On launch (and every 6 hours after) it checks `https://github.com/ArioMoniri/semikap/releases/latest/download/latest.json`. When a newer **signed** bundle is published, the in-app toast offers a one-click "Install update" that downloads, verifies, and relaunches.
+
+**One-time setup (maintainer only):**
+
+```sh
+node scripts/init-updater.mjs
+```
+
+This generates an Ed25519 keypair via Tauri's official `signer generate`, writes the **public** key into `src-tauri/tauri.conf.json` (commit it — it's safe to publish), and leaves the **private** key in `tauri-signing.key` (`.gitignore`-d). Then add two GitHub Actions secrets to the repo:
+
+| Secret | Value |
+|---|---|
+| `TAURI_SIGNING_PRIVATE_KEY` | Contents of `tauri-signing.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The password you set during generation |
+
+After that, every release built by `tauri-release.yml` is signed and the updater client trusts it. **Cut a release with:**
+
+```sh
+node scripts/release.mjs minor    # 0.2.0 -> 0.3.0; commits, tags v0.3.0, pushes
+```
+
+The push triggers the workflow, which builds + signs installers for macOS / Windows / Linux and publishes a draft GitHub Release including `latest.json` (the updater manifest). Promote the draft to "latest" when ready and existing installs pick it up automatically.
 
 ### Option D — Desktop app (Tauri)
 

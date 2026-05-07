@@ -75,10 +75,16 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Tauri build
+      - name: Tauri build (signed)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Set these two repository secrets after running
+          # `node scripts/init-updater.mjs` once locally. The action
+          # signs each desktop bundle with the private key so the in-app
+          # updater can verify it against the embedded public key.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'TAMIAS ${{ github.ref_name }}'
@@ -87,6 +93,10 @@ jobs:
 
             Inference still runs entirely on the user's device — the desktop
             wrapper is just a native window around the same browser engine.
+
+            Existing installs will pick this update up automatically the next
+            time they launch (signed updater manifest at `latest.json`).
           releaseDraft: true
           prerelease: false
+          includeUpdaterJson: true
           args: --target ${{ matrix.target }}

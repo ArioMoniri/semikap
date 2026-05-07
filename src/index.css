@@ -8,6 +8,13 @@ body,
   height: 100%;
 }
 
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
   font-family:
@@ -19,4 +26,11 @@ body {
     Ubuntu,
     Cantarell,
     sans-serif;
+  background-color: #f1f5f9; /* slate-100 */
+  color: #0f172a; /* slate-900 */
+}
+
+html.dark body {
+  background-color: #020617; /* slate-950 */
+  color: #e2e8f0; /* slate-200 */
 }

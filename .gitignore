@@ -9,3 +9,7 @@ dev-dist
 .env.*
 !.env.example
 coverage
+
+# Tauri auto-updater signing key (NEVER commit)
+tauri-signing.key
+tauri-signing.key.pub

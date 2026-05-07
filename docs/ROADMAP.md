@@ -52,16 +52,18 @@ A browser-only PWA for running ONNX medical-imaging models on local DICOM/NIfTI/
 - GitHub Actions release pipeline producing macOS / Windows / Linux installers on `v*` tags
 - Helm chart (`deploy/helm/tamias`) for departmental K8s deployments
 
-### Phase 5 — Clinical-grade integrations
+### Phase 5 — Clinical-grade integrations + auto-update
 
 - 🩻 **DICOM-SEG export** ✅ shipped (single-file DICOM source)
-- 🩻 DICOM-SEG: full series support (multi-file ingest)
-- 🩻 RT-STRUCT export
-- 📡 DICOMweb push (STOW-RS) — opt-in, with explicit per-server allow-list
-- 🧠 WebNN preference field in manifest (`preferredEP: "webnn" | "webgpu" | "auto"`)
-- 🧪 Test-time augmentation (flip + average) flag in the manifest
-- 🔬 Per-class softmax probability map export (in addition to argmax)
-- 🌗 Light/dark theme toggle
+- 🩻 DICOM-SEG: full series support (multi-file ingest) — pending
+- 🩻 RT-STRUCT export — pending
+- 📡 DICOMweb push (STOW-RS) — pending (opt-in, with explicit per-server allow-list)
+- 🧠 **Preferred EP field** in manifest (`preferredEP: auto | webgpu | webnn | wasm`) ✅ shipped
+- 🧪 **TTA flag** in manifest (`tta.flips: { x?, y?, z? }`) ✅ schema shipped; inference average pending
+- 🔬 Per-class softmax probability map export — pending
+- 🌗 **Light/dark/system theme toggle** ✅ shipped
+- 🔄 **Tauri Sparkle-style auto-updater** ✅ shipped (signed `latest.json` manifest, in-app install + relaunch, 6 h poll)
+- 🛠️ **`scripts/release.mjs`** + **`scripts/init-updater.mjs`** ✅ shipped
 
 ## Supported file types (Phase 1)
 

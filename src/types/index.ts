@@ -51,6 +51,15 @@ export type InferenceSpec =
   | { type: 'whole' }
   | { type: 'sliding_window'; patch: [number, number, number]; overlap: number };
 
+/** Test-time augmentation. Phase 5: only horizontal-axis flip-and-average. */
+export interface TtaSpec {
+  /** Whether to flip along each axis and average the predictions. */
+  flips: { x?: boolean; y?: boolean; z?: boolean };
+}
+
+/** Preferred ONNX execution provider for this model. */
+export type PreferredEP = 'auto' | 'webgpu' | 'webnn' | 'wasm';
+
 export interface ModelManifest {
   /** Human-readable name. */
   name: string;
@@ -76,6 +85,10 @@ export interface ModelManifest {
     /** Optional per-label colors (CSS hex). */
     colors?: Record<number, string>;
   };
+  /** Optional preferred execution provider. Defaults to "auto". */
+  preferredEP?: PreferredEP;
+  /** Optional test-time augmentation. */
+  tta?: TtaSpec;
   /** Optional SHA-256 of the .onnx file for verification. */
   sha256?: string;
 }

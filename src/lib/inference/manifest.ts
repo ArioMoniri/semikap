@@ -121,6 +121,32 @@ export function parseManifest(raw: unknown): ModelManifest {
     },
   };
   if (typeof m.sha256 === 'string') manifest.sha256 = m.sha256;
+  if (typeof m.preferredEP === 'string') {
+    const ep = m.preferredEP;
+    if (!['auto', 'webgpu', 'webnn', 'wasm'].includes(ep)) {
+      throw new Error('Manifest "preferredEP" must be one of auto|webgpu|webnn|wasm.');
+    }
+    manifest.preferredEP = ep as ModelManifest['preferredEP'];
+  }
+  if (m.tta !== undefined) {
+    if (typeof m.tta !== 'object' || m.tta === null) {
+      throw new Error('Manifest "tta" must be an object {flips: {x?, y?, z?}}.');
+    }
+    const flipsRaw = (m.tta as Record<string, unknown>).flips;
+    if (typeof flipsRaw !== 'object' || flipsRaw === null) {
+      throw new Error('Manifest "tta.flips" must be an object.');
+    }
+    const flips: { x?: boolean; y?: boolean; z?: boolean } = {};
+    for (const axis of ['x', 'y', 'z'] as const) {
+      const v = (flipsRaw as Record<string, unknown>)[axis];
+      if (v === undefined) continue;
+      if (typeof v !== 'boolean') {
+        throw new Error(`Manifest "tta.flips.${axis}" must be a boolean.`);
+      }
+      flips[axis] = v;
+    }
+    manifest.tta = { flips };
+  }
   return manifest;
 }
 

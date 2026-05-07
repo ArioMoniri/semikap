@@ -15,6 +15,7 @@ import { OverlayControls } from './OverlayControls';
 import { AnnotationPanel } from './AnnotationPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { Logo } from './Logo';
+import { ThemeToggle } from './ThemeToggle';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
@@ -142,6 +143,7 @@ export function AppShell() {
             </Badge>
           )}
           <Badge variant="outline">v{__APP_VERSION__}</Badge>
+          <ThemeToggle />
           <a
             href={REPO_URL}
             target="_blank"
@@ -155,7 +157,7 @@ export function AppShell() {
 
       {/* Main */}
       <main className="grid flex-1 min-h-0 grid-cols-1 lg:grid-cols-[400px_1fr]">
-        <aside className="flex min-h-0 flex-col gap-2.5 overflow-y-auto border-r border-slate-200 bg-slate-50 p-3">
+        <aside className="flex min-h-0 flex-col gap-2.5 overflow-y-auto border-r border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
           <GpuInfoPanel backend={backend} />
 
           <CollapsibleSection title="Inputs" defaultOpen trailing={volume ? 'loaded' : 'pick'}>

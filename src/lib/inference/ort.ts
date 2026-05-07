@@ -34,18 +34,25 @@ export interface CreatedSession {
 /**
  * Create an InferenceSession from raw ONNX bytes.
  *
- * Provider chain (best to worst):
+ * Default provider chain (best to worst):
  *   1. WebGPU  — broadest GPU coverage (Metal / D3D12 / Vulkan)
  *   2. WebNN   — platform NN accelerator (NPU / ANE / CoreML / DirectML)
  *   3. WASM    — multi-threaded SIMD CPU fallback
  *
- * WebNN is tried after WebGPU because driver maturity for WebNN+f32 medical
- * segmentation models is still uneven; the WebGPU path is consistently fast
- * across vendors today. As WebNN matures we'll surface a manifest hint to
- * prefer it for specific models.
+ * If a manifest specifies `preferredEP`, that provider is tried first; the
+ * remaining providers from the chain still serve as fallbacks.
  */
-export async function createSession(bytes: Uint8Array): Promise<CreatedSession> {
+export async function createSession(
+  bytes: Uint8Array,
+  preferred: 'auto' | Provider = 'auto'
+): Promise<CreatedSession> {
   configureOrt();
+
+  const baseChain: Provider[] = ['webgpu', 'webnn', 'wasm'];
+  const chain: Provider[] =
+    preferred === 'auto' || !baseChain.includes(preferred)
+      ? baseChain
+      : [preferred, ...baseChain.filter((p) => p !== preferred)];
 
   const attempted: Provider[] = [];
 
@@ -62,7 +69,7 @@ export async function createSession(bytes: Uint8Array): Promise<CreatedSession> 
     }
   };
 
-  for (const provider of ['webgpu', 'webnn', 'wasm'] as const) {
+  for (const provider of chain) {
     const session = await tryProvider(provider);
     if (session) return { session, provider, attempted };
   }

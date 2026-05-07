@@ -6,7 +6,11 @@ export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
     return (
       <div
         ref={ref}
-        className={cn('rounded-lg border border-slate-200 bg-white shadow-sm', className)}
+        className={cn(
+          'rounded-lg border border-slate-200 bg-white shadow-sm',
+          'dark:border-slate-800 dark:bg-slate-900',
+          className
+        )}
         {...props}
       />
     );
@@ -30,7 +34,11 @@ export const CardTitle = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElemen
     return (
       <div
         ref={ref}
-        className={cn('text-sm font-semibold tracking-tight text-tamias-ink', className)}
+        className={cn(
+          'text-sm font-semibold tracking-tight text-tamias-ink',
+          'dark:text-slate-100',
+          className
+        )}
         {...props}
       />
     );
@@ -40,7 +48,11 @@ export const CardTitle = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElemen
 export const CardDescription = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   function CardDescription({ className, ...props }, ref) {
     return (
-      <div ref={ref} className={cn('text-xs text-slate-500', className)} {...props} />
+      <div
+        ref={ref}
+        className={cn('text-xs text-slate-500 dark:text-slate-400', className)}
+        {...props}
+      />
     );
   }
 );
