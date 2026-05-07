@@ -4,6 +4,16 @@ All notable changes to TAMIAS are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — README hub redesign
+- 🎨 New **hero banner** ([`docs/assets/hero.svg`](docs/assets/hero.svg)) and **custom platform download buttons** ([`docs/assets/download-{macos,windows,linux}.svg`](docs/assets/)). No third-party hotlinks.
+- 📊 **Stats badges row** (downloads / stars / forks / issues / contributors / license / latest release) via shields.io.
+- 🗺️ **Live repo visualization**: [`.github/workflows/repo-visualizer.yml`](.github/workflows/repo-visualizer.yml) (githubocto/repo-visualizer / GitHub Next) regenerates `docs/assets/repo-visualization.svg` on every push to `main` and commits it back. Embedded in the README.
+- 📈 **Star history graph** embedded via the api.star-history.com SVG endpoint.
+- 📚 README slimmed down to a hub. Detailed deploy + updater content moved to [`docs/DEPLOY.md`](docs/DEPLOY.md) and [`docs/UPDATER.md`](docs/UPDATER.md).
+- ✨ Compact 4×5 features grid, deploy options as a one-line-per-mode table.
+
 ## [0.2.0] — Auto-updater, theme toggle, release workflow
 
 ### Added — Tauri Sparkle-style updater

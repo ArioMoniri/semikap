@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="84" viewBox="0 0 320 84">
+  <defs>
+    <linearGradient id="bg-linux" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f1f33"/>
+      <stop offset="1" stop-color="#11111d"/>
+    </linearGradient>
+  </defs>
+  <rect width="320" height="84" rx="14" fill="url(#bg-linux)"/>
+  <rect x="0.5" y="0.5" width="319" height="83" rx="13.5" fill="none" stroke="#3a3a55" stroke-width="1"/>
+  <!-- Stylized penguin head: simple circle + face accent in Linux yellow -->
+  <g transform="translate(22 18)">
+    <ellipse cx="22" cy="22" rx="22" ry="24" fill="#0e0e1a"/>
+    <ellipse cx="22" cy="22" rx="20" ry="22" fill="#fff"/>
+    <ellipse cx="22" cy="20" rx="14" ry="16" fill="#0e0e1a"/>
+    <ellipse cx="16" cy="16" rx="3.2" ry="4" fill="#fff"/>
+    <ellipse cx="28" cy="16" rx="3.2" ry="4" fill="#fff"/>
+    <circle cx="16" cy="17" r="1.5" fill="#0e0e1a"/>
+    <circle cx="28" cy="17" r="1.5" fill="#0e0e1a"/>
+    <path d="M17 24 Q22 30 27 24 L27 27 Q22 32 17 27 Z" fill="#f0c419"/>
+  </g>
+  <text x="78" y="38" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif" font-size="13" fill="#f0c419" letter-spacing="0.06em">DOWNLOAD FOR</text>
+  <text x="78" y="62" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="700" fill="#fff">Linux · .AppImage</text>
+</svg>

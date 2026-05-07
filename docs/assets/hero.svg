@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="280" viewBox="0 0 1280 280">
+  <defs>
+    <linearGradient id="bg-hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1d3a"/>
+      <stop offset="0.5" stop-color="#13284f"/>
+      <stop offset="1" stop-color="#0b1d3a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.85" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#1d4ed8" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#1d4ed8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="grid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="280" fill="url(#bg-hero)"/>
+  <rect width="1280" height="280" fill="url(#glow)"/>
+
+  <!-- subtle grid -->
+  <g opacity="0.6">
+    <path d="M0 80 L1280 80 M0 160 L1280 160 M0 240 L1280 240" stroke="url(#grid)" stroke-width="1"/>
+    <path d="M160 0 L160 280 M320 0 L320 280 M480 0 L480 280 M640 0 L640 280 M800 0 L800 280 M960 0 L960 280 M1120 0 L1120 280" stroke="url(#grid)" stroke-width="1"/>
+  </g>
+
+  <!-- Logo glyph -->
+  <g transform="translate(64 78)">
+    <rect x="0" y="0" width="124" height="124" rx="28" fill="#1d4ed8" opacity="0.18"/>
+    <rect x="0.5" y="0.5" width="123" height="123" rx="27.5" fill="none" stroke="#1d4ed8" stroke-width="1.5"/>
+    <path d="M22 42 L102 42 M62 42 L62 100" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="220" y="135" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif"
+        font-size="76" font-weight="800" fill="#ffffff" letter-spacing="0.02em">TAMIAS</text>
+  <text x="222" y="170" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif"
+        font-size="18" fill="#9bb0d8" letter-spacing="0.18em">TRANSPARENT · LOCAL · MEDICAL · IMAGE · ANALYSIS</text>
+  <text x="222" y="208" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif"
+        font-size="22" fill="#cdd9ee" font-weight="500">Browser-only ONNX inference on your DICOM / NIfTI / NRRD — no upload, any GPU.</text>
+
+  <!-- Tag pills -->
+  <g font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600">
+    <g transform="translate(220 232)">
+      <rect width="112" height="26" rx="13" fill="#22c55e" opacity="0.18"/>
+      <rect x="0.5" y="0.5" width="111" height="25" rx="12.5" fill="none" stroke="#22c55e" stroke-width="1"/>
+      <text x="56" y="17.5" text-anchor="middle" fill="#86efac">NO UPLOAD</text>
+    </g>
+    <g transform="translate(344 232)">
+      <rect width="92" height="26" rx="13" fill="#1d4ed8" opacity="0.22"/>
+      <rect x="0.5" y="0.5" width="91" height="25" rx="12.5" fill="none" stroke="#60a5fa" stroke-width="1"/>
+      <text x="46" y="17.5" text-anchor="middle" fill="#bfdbfe">WEBGPU</text>
+    </g>
+    <g transform="translate(448 232)">
+      <rect width="84" height="26" rx="13" fill="#a855f7" opacity="0.22"/>
+      <rect x="0.5" y="0.5" width="83" height="25" rx="12.5" fill="none" stroke="#c4b5fd" stroke-width="1"/>
+      <text x="42" y="17.5" text-anchor="middle" fill="#e9d5ff">ONNX</text>
+    </g>
+    <g transform="translate(544 232)">
+      <rect width="84" height="26" rx="13" fill="#f59e0b" opacity="0.22"/>
+      <rect x="0.5" y="0.5" width="83" height="25" rx="12.5" fill="none" stroke="#fcd34d" stroke-width="1"/>
+      <text x="42" y="17.5" text-anchor="middle" fill="#fde68a">PWA</text>
+    </g>
+    <g transform="translate(640 232)">
+      <rect width="100" height="26" rx="13" fill="#22c8db" opacity="0.22"/>
+      <rect x="0.5" y="0.5" width="99" height="25" rx="12.5" fill="none" stroke="#67e8f9" stroke-width="1"/>
+      <text x="50" y="17.5" text-anchor="middle" fill="#a5f3fc">DESKTOP</text>
+    </g>
+  </g>
+</svg>
