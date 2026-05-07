@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ShieldCheck, X } from 'lucide-react';
+import { ShieldCheck, X, Crosshair } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { detectBackend } from '../lib/diagnostics/gpu';
+import type { ProbeReading } from './Viewer';
 import { LocalFilePicker } from './LocalFilePicker';
 import { SecondarySeriesPicker } from './SecondarySeriesPicker';
 import { ModelPicker } from './ModelPicker';
@@ -33,6 +34,22 @@ export function AppShell() {
 
   const viewerRef = useRef<ViewerHandle | null>(null);
   const [studyHint, setStudyHint] = useState<string>('');
+  const [probe, setProbe] = useState<ProbeReading | null>(null);
+
+  useEffect(() => {
+    // Wait one tick so the imperative handle is wired up before subscribing.
+    const id = window.setTimeout(() => {
+      const v = viewerRef.current;
+      if (!v) return;
+      const off = v.onProbe(setProbe);
+      cleanup = off;
+    }, 0);
+    let cleanup: (() => void) | undefined;
+    return () => {
+      window.clearTimeout(id);
+      cleanup?.();
+    };
+  }, []);
 
   useEffect(() => {
     detectBackend()
@@ -164,6 +181,24 @@ export function AppShell() {
               </div>
               <div className="text-white/60">
                 {studyMeta.dims} · {studyMeta.spacing} · {studyMeta.dtype}
+              </div>
+            </div>
+          )}
+          {probe && volume && (
+            <div
+              className="pointer-events-none absolute right-2 top-2 flex items-center gap-2 rounded bg-black/60 px-2 py-1 text-[11px] text-white/80 backdrop-blur"
+              role="status"
+              aria-label="Cursor probe"
+            >
+              <Crosshair className="h-3 w-3" />
+              <div className="tabular-nums text-white/70">
+                vox [{probe.voxel.map((n) => n.toFixed(0)).join(', ')}]
+              </div>
+              <div className="tabular-nums text-white/70">
+                mm [{probe.mm.map((n) => n.toFixed(1)).join(', ')}]
+              </div>
+              <div className="tabular-nums text-white">
+                {Number.isFinite(probe.value) ? probe.value.toFixed(2) : '—'}
               </div>
             </div>
           )}

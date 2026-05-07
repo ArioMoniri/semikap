@@ -1,6 +1,8 @@
 import { useEffect, useImperativeHandle, useRef, forwardRef } from 'react';
-import { NiivueViewer, type OverlayColorMap } from '../lib/viewer/niivue';
+import { NiivueViewer, type OverlayColorMap, type ProbeReading } from '../lib/viewer/niivue';
 import type { Bytes, VolumeMetadata } from '../types';
+
+export type { ProbeReading };
 
 export interface LoadedFromViewer {
   voxels: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array;
@@ -29,6 +31,7 @@ export interface ViewerHandle {
   /** Returns the AI mask merged with any user brush corrections, or null
    *  when no corrections have been drawn. */
   getCorrectedMask(aiMask: Uint8Array): Uint8Array | null;
+  onProbe(listener: (r: ProbeReading | null) => void): () => void;
 }
 
 export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
@@ -88,6 +91,10 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       getCorrectedMask(aiMask) {
         return viewerRef.current?.getCorrectedMask(aiMask) ?? null;
+      },
+      onProbe(listener) {
+        if (!viewerRef.current) return () => undefined;
+        return viewerRef.current.onProbe(listener);
       },
     }),
     []

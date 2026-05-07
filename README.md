@@ -188,15 +188,24 @@ journalctl -u tamias -f          # look for TAMIAS_PORT=…
 
 ### ⚙️ Configuration (everything overridable)
 
+For Node / Docker / systemd deploys, copy [`.env.example`](.env.example) → `.env` and edit. The static server reads `process.env` directly, so a `.env` file is optional — every value has a default.
+
+```sh
+cp .env.example .env       # only if you actually want overrides
+$EDITOR .env
+npm start                  # picks up overrides from your shell or .env
+```
+
 | Knob | Where | Default | Notes |
 |---|---|---|---|
-| `PORT` | env | `5180` | Server walks up to first free port if busy |
-| `HOST` | env | `0.0.0.0` | Set `127.0.0.1` to bind loopback only |
-| Helm `image.repository` | values.yaml | `ghcr.io/ariomoniri/semikap` | Your container registry |
-| Helm `image.tag` | values.yaml | `latest` | Pin to a release tag in production |
-| Helm `replicaCount` | values.yaml | `2` | App is stateless; scale freely |
-| Helm `ingress.hosts[].host` | values.yaml | `tamias.example.com` | Your hostname |
-| Helm `autoscaling.enabled` | values.yaml | `false` | HPA on CPU |
+| `PORT` | env / `.env` | `5180` | Server walks up to first free port if busy |
+| `HOST` | env / `.env` | `0.0.0.0` | Set `127.0.0.1` to bind loopback only |
+| `NODE_ENV` | env / `.env` | `production` | Standard Node convention |
+| Helm `image.repository` | `values.yaml` | `ghcr.io/ariomoniri/semikap` | Your container registry |
+| Helm `image.tag` | `values.yaml` | `latest` | Pin to a release tag in production |
+| Helm `replicaCount` | `values.yaml` | `2` | App is stateless; scale freely |
+| Helm `ingress.hosts[].host` | `values.yaml` | `tamias.example.com` | Your hostname |
+| Helm `autoscaling.enabled` | `values.yaml` | `false` | HPA on CPU |
 
 There are no template tokens, secret placeholders, or `<your-name-here>` blanks anywhere in the source. Everything is either runtime-configurable or has a sensible default.
 

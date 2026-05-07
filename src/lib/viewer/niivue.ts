@@ -28,6 +28,17 @@ interface NVImageHeader {
   qoffset_z?: number;
 }
 
+export interface ProbeReading {
+  /** Voxel coordinates within the primary volume. */
+  voxel: [number, number, number];
+  /** Physical (mm) position in the primary volume's frame of reference. */
+  mm: [number, number, number];
+  /** Sample value from the primary volume. */
+  value: number;
+}
+
+type ProbeListener = (reading: ProbeReading | null) => void;
+
 interface NVDriver {
   drawingEnabled: boolean;
   setPenValue(label: number, isFilledPen?: boolean): void;
@@ -37,6 +48,8 @@ interface NVDriver {
   drawBitmap?: Uint8Array | null;
   /** True once a brush stroke has been made. */
   drawScene?(): void;
+  /** NiiVue's location-change callback hook (signature varies across versions). */
+  onLocationChange?: ((data: unknown) => void) | null;
 }
 
 export class NiivueViewer {
@@ -47,6 +60,7 @@ export class NiivueViewer {
   private secondaryIndex = -1;
   /** Index of the segmentation overlay (if any). */
   private maskIndex = -1;
+  private probeListeners = new Set<ProbeListener>();
 
   constructor(canvas: HTMLCanvasElement) {
     this.nv = new Niivue({
@@ -57,6 +71,17 @@ export class NiivueViewer {
       multiplanarForceRender: true,
     });
     void this.nv.attachToCanvas(canvas);
+
+    // Wire NiiVue's crosshair location callback into our typed probe stream.
+    (this.nv as unknown as NVDriver).onLocationChange = (data: unknown): void => {
+      const r = parseLocation(data);
+      this.probeListeners.forEach((fn) => fn(r));
+    };
+  }
+
+  onProbe(listener: ProbeListener): () => void {
+    this.probeListeners.add(listener);
+    return () => this.probeListeners.delete(listener);
   }
 
   /**
@@ -288,6 +313,23 @@ function extractVolume(image: NVImage): LoadedVolume {
     | Uint8Array
     | Float32Array;
   return { voxels, meta: { dims, spacing, origin, dtype } };
+}
+
+function parseLocation(data: unknown): ProbeReading | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const d = data as {
+    vox?: number[];
+    mm?: number[];
+    values?: Array<{ value?: number }>;
+  };
+  if (!Array.isArray(d.vox) || d.vox.length < 3) return null;
+  if (!Array.isArray(d.mm) || d.mm.length < 3) return null;
+  const value = d.values?.[0]?.value ?? Number.NaN;
+  return {
+    voxel: [d.vox[0] ?? 0, d.vox[1] ?? 0, d.vox[2] ?? 0],
+    mm: [d.mm[0] ?? 0, d.mm[1] ?? 0, d.mm[2] ?? 0],
+    value,
+  };
 }
 
 function inferDtype(arr: ArrayBufferView): VolumeMetadata['dtype'] {
