@@ -14,6 +14,14 @@
 
 ---
 
+> ## ✅ No manual edits required — clone & go
+>
+> 🟢 **Every value the user might need to set has a runtime override** — `PORT`, `HOST`, image tag, ingress hostname, brush colors. There are **no `<your-name-here>` placeholders, no committed secrets, no template tokens to fill in** before first deploy. The literal string `placeholder` appears nowhere in source — only inside `package-lock.json` as part of an upstream Babel package's *name* (`@babel/plugin-proposal-private-property-in-object@7.21.0-placeholder-for-preset-env.2`), which is a transitive dependency of the React build toolchain and is not something you should touch.
+>
+> If you want to override defaults, see the **[Configuration](#-configuration-everything-overridable)** section. Otherwise, run `npm run setup` (or `docker compose up -d --build`, or `helm install`) and you're done.
+
+---
+
 ## 🎯 What it does
 
 A clinician opens a link, picks a local image, picks a local ONNX model + manifest, and sees an AI segmentation overlay rendered on a 3-plane MPR + 3D viewer. **The bytes never leave the device.** Inference runs in the browser via WebGPU (Metal / D3D12 / Vulkan) with a multi-threaded WASM-SIMD fallback.
@@ -34,18 +42,25 @@ flowchart LR
 
 Every box runs **inside the browser tab**. The only network traffic is the initial bundle download from the server you deploy this on.
 
-## ✨ Features (Phase 1)
+## ✨ Features
 
 | | Feature | What it gets you |
 |---|---|---|
 | 🛡️ | Strict CSP, `connect-src 'self'` | Browser physically cannot upload your images |
 | 🌐 | PWA — install with one click | Desktop icon, full offline use after first visit |
-| 🚀 | WebGPU + WASM-SIMD fallback | Any GPU vendor (Apple, NVIDIA, AMD, Intel) — automatically |
+| 🚀 | WebGPU → WebNN → WASM fallback chain | Any GPU vendor + NPU/ANE/CoreML where available |
 | 🖼️ | NiiVue viewer | DICOM, NIfTI, NRRD, MetaImage, MGZ; MPR + 3D out of the box |
-| 🧱 | Sliding-window 3D inference | Full-resolution CT/MR volumes within browser memory |
+| 🌫️ | Gaussian-weighted sliding-window | Eliminates seams at organ boundaries (MONAI σ = patch/8) |
+| 🧱 | Tiled 3D inference | Full-resolution CT/MR volumes within browser memory |
+| 🎚️ | WW/WL + opacity + colormap controls | Live, hardware-accelerated viewer adjustments |
+| 🖌️ | Brush + eraser correction | Per-label palette from manifest; undo |
+| 🩻 | Multi-series overlay | Load PET on CT, T2 on T1 — second pick, opacity + color controls |
 | 📋 | Sidecar JSON manifest | No magic numbers — preprocessing is data-driven and auditable |
 | 🔒 | SHA-256 model verification | Optional `sha256` field in manifest is checked before loading |
-| 💾 | Local-disk save via FSA | Mask exports as NIfTI — no download dialogs, no temp files |
+| 💽 | OPFS warm cache | Cached models keyed by hash, one-click reload, integrity-verified |
+| 💾 | Local-disk save via FSA | NIfTI mask + reproducibility-bundle JSON, no download dialogs |
+| 🧾 | Reproducibility bundle | Input hash + model hash + manifest + EP chain + per-label volumes |
+| 📒 | Local audit log (NDJSON in OPFS) | Every run/export logged on the user's device, exportable |
 | 🪪 | Per-result RUO stamp | "Research Use Only" badge on every export |
 
 ---
@@ -130,7 +145,21 @@ Override the port via env:
 PORT=8080 docker compose up -d --build
 ```
 
-### Option C — Run as a systemd service
+### Option C — Kubernetes via Helm
+
+```bash
+helm install tamias deploy/helm/tamias \
+  --set image.repository=ghcr.io/ariomoniri/semikap \
+  --set image.tag=latest \
+  --set ingress.enabled=true \
+  --set ingress.hosts[0].host=tamias.example.com \
+  --set ingress.hosts[0].paths[0].path=/ \
+  --set ingress.hosts[0].paths[0].pathType=Prefix
+```
+
+> 💡 The ingress controller must **preserve `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy`** from the upstream — see the comment in `deploy/helm/tamias/values.yaml` for the nginx-ingress snippet.
+
+### Option D — Run as a systemd service
 
 `/etc/systemd/system/tamias.service`:
 
@@ -156,6 +185,20 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now tamias
 journalctl -u tamias -f          # look for TAMIAS_PORT=…
 ```
+
+### ⚙️ Configuration (everything overridable)
+
+| Knob | Where | Default | Notes |
+|---|---|---|---|
+| `PORT` | env | `5180` | Server walks up to first free port if busy |
+| `HOST` | env | `0.0.0.0` | Set `127.0.0.1` to bind loopback only |
+| Helm `image.repository` | values.yaml | `ghcr.io/ariomoniri/semikap` | Your container registry |
+| Helm `image.tag` | values.yaml | `latest` | Pin to a release tag in production |
+| Helm `replicaCount` | values.yaml | `2` | App is stateless; scale freely |
+| Helm `ingress.hosts[].host` | values.yaml | `tamias.example.com` | Your hostname |
+| Helm `autoscaling.enabled` | values.yaml | `false` | HPA on CPU |
+
+There are no template tokens, secret placeholders, or `<your-name-here>` blanks anywhere in the source. Everything is either runtime-configurable or has a sensible default.
 
 ### 🌍 Point a domain at it
 

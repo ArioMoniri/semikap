@@ -3,6 +3,7 @@ import { ShieldCheck, X } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { detectBackend } from '../lib/diagnostics/gpu';
 import { LocalFilePicker } from './LocalFilePicker';
+import { SecondarySeriesPicker } from './SecondarySeriesPicker';
 import { ModelPicker } from './ModelPicker';
 import { Viewer } from './Viewer';
 import type { ViewerHandle } from './Viewer';
@@ -119,6 +120,7 @@ export function AppShell() {
         <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto border-r border-slate-200 bg-slate-50 p-3">
           <GpuInfoPanel backend={backend} />
           <LocalFilePicker onPicked={handleImagePicked} current={volume?.source ?? null} />
+          <SecondarySeriesPicker viewerRef={viewerRef} />
           <ModelPicker onLoaded={setModel} current={model} />
           <InferencePanel onResultMask={handleResultMask} />
           <OverlayControls viewerRef={viewerRef} />

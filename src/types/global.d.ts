@@ -1,6 +1,9 @@
 // Global ambient declarations for browser APIs that ship in the platform but
 // are not yet (or only partially) covered by TypeScript's lib.dom.
 
+/// <reference types="vite-plugin-pwa/react" />
+/// <reference types="vite-plugin-pwa/client" />
+
 export {};
 
 declare global {
