@@ -43,8 +43,20 @@ function usage() {
   process.exit(1);
 }
 
+// Run a shell command. By default we pipe stdout so we can capture and
+// trim it (used for `git rev-parse`, `git status`, etc.). For commands
+// where we want the user to see output (commit / tag / push), pass
+// { stdio: 'inherit' } — in that case execSync returns null, which we
+// must NOT call .trim() on.
 function sh(cmd, opts = {}) {
-  return execSync(cmd, { cwd: REPO, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'inherit'], ...opts }).trim();
+  const merged = {
+    cwd: REPO,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'inherit'],
+    ...opts,
+  };
+  const out = execSync(cmd, merged);
+  return typeof out === 'string' ? out.trim() : '';
 }
 
 function readJson(path) {
