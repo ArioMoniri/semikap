@@ -1,0 +1,137 @@
+name: Validate Apple signing
+
+# Manually-triggered self-test that proves the Apple Developer ID signing
+# secrets are correctly wired without cutting a release.
+#
+# What it does on a real macOS runner:
+#   1. Imports the .p12 from APPLE_CERTIFICATE into a temporary keychain.
+#   2. Confirms `security find-identity` sees the Developer ID cert.
+#   3. Builds a tiny `hello` binary, code-signs it with the Developer ID,
+#      and verifies the signature with `codesign --verify`.
+#   4. Submits the signed binary's notarisation request to Apple
+#      (notarytool submit ... --wait) and prints the result.
+#
+# A green run means: the next `tauri-action` invocation will sign + notarise
+# the real desktop bundles using these secrets.
+#
+# Trigger from the Actions tab → "Validate Apple signing" → Run workflow.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Assert all 6 secrets are set
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -e
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!v:-}" ]; then
+              echo "::error::$v is missing"
+              exit 1
+            fi
+            echo "✓ $v ($(printf %s "${!v}" | wc -c | tr -d ' ') chars)"
+          done
+
+      - name: Import .p12 into a temporary keychain
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -e
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          KEYCHAIN_PWD=$(uuidgen)
+
+          # Decode the base64 cert
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/cert.p12
+
+          # Create + unlock a temp keychain and add it to the search list
+          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"' | tr -d ' ')
+
+          # Import the .p12 (-T grants codesign access without prompts)
+          security import $RUNNER_TEMP/cert.p12 \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          # Allow codesign to use the imported key without UI prompt
+          security set-key-partition-list \
+            -S "apple-tool:,apple:,codesign:" \
+            -s -k "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
+
+          echo "--- find-identity ---"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+          echo "$KEYCHAIN_PATH"   > $RUNNER_TEMP/keychain_path
+          echo "$KEYCHAIN_PWD"    > $RUNNER_TEMP/keychain_pwd
+
+      - name: Code-sign a tiny test binary with Developer ID
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -e
+          # Trivial test target
+          mkdir -p $RUNNER_TEMP/HelloTAMIAS.app/Contents/MacOS
+          cat > $RUNNER_TEMP/HelloTAMIAS.app/Contents/Info.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>HelloTAMIAS</string>
+            <key>CFBundleIdentifier</key><string>io.github.ariomoniri.tamias.signing-validator</string>
+            <key>CFBundleName</key><string>HelloTAMIAS</string>
+            <key>CFBundleVersion</key><string>0.0.1</string>
+            <key>CFBundleShortVersionString</key><string>0.0.1</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+          </dict></plist>
+          PLIST
+          # Compile a 1-line C executable
+          cat > $RUNNER_TEMP/hello.c <<'C'
+          #include <stdio.h>
+          int main(void){ puts("TAMIAS signing validator"); return 0; }
+          C
+          clang -arch arm64 -arch x86_64 $RUNNER_TEMP/hello.c -o $RUNNER_TEMP/HelloTAMIAS.app/Contents/MacOS/HelloTAMIAS
+
+          codesign --force \
+            --options runtime \
+            --timestamp \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            $RUNNER_TEMP/HelloTAMIAS.app
+
+          echo "--- codesign --verify --deep --strict ---"
+          codesign --verify --deep --strict --verbose=2 $RUNNER_TEMP/HelloTAMIAS.app
+
+      - name: Notarise the signed bundle (Apple notarytool)
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -e
+          # Notarytool requires the input to be a zip / dmg / pkg, not an .app dir
+          ZIP=$RUNNER_TEMP/HelloTAMIAS.zip
+          ditto -c -k --keepParent $RUNNER_TEMP/HelloTAMIAS.app "$ZIP"
+
+          echo "--- xcrun notarytool submit --wait ---"
+          xcrun notarytool submit "$ZIP" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          echo ""
+          echo "✅ All Apple signing secrets are valid; release builds will sign + notarise successfully."
