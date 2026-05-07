@@ -125,7 +125,7 @@ export function AppShell() {
           <InferencePanel onResultMask={handleResultMask} />
           <OverlayControls viewerRef={viewerRef} />
           <AnnotationPanel viewerRef={viewerRef} />
-          <ExportPanel />
+          <ExportPanel viewerRef={viewerRef} />
           <SettingsPanel />
           {errors.length > 0 && (
             <Card className="border-red-200 bg-red-50">
@@ -151,7 +151,7 @@ export function AppShell() {
             </Card>
           )}
         </aside>
-        <section className="relative min-h-0 bg-black">
+        <section id="viewer" tabIndex={-1} className="relative min-h-0 bg-black" aria-label="Image viewer">
           <Viewer ref={viewerRef} />
           {studyMeta && (
             <div

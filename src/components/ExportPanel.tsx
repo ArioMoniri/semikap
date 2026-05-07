@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, FileJson, ShieldAlert, Image as ImageIcon } from 'lucide-react';
+import { Download, FileJson, ShieldAlert, Image as ImageIcon, Brush } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { writeNifti1Uint8 } from '../lib/export/nifti';
 import { buildReproducibilityBundle, bundleToBytes } from '../lib/export/repro';
@@ -8,10 +8,15 @@ import { appendAudit } from '../lib/fs/audit';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
+import type { ViewerHandle } from './Viewer';
 
 const KNOWN_EXT = /\.(nii\.gz|nii|nrrd|nhdr|mha|mhd|mgz|mgh|dcm|dicom)$/i;
 
-export function ExportPanel() {
+interface Props {
+  viewerRef: React.MutableRefObject<ViewerHandle | null>;
+}
+
+export function ExportPanel({ viewerRef }: Props) {
   const result = useAppStore((s) => s.result);
   const volume = useAppStore((s) => s.volume);
   const model = useAppStore((s) => s.model);
@@ -60,6 +65,37 @@ export function ExportPanel() {
       setBusy(null);
     }
   }, [result, baseName, modelTag, model, pushError]);
+
+  const handleExportCorrected = useCallback(async () => {
+    if (!result) return;
+    const corrected = viewerRef.current?.getCorrectedMask(result.mask);
+    if (!corrected) {
+      pushError('No brush corrections to save (draw on the mask first).');
+      return;
+    }
+    setBusy('corrected');
+    try {
+      const bytes = writeNifti1Uint8({
+        mask: corrected,
+        dims: result.dims,
+        spacing: result.spacing,
+        origin: result.origin,
+      });
+      const suggested = `${baseName}__${modelTag}__mask_corrected.nii`;
+      const ok = await saveBytes(bytes, suggested, 'NIfTI corrected label mask', '.nii');
+      if (ok) {
+        await appendAudit({
+          kind: 'export',
+          message: `Exported corrected mask ${suggested}`,
+          details: { model: model?.manifest.name, modelHash: model?.hash, dims: result.dims },
+        });
+      }
+    } catch (e) {
+      pushError(`Export failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }, [result, viewerRef, baseName, modelTag, model, pushError]);
 
   const handleExportRepro = useCallback(async () => {
     if (!result || !volume || !model) return;
@@ -140,6 +176,16 @@ export function ExportPanel() {
         <div className="flex flex-col items-end gap-1.5">
           <Button size="sm" onClick={handleExportMask} disabled={busy !== null} className="gap-1.5">
             <Download className="h-3.5 w-3.5" /> {busy === 'mask' ? 'Saving…' : 'Save .nii'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExportCorrected}
+            disabled={busy !== null}
+            className="gap-1.5"
+            title="Export the AI mask merged with your brush corrections."
+          >
+            <Brush className="h-3.5 w-3.5" /> {busy === 'corrected' ? 'Saving…' : 'Save corrected'}
           </Button>
           <Button
             size="sm"

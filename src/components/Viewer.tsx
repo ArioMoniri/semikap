@@ -26,6 +26,9 @@ export interface ViewerHandle {
   setDrawingEnabled(on: boolean): void;
   setBrushLabel(label: number): void;
   undoLastBrushStroke(): void;
+  /** Returns the AI mask merged with any user brush corrections, or null
+   *  when no corrections have been drawn. */
+  getCorrectedMask(aiMask: Uint8Array): Uint8Array | null;
 }
 
 export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
@@ -82,6 +85,9 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       undoLastBrushStroke() {
         viewerRef.current?.undoLastBrushStroke();
+      },
+      getCorrectedMask(aiMask) {
+        return viewerRef.current?.getCorrectedMask(aiMask) ?? null;
       },
     }),
     []

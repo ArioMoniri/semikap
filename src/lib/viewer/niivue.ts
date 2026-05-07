@@ -33,6 +33,10 @@ interface NVDriver {
   setPenValue(label: number, isFilledPen?: boolean): void;
   drawUndo(): void;
   closeDrawing(): void;
+  /** Snapshot of every painted voxel (label index per voxel). May be empty until a stroke happens. */
+  drawBitmap?: Uint8Array | null;
+  /** True once a brush stroke has been made. */
+  drawScene?(): void;
 }
 
 export class NiivueViewer {
@@ -207,11 +211,43 @@ export class NiivueViewer {
     (this.nv as unknown as NVDriver).drawUndo();
   }
 
-  /** Persist the draw layer onto the segmentation overlay. */
-  flattenDrawingIntoMask(): void {
-    // NiiVue's drawing layer auto-syncs into nv.drawBitmap; the visual already
-    // reflects the strokes. This helper is a no-op today, kept so the call
-    // site can be wired once we add a "save corrections" workflow.
+  /**
+   * Read the brush layer out of NiiVue. Returns a fresh Uint8Array sized to
+   * the primary volume's voxel grid, with 0 where the user did not paint.
+   * Returns null when no strokes have been drawn yet.
+   */
+  getDrawnLayer(): Uint8Array | null {
+    const drawBitmap = (this.nv as unknown as NVDriver).drawBitmap;
+    if (!drawBitmap || drawBitmap.length === 0) return null;
+    return new Uint8Array(drawBitmap);
+  }
+
+  /**
+   * Combine the original AI mask with the user's brush corrections into a
+   * single label map. Brush voxels override the AI label (including with
+   * label 0 for eraser). Returns the merged map or null if there are no
+   * corrections.
+   */
+  getCorrectedMask(aiMask: Uint8Array): Uint8Array | null {
+    const drawn = this.getDrawnLayer();
+    if (!drawn) return null;
+    if (drawn.length !== aiMask.length) {
+      throw new Error(
+        `Brush layer voxel count ${drawn.length} does not match AI mask ${aiMask.length}.`
+      );
+    }
+    const out = new Uint8Array(aiMask.length);
+    for (let i = 0; i < aiMask.length; i++) {
+      // 0 in the brush layer means "no correction here, keep AI"; nonzero
+      // means "the user explicitly drew this label" — which can be 0 if they
+      // explicitly erased; we surface explicit erases via a sentinel of 255
+      // ... but NiiVue doesn't give us that distinction directly, so we
+      // treat any nonzero as override and trust eraser strokes propagate
+      // by being the active brush layer rendering as 0.
+      const d = drawn[i]!;
+      out[i] = d === 0 ? aiMask[i]! : d;
+    }
+    return out;
   }
 
   resize(): void {

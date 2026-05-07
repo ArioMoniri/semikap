@@ -54,17 +54,23 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm,onnx,json,webmanifest}'],
-        maximumFileSizeToCacheInBytes: 64 * 1024 * 1024,
+        // Precache only the small, always-needed shell. WASM (25+ MB ORT
+        // bundle) and large model files are deliberately fetched on demand
+        // via runtimeCaching, so the first install pays only ~1 MB.
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,json,webmanifest}'],
+        // Some shell assets (sourcemaps in dev builds, large JS chunks) can
+        // breach the default 2 MB cap; lift it to 8 MB so precache succeeds.
+        maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         navigateFallback: 'index.html',
-        // Keep ORT WASM/JSEP and large assets cacheable for offline use.
         runtimeCaching: [
           {
+            // Lazily cache ORT WASM/JSEP on first inference run.
             urlPattern: ({ url }) => url.pathname.endsWith('.wasm'),
             handler: 'CacheFirst',
             options: {
               cacheName: 'wasm-cache',
               expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 * 90 },
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
         ],
