@@ -1,0 +1,15 @@
+node_modules
+dist
+dev-dist
+.git
+.github
+.vscode
+.idea
+.DS_Store
+*.log
+docs
+README.md
+CHANGELOG.md
+LICENSE
+SECURITY.md
+CONTRIBUTING.md

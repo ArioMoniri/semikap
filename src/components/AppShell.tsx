@@ -1,0 +1,278 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ShieldCheck, X, Crosshair, ExternalLink } from 'lucide-react';
+import { useAppStore } from '../lib/state/store';
+import { detectBackend } from '../lib/diagnostics/gpu';
+import type { ProbeReading } from './Viewer';
+import { LocalFilePicker } from './LocalFilePicker';
+import { SecondarySeriesPicker } from './SecondarySeriesPicker';
+import { ModelPicker } from './ModelPicker';
+import { Viewer } from './Viewer';
+import type { ViewerHandle } from './Viewer';
+import { InferencePanel } from './InferencePanel';
+import { ExportPanel } from './ExportPanel';
+import { GpuInfoPanel } from './GpuInfoPanel';
+import { OverlayControls } from './OverlayControls';
+import { AnnotationPanel } from './AnnotationPanel';
+import { SettingsPanel } from './SettingsPanel';
+import { Logo } from './Logo';
+import { ThemeToggle } from './ThemeToggle';
+import { Badge } from './ui/Badge';
+import { Button } from './ui/Button';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
+import { Separator } from './ui/Separator';
+import { CollapsibleSection } from './ui/Collapsible';
+import { appendAudit } from '../lib/fs/audit';
+import { detectSourceFormat } from '../types';
+import type { PickedFile } from '../lib/fs/filesystem';
+
+const REPO_URL = 'https://github.com/ArioMoniri/semikap';
+
+export function AppShell() {
+  const backend = useAppStore((s) => s.backend);
+  const setBackend = useAppStore((s) => s.setBackend);
+  const setVolume = useAppStore((s) => s.setVolume);
+  const volume = useAppStore((s) => s.volume);
+  const model = useAppStore((s) => s.model);
+  const setModel = useAppStore((s) => s.setModel);
+  const errors = useAppStore((s) => s.errors);
+  const clearErrors = useAppStore((s) => s.clearErrors);
+  const pushError = useAppStore((s) => s.pushError);
+  const result = useAppStore((s) => s.result);
+
+  const viewerRef = useRef<ViewerHandle | null>(null);
+  const [studyHint, setStudyHint] = useState<string>('');
+  const [probe, setProbe] = useState<ProbeReading | null>(null);
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    const id = window.setTimeout(() => {
+      const v = viewerRef.current;
+      if (!v) return;
+      cleanup = v.onProbe(setProbe);
+    }, 0);
+    return () => {
+      window.clearTimeout(id);
+      cleanup?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    detectBackend()
+      .then((b) => {
+        setBackend(b);
+        void appendAudit({
+          kind: 'app-start',
+          message: `Booted on ${b.provider.toUpperCase()}${
+            b.adapter ? ` (${b.adapter.vendor})` : ''
+          }`,
+          details: { provider: b.provider, isolated: b.crossOriginIsolated },
+        });
+      })
+      .catch((e: Error) => pushError(`GPU detection failed: ${e.message}`));
+  }, [setBackend, pushError]);
+
+  const handleImagePicked = useCallback(
+    async (file: PickedFile) => {
+      try {
+        if (!viewerRef.current) throw new Error('Viewer not ready');
+        const loaded = await viewerRef.current.loadPrimary(file.name, file.bytes);
+        setVolume({
+          source: file,
+          voxels: loaded.voxels,
+          meta: loaded.meta,
+          sourceFormat: detectSourceFormat(file.name),
+        });
+        setStudyHint(file.name);
+      } catch (e) {
+        pushError(`Failed to load image: ${(e as Error).message}`);
+      }
+    },
+    [setVolume, pushError]
+  );
+
+  const handleResultMask = useCallback(
+    async (
+      mask: Uint8Array,
+      dims: [number, number, number],
+      spacing: [number, number, number]
+    ) => {
+      if (!viewerRef.current) return;
+      const overlay = useAppStore.getState().overlay;
+      await viewerRef.current.addMaskOverlay(
+        'mask',
+        mask,
+        dims,
+        spacing,
+        overlay.colormap,
+        overlay.opacity
+      );
+    },
+    []
+  );
+
+  const studyMeta = useMemo(() => {
+    if (!volume) return null;
+    const [x, y, z] = volume.meta.dims;
+    const [sx, sy, sz] = volume.meta.spacing;
+    return {
+      dims: `${x} × ${y} × ${z}`,
+      spacing: `${sx.toFixed(2)} × ${sy.toFixed(2)} × ${sz.toFixed(2)} mm`,
+      dtype: volume.meta.dtype,
+    };
+  }, [volume]);
+
+  return (
+    <div className="flex h-full w-full flex-col bg-slate-100">
+      {/* Header */}
+      <header className="relative flex items-center justify-between border-b border-slate-900/40 bg-gradient-to-r from-tamias-ink via-slate-900 to-tamias-ink px-4 py-2.5 text-white shadow">
+        <div className="flex items-center gap-4">
+          <Logo />
+          <Separator orientation="vertical" className="h-5 bg-white/15" />
+          <div className="hidden text-xs text-white/60 sm:block">
+            Transparent locAl Medical Image AnalysiS — runs entirely in your browser
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <Badge variant="ok" className="gap-1">
+            <ShieldCheck className="h-3 w-3" /> No upload
+          </Badge>
+          {backend && (
+            <Badge variant={backend.provider === 'webgpu' ? 'accent' : 'outline'}>
+              {backend.provider.toUpperCase()}
+              {backend.adapter ? ` · ${backend.adapter.vendor}` : ''}
+            </Badge>
+          )}
+          <Badge variant="outline">v{__APP_VERSION__}</Badge>
+          <ThemeToggle />
+          <a
+            href={REPO_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="ml-1 inline-flex items-center gap-1 rounded-md border border-white/15 bg-white/10 px-2 py-1 text-[11px] text-white/80 hover:bg-white/15"
+          >
+            GitHub <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      </header>
+
+      {/* Main */}
+      <main className="grid flex-1 min-h-0 grid-cols-1 lg:grid-cols-[400px_1fr]">
+        <aside className="flex min-h-0 flex-col gap-2.5 overflow-y-auto border-r border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
+          <GpuInfoPanel backend={backend} />
+
+          <CollapsibleSection title="Inputs" defaultOpen trailing={volume ? 'loaded' : 'pick'}>
+            <div className="space-y-2.5">
+              <LocalFilePicker
+                onPicked={handleImagePicked}
+                current={volume?.source ?? null}
+              />
+              <SecondarySeriesPicker viewerRef={viewerRef} />
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Model" defaultOpen trailing={model ? 'ready' : 'pick'}>
+            <ModelPicker onLoaded={setModel} current={model} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Inference" defaultOpen trailing={result ? 'done' : ''}>
+            <InferencePanel onResultMask={handleResultMask} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Display" defaultOpen={false}>
+            <OverlayControls viewerRef={viewerRef} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Correction" defaultOpen={false}>
+            <AnnotationPanel viewerRef={viewerRef} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Export" defaultOpen={!!result}>
+            <ExportPanel viewerRef={viewerRef} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Settings" defaultOpen={false}>
+            <SettingsPanel />
+          </CollapsibleSection>
+
+          {errors.length > 0 && (
+            <Card className="border-red-200 bg-red-50">
+              <CardHeader className="flex-row items-center justify-between space-y-0 pb-1">
+                <CardTitle className="text-red-700">Errors</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-red-700 hover:bg-red-100"
+                  onClick={clearErrors}
+                  aria-label="Clear errors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <ul className="list-disc space-y-0.5 pl-4 text-xs text-red-700">
+                  {errors.map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+        </aside>
+
+        <section
+          id="viewer"
+          tabIndex={-1}
+          className="relative min-h-0 bg-black"
+          aria-label="Image viewer"
+        >
+          <Viewer ref={viewerRef} />
+          {studyMeta && (
+            <div
+              className="pointer-events-none absolute left-2 top-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"
+              role="status"
+              aria-label="Study metadata"
+            >
+              <div className="truncate font-medium" title={studyHint}>
+                {studyHint}
+              </div>
+              <div className="text-white/55">
+                {studyMeta.dims} · {studyMeta.spacing} · {studyMeta.dtype}
+              </div>
+            </div>
+          )}
+          {probe && volume && (
+            <div
+              className="pointer-events-none absolute right-2 top-2 flex items-center gap-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"
+              role="status"
+              aria-label="Cursor probe"
+            >
+              <Crosshair className="h-3 w-3" />
+              <div className="tabular-nums text-white/65">
+                vox [{probe.voxel.map((n) => n.toFixed(0)).join(', ')}]
+              </div>
+              <div className="tabular-nums text-white/65">
+                mm [{probe.mm.map((n) => n.toFixed(1)).join(', ')}]
+              </div>
+              <div className="tabular-nums text-white">
+                {Number.isFinite(probe.value) ? probe.value.toFixed(2) : '—'}
+              </div>
+            </div>
+          )}
+          {!volume && (
+            <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-white/55">
+              <div className="space-y-2 text-center">
+                <div className="text-base font-semibold text-white/75">
+                  No image loaded
+                </div>
+                <div>Pick a DICOM, NIfTI, or NRRD on the left to begin.</div>
+                <div className="text-xs text-white/40">
+                  Inference runs on this device. Bytes never leave your browser.
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}

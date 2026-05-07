@@ -1,0 +1,74 @@
+# TAMIAS Helm values.
+#
+# The chart deploys the TAMIAS static-server container and exposes it via a
+# Service. An optional Ingress wraps it with TLS + a hostname.
+#
+# All values can be overridden with --set or a values.yaml of your own.
+
+image:
+  repository: ghcr.io/ariomoniri/semikap
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Number of replicas. The app has no shared state, so any number works.
+replicaCount: 2
+
+# Container-internal port. Must match the PORT env below.
+port: 5180
+
+# Resource requests / limits. The static server is tiny; the bundle that the
+# user's browser downloads is the heavy part, not the pod.
+resources:
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+  requests:
+    cpu: "50m"
+    memory: "64Mi"
+
+# Pod-level security: non-root, read-only root FS.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Service exposed inside the cluster.
+service:
+  type: ClusterIP
+  port: 80
+
+# Optional Ingress. Set enabled=true and provide hostname + TLS secret.
+# IMPORTANT: the ingress controller (nginx, traefik, etc.) must preserve the
+# Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy headers from the
+# upstream. Without those, multi-threaded WASM inference falls back to a
+# single thread.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # nginx.ingress.kubernetes.io/configuration-snippet: |
+    #   more_set_headers "Cross-Origin-Opener-Policy: same-origin";
+    #   more_set_headers "Cross-Origin-Embedder-Policy: require-corp";
+  hosts:
+    - host: tamias.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: tamias-tls
+  #    hosts:
+  #      - tamias.example.com
+
+# Pod auto-scaling.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80

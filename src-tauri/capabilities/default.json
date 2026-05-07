@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability set for the TAMIAS desktop window. Keeps the surface minimal — the app does its work entirely inside the embedded WebView, plus the updater plugin so the app can self-update.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "updater:default",
+    "process:allow-restart"
+  ]
+}

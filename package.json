@@ -1,0 +1,87 @@
+{
+  "name": "tamias",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Transparent locAl Medical Image AnalysiS Tool — browser-only PWA for ONNX medical imaging models",
+  "license": "Apache-2.0",
+  "author": "Ariorad Moniri",
+  "homepage": "https://github.com/ArioMoniri/semikap#readme",
+  "bugs": {
+    "url": "https://github.com/ArioMoniri/semikap/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArioMoniri/semikap.git"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host",
+    "start": "node scripts/serve.mjs",
+    "setup": "npm ci && npm run build && npm start",
+    "typecheck": "tsc -b --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@niivue/niivue": "^0.44.2",
+    "@radix-ui/react-collapsible": "^1.1.2",
+    "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-progress": "^1.1.1",
+    "@radix-ui/react-scroll-area": "^1.2.2",
+    "@radix-ui/react-separator": "^1.1.1",
+    "@radix-ui/react-slot": "^1.1.1",
+    "@radix-ui/react-tabs": "^1.1.2",
+    "@radix-ui/react-tooltip": "^1.1.6",
+    "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-process": "^2.0.0",
+    "@tauri-apps/plugin-updater": "^2.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "comlink": "^4.4.2",
+    "dcmjs": "^0.42.0",
+    "lucide-react": "^0.468.0",
+    "onnxruntime-web": "^1.20.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.5.5",
+    "tailwindcss-animate": "^1.0.7",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@webgpu/types": "^0.1.52",
+    "@typescript-eslint/eslint-plugin": "^8.18.1",
+    "@typescript-eslint/parser": "^8.18.1",
+    "@eslint/js": "^9.17.0",
+    "@tauri-apps/cli": "^2.1.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "coi-serviceworker": "^0.1.7",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "globals": "^15.14.0",
+    "postcss": "^8.4.49",
+    "prettier": "^3.4.2",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.18.1",
+    "vite": "^5.4.11",
+    "vite-plugin-pwa": "^0.21.1",
+    "workbox-window": "^7.3.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "tar": "^7.5.10",
+    "cacache": "^19.0.1",
+    "@tootallnate/once": "^3.0.1"
+  }
+}

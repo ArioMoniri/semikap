@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="84" viewBox="0 0 320 84">
+  <defs>
+    <linearGradient id="bg-win" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d1d1f"/>
+      <stop offset="1" stop-color="#000"/>
+    </linearGradient>
+  </defs>
+  <rect width="320" height="84" rx="14" fill="url(#bg-win)"/>
+  <rect x="0.5" y="0.5" width="319" height="83" rx="13.5" fill="none" stroke="#3a3a3c" stroke-width="1"/>
+  <!-- Windows logo: four squares -->
+  <g fill="#fff" transform="translate(24 24)">
+    <rect x="0"  y="0"  width="16" height="16"/>
+    <rect x="20" y="0"  width="16" height="16"/>
+    <rect x="0"  y="20" width="16" height="16"/>
+    <rect x="20" y="20" width="16" height="16"/>
+  </g>
+  <text x="92" y="36" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif"
+        font-size="12" fill="#a1a1a6" letter-spacing="0.12em">DOWNLOAD FOR</text>
+  <text x="92" y="62" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif"
+        font-size="24" font-weight="700" fill="#fff">Windows</text>
+</svg>

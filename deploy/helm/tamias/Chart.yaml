@@ -1,0 +1,18 @@
+apiVersion: v2
+name: tamias
+description: TAMIAS — browser-only PWA for local ONNX medical-imaging inference
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/ArioMoniri/semikap
+sources:
+  - https://github.com/ArioMoniri/semikap
+maintainers:
+  - name: Ariorad Moniri
+keywords:
+  - medical-imaging
+  - dicom
+  - nifti
+  - onnx
+  - webgpu
+  - pwa

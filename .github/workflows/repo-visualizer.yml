@@ -1,0 +1,37 @@
+name: Repo visualization
+
+# Generates an interactive SVG diagram of the repo on every push to main,
+# commits it back as docs/assets/repo-visualization.svg. The README embeds
+# the SVG so visitors get a live map of the codebase.
+#
+# Powered by github/next/projects/repo-visualization (githubocto/repo-visualizer).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repo-viz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  visualize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate repo visualization
+        uses: githubocto/repo-visualizer@0.9.1
+        with:
+          excluded_paths: 'node_modules,dist,dev-dist,.git,target,gen'
+          output_file: 'docs/assets/repo-visualization.svg'
+          should_push: true
+          commit_message: 'chore(docs): refresh repo visualization'
+          branch: 'main'
+          root_path: ''
+          max_depth: '7'

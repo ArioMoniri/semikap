@@ -1,0 +1,15 @@
+node_modules
+dist
+dev-dist
+.vite
+.DS_Store
+*.local
+*.log
+.env
+.env.*
+!.env.example
+coverage
+
+# Tauri auto-updater signing key (NEVER commit)
+tauri-signing.key
+tauri-signing.key.pub
