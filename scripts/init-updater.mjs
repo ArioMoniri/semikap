@@ -10,13 +10,13 @@
  *   1. Generates a fresh keypair via `tauri signer generate -w ./tauri-signing.key`
  *      (the CLI prompts for a password). Tauri writes:
  *         tauri-signing.key       (encrypted private key)
- *         tauri-signing.key.pub   (public key)
- *   2. Reads the public key from the .pub file and extracts the *raw* base64
- *      key bytes (NOT the base64-wrapped whole-file form). Tauri's updater
- *      expects the raw form in `plugins.updater.pubkey`.
- *      Two .pub-file shapes are handled:
- *        a) Two-line minisign:   `untrusted comment: ...\n<base64-key>`
- *        b) Single-line wrapped: `<base64-encoded-whole-file>` (newer tauri-cli)
+ *         tauri-signing.key.pub   (public key — single-line base64-wrapped form
+ *                                   of the minisign pub file content)
+ *   2. Reads the public key from the .pub file. Tauri's updater expects the
+ *      `plugins.updater.pubkey` value to be exactly the **wrapped** form —
+ *      i.e. base64-encoded UTF-8 text of the entire minisign public key file.
+ *      Newer tauri-cli writes the .pub already in this form; older versions
+ *      wrote the raw 2-line minisign format and we wrap on the fly.
  *   3. Patches src-tauri/tauri.conf.json's `plugins.updater.pubkey`.
  *   4. Prints the GitHub secrets to add and the next steps.
  *
@@ -66,49 +66,46 @@ if (!existsSync(KEY_PUB_FILE)) {
 }
 
 /**
- * Extract the raw base64 public key from the .pub file. Handles both:
- *  a) two-line minisign format (`untrusted comment: ...\n<base64>`), or
- *  b) single-line base64-wrapped form where the whole minisign file is
- *     itself base64-encoded into one line (some tauri-cli versions).
+ * Produce the wrapped-form pubkey Tauri's updater expects.
  *
- * Tauri's `plugins.updater.pubkey` expects format (a)'s second line —
- * the raw base64 key bytes only. Format (b) confuses minisign-verify and
- * fails the build with "Invalid symbol N, offset M".
+ * The runtime decodes `plugins.updater.pubkey` as base64, then interprets the
+ * resulting bytes as UTF-8 text containing a minisign public key file:
+ *
+ *     untrusted comment: minisign public key: <id>
+ *     <base64-key>
+ *
+ * Two .pub-file shapes can land on disk:
+ *   a) single-line: the file IS that wrapped (base64-of-utf8) form already
+ *      → we use it verbatim
+ *   b) two-line minisign: the file contains the raw "untrusted comment / key"
+ *      pair → we base64-encode it ourselves
+ *
+ * Either way, the value we write into tauri.conf.json is always the wrapped
+ * form (single-line base64 string of the minisign pub file content).
  */
-function extractRawPubkey(pubFileContent) {
+function toWrappedPubkey(pubFileContent) {
   const trimmed = pubFileContent.trim();
 
-  // Case (a): looks like 2-line minisign (starts with "untrusted comment").
+  // Case (b): raw 2-line minisign format.
   if (trimmed.startsWith('untrusted comment')) {
-    const dataLine = trimmed
-      .split(/\r?\n/)
-      .find((l) => l.trim() && !l.startsWith('untrusted comment'));
-    if (dataLine) return dataLine.trim();
+    return Buffer.from(trimmed + '\n', 'utf-8').toString('base64');
   }
 
-  // Case (b): single-line wrapped — try to base64-decode and recurse.
+  // Case (a): already wrapped (single line of base64). Sanity-check by
+  // decoding and confirming the result is a minisign pub file.
   try {
     const decoded = Buffer.from(trimmed, 'base64').toString('utf-8');
-    if (decoded.includes('untrusted comment')) {
-      return extractRawPubkey(decoded);
-    }
+    if (decoded.includes('untrusted comment')) return trimmed;
   } catch {
-    // not base64 — fall through
+    // not base64
   }
 
-  // Last resort: assume the whole file IS the raw key (minus whitespace).
-  return trimmed.replace(/\s+/g, '');
+  throw new Error(
+    `Unrecognised .pub file format. First 40 chars: ${trimmed.slice(0, 40)}…`
+  );
 }
 
-const pubkey = extractRawPubkey(readFileSync(KEY_PUB_FILE, 'utf-8'));
-if (!pubkey || /[^A-Za-z0-9+/=]/.test(pubkey)) {
-  process.stderr.write(
-    `\n✗ Extracted pubkey contains non-base64 characters; refusing to write it.\n` +
-      `  Pubkey: ${pubkey}\n` +
-      `  Open ${KEY_PUB_FILE} and patch tauri.conf.json by hand.\n`
-  );
-  process.exit(1);
-}
+const pubkey = toWrappedPubkey(readFileSync(KEY_PUB_FILE, 'utf-8'));
 
 const conf = JSON.parse(readFileSync(TAURI_CONF, 'utf-8'));
 conf.plugins ??= {};
@@ -128,7 +125,7 @@ try {
   // best-effort
 }
 
-process.stdout.write(`\n✓ Public key written into src-tauri/tauri.conf.json (raw form, ${pubkey.length} chars)\n`);
+process.stdout.write(`\n✓ Public key (wrapped form, ${pubkey.length} chars) written into src-tauri/tauri.conf.json\n`);
 process.stdout.write(`✓ Private key kept at ${KEY_FILE} (DO NOT COMMIT — already gitignored)\n\n`);
 process.stdout.write('Next steps:\n');
 process.stdout.write(`  1. Open ${secretsUrl} and add these two repository secrets:\n`);
