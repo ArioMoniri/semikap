@@ -7,10 +7,29 @@
   </defs>
   <rect width="320" height="84" rx="14" fill="url(#bg-linux)"/>
   <rect x="0.5" y="0.5" width="319" height="83" rx="13.5" fill="none" stroke="#3a3a3c" stroke-width="1"/>
-  <!-- Tux silhouette (simple-icons "linux" path), monochrome white, sized to ~40 px tall -->
-  <g fill="#fff" transform="translate(22 19) scale(1.95)">
-    <path d="M12.504.075c-.751.001-1.479.121-2.158.348C8.215 1.151 6.34 2.96 5.473 5.31c-.31.84-.443 1.7-.443 2.532 0 .517.05.995.142 1.46-.13.097-.252.21-.36.34-.84.99-1.275 2.245-1.275 3.508 0 .495.07.985.205 1.46-.595.39-.95 1.075-.95 1.83 0 .335.06.66.18.97-.165.16-.31.345-.42.555-.32.6-.45 1.275-.345 1.94.115.745.5 1.43 1.115 1.93.51.412 1.085.708 1.755.83.05.01.105.02.16.03.99 1.475 2.65 2.65 4.66 2.65 1.04 0 2.025-.275 2.92-.815.36-.21.69-.45 1.005-.71.295.42.78.71 1.355.71h.5c1.05 0 1.9-.85 1.9-1.9v-.4c.715-.59 1.255-1.39 1.55-2.31.16.04.325.07.5.07.99 0 1.95-.49 2.51-1.31.33-.49.51-1.07.51-1.665 0-.295-.05-.585-.135-.86.51-.43.75-1.04.75-1.665 0-.51-.165-1.005-.495-1.435-.295-.395-.735-.69-1.235-.83.165-.55.255-1.115.255-1.7 0-2.385-1.275-4.6-3.34-5.81C16.41.34 14.885 0 13.405 0h-.32c-.195 0-.39 0-.582.075z"/>
+
+  <!-- Tux drawn from primitives: head + body + eyes + beak. Recognisable at 48 px tall. -->
+  <g transform="translate(20 18)">
+    <!-- Body (rounded teardrop) -->
+    <path d="M11 22 C11 14 16 9 24 9 C32 9 37 14 37 22 L37 38 C37 44 32 48 24 48 C16 48 11 44 11 38 Z"
+          fill="#fff"/>
+    <!-- Belly highlight (slightly off-white, gives depth) -->
+    <ellipse cx="24" cy="34" rx="8" ry="10" fill="#e5e7eb"/>
+    <!-- Head (slightly smaller circle on top) -->
+    <circle cx="24" cy="14" r="11" fill="#fff"/>
+    <!-- Eye whites -->
+    <ellipse cx="20" cy="13" rx="3" ry="4" fill="#fff" stroke="#0b0b0e" stroke-width="0.6"/>
+    <ellipse cx="28" cy="13" rx="3" ry="4" fill="#fff" stroke="#0b0b0e" stroke-width="0.6"/>
+    <!-- Pupils -->
+    <circle cx="20.6" cy="13.6" r="1.4" fill="#0b0b0e"/>
+    <circle cx="28.6" cy="13.6" r="1.4" fill="#0b0b0e"/>
+    <!-- Beak (subtle, white-on-dark; no neon yellow) -->
+    <path d="M20.5 18.5 L24 22 L27.5 18.5 Z" fill="#cbd5e1"/>
+    <!-- Feet -->
+    <ellipse cx="17" cy="48" rx="4.5" ry="2.4" fill="#cbd5e1"/>
+    <ellipse cx="31" cy="48" rx="4.5" ry="2.4" fill="#cbd5e1"/>
   </g>
+
   <text x="92" y="36" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif"
         font-size="12" fill="#a1a1a6" letter-spacing="0.12em">DOWNLOAD FOR</text>
   <text x="92" y="62" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif"
