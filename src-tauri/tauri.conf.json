@@ -47,7 +47,7 @@
       "endpoints": [
         "https://github.com/ArioMoniri/semikap/releases/latest/download/latest.json"
       ],
-      "pubkey": "REPLACE_WITH_TAURI_SIGNER_PUBLIC_KEY"
+      "pubkey": "RWSlEQ2oGjUIiT2bSR21T7h8GplLRdy6fPS7xlAL4yYoDR+JOsPIZUAJ"
     }
   }
 }
