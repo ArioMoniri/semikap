@@ -4,6 +4,16 @@
   "version": "0.2.0",
   "type": "module",
   "description": "Transparent locAl Medical Image AnalysiS Tool — browser-only PWA for ONNX medical imaging models",
+  "license": "Apache-2.0",
+  "author": "Ariorad Moniri",
+  "homepage": "https://github.com/ArioMoniri/semikap#readme",
+  "bugs": {
+    "url": "https://github.com/ArioMoniri/semikap/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArioMoniri/semikap.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

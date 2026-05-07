@@ -2,31 +2,43 @@
   <img src="docs/assets/hero.svg" alt="TAMIAS — Transparent locAl Medical Image AnalysiS" width="100%"/>
 </p>
 
+<h3 align="center">
+  Browser-only PWA · ONNX inference · DICOM / NIfTI / NRRD · WebGPU · No upload
+</h3>
+
 <p align="center">
-  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="docs/assets/download-macos.svg" alt="Download for macOS (.dmg)" height="64"/></a>
+  <a href="docs/DEPLOY.md"><strong>📦 Deploy</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/UPDATER.md"><strong>🔄 Auto-update setup</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/ROADMAP.md"><strong>🗺️ Roadmap</strong></a>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md"><strong>📜 Changelog</strong></a>
+</p>
+
+<br/>
+
+<p align="center">
+  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="docs/assets/download-macos.svg" alt="Download for macOS" height="64"/></a>
   &nbsp;
-  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="docs/assets/download-windows.svg" alt="Download for Windows (.msi)" height="64"/></a>
+  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="docs/assets/download-windows.svg" alt="Download for Windows" height="64"/></a>
   &nbsp;
-  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="docs/assets/download-linux.svg" alt="Download for Linux (.AppImage)" height="64"/></a>
+  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="docs/assets/download-linux.svg" alt="Download for Linux" height="64"/></a>
 </p>
 
 <p align="center">
-  <img alt="Total downloads" src="https://img.shields.io/github/downloads/ArioMoniri/semikap/total?label=Downloads&style=flat-square"/>
-  <img alt="GitHub stars" src="https://img.shields.io/github/stars/ArioMoniri/semikap?style=flat-square"/>
-  <img alt="GitHub forks" src="https://img.shields.io/github/forks/ArioMoniri/semikap?style=flat-square"/>
-  <img alt="GitHub issues" src="https://img.shields.io/github/issues/ArioMoniri/semikap?style=flat-square"/>
-  <img alt="GitHub contributors" src="https://img.shields.io/github/contributors/ArioMoniri/semikap?style=flat-square"/>
-  <img alt="License" src="https://img.shields.io/github/license/ArioMoniri/semikap?style=flat-square"/>
-  <img alt="Latest release" src="https://img.shields.io/github/v/release/ArioMoniri/semikap?display_name=tag&style=flat-square"/>
-</p>
-
-<p align="center">
-  <strong>🐿️ Browser-only PWA · ONNX inference · DICOM / NIfTI / NRRD · WebGPU · No upload</strong>
+  <img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-22c55e?style=flat-square"/>
+  <img alt="App version" src="https://img.shields.io/badge/version-0.2.0-1d4ed8?style=flat-square"/>
+  <img alt="Stars" src="https://img.shields.io/github/stars/ArioMoniri/semikap?style=flat-square&color=facc15"/>
+  <img alt="Forks" src="https://img.shields.io/github/forks/ArioMoniri/semikap?style=flat-square&color=22c8db"/>
+  <img alt="Contributors" src="https://img.shields.io/github/contributors/ArioMoniri/semikap?style=flat-square&color=a855f7"/>
+  <img alt="Open issues" src="https://img.shields.io/github/issues/ArioMoniri/semikap?style=flat-square&color=ec4899"/>
+  <img alt="Total downloads" src="https://img.shields.io/github/downloads/ArioMoniri/semikap/total?label=downloads&style=flat-square&color=1d4ed8"/>
 </p>
 
 ---
 
-## ⚡ One-liner install on a server
+## ⚡ One-line install on a server
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ArioMoniri/semikap/main/install.sh | sh
@@ -34,7 +46,7 @@ curl -fsSL https://raw.githubusercontent.com/ArioMoniri/semikap/main/install.sh 
 
 Clones the repo into `./tamias`, runs `npm ci && npm run build`, starts the static server. Look for `TAMIAS_PORT=<port>` in the output and point your reverse proxy at that port.
 
-> ✅ **No manual edits required.** Every override has a runtime knob (`PORT`, `HOST`, Helm values). The literal string `placeholder` appears nowhere in source — only inside `package-lock.json` as part of an upstream Babel package's *name*, which is a transitive dependency of the React build toolchain and is not editable.
+> ✅ **No manual edits required.** Every override has a runtime knob (`PORT`, `HOST`, Helm values, `.env`). The literal string `placeholder` appears nowhere in source — only inside `package-lock.json` as part of an upstream Babel package's name, which is a transitive dependency of the React build toolchain and is not editable.
 
 ---
 
@@ -48,7 +60,7 @@ flowchart LR
   B --> C[🛠️ Worker<br/>resample · normalize · tile]
   C --> D{🚀 Backend?}
   D -- WebGPU --> E[🟦 GPU<br/>Metal / D3D12 / Vulkan]
-  D -- WebNN --> EN[🟪 NPU / ANE / CoreML / DirectML]
+  D -- WebNN --> EN[🟪 NPU / ANE / DirectML]
   D -- fallback --> F[🟫 WASM-SIMD<br/>multi-threaded]
   E --> G[🩻 Segmentation overlay<br/>MPR + 3D · brush correction]
   EN --> G
@@ -70,9 +82,40 @@ flowchart LR
 
 ---
 
+## 🚀 Deploy
+
+| Path | Command | When to pick |
+|---|---|---|
+| **Node only** | `npm run setup` | Single-machine, simplest |
+| **Docker** | `docker compose up -d --build` | Single host, containerised |
+| **Helm** | `helm install tamias deploy/helm/tamias` | Departmental K8s |
+| **systemd** | `systemctl enable --now tamias` | Long-running on a box |
+| **Tauri desktop** | `npm run desktop:build` | Native app per workstation |
+
+→ Full setup, reverse-proxy snippets, and configuration table: **[docs/DEPLOY.md](docs/DEPLOY.md)**
+
+---
+
+## 🔄 Auto-updates (Tauri Sparkle-style)
+
+Desktop installs self-update from a **signed** `latest.json` manifest published with each release. Sparkle-style on macOS / Windows / Linux via Tauri's official updater plugin.
+
+**Brand new machine?** Step-by-step from cloning to first release: **[docs/UPDATER.md → "From zero on a brand-new machine"](docs/UPDATER.md#-from-zero-on-a-brand-new-machine)**
+
+**TL;DR for an existing checkout:**
+
+```sh
+node scripts/init-updater.mjs    # one-time keypair generation (maintainer)
+node scripts/release.mjs minor   # cut + push v0.3.0; CI signs + publishes installers
+```
+
+→ Full setup + signing-key flow: **[docs/UPDATER.md](docs/UPDATER.md)**
+
+---
+
 ## 📦 Bring your own model
 
-TAMIAS does not ship any model weights. The user supplies an `.onnx` (or `.ort`) plus a sidecar `.json` manifest describing the preprocessing contract:
+TAMIAS ships no model weights. The user supplies an `.onnx` (or `.ort`) plus a sidecar `.json` manifest:
 
 ```json
 {
@@ -99,42 +142,13 @@ If `sha256` is present it's verified against the loaded ONNX bytes before the se
 
 ---
 
-## 🚀 Deploy
-
-| Path | Command | When to pick |
-|---|---|---|
-| **Node only** | `npm run setup` | Single-machine, simplest |
-| **Docker** | `docker compose up -d --build` | Single host, containerised |
-| **Helm** | `helm install tamias deploy/helm/tamias` | Departmental K8s |
-| **systemd** | `systemctl enable --now tamias` | Long-running on a box |
-| **Tauri desktop** | `npm run desktop:build` | Native app per workstation |
-
-→ Full setup, reverse-proxy snippets, and configuration table: **[docs/DEPLOY.md](docs/DEPLOY.md)**
-
----
-
-## 🔄 Auto-updates
-
-The desktop app self-updates from a **signed** `latest.json` manifest published with each release. Sparkle-style on macOS / Windows / Linux via Tauri's official updater plugin.
-
-```sh
-node scripts/init-updater.mjs    # one-time keypair generation (maintainer)
-node scripts/release.mjs minor   # cut + push v0.3.0; CI signs + publishes installers
-```
-
-→ Full setup + signing-key flow: **[docs/UPDATER.md](docs/UPDATER.md)**
-
----
-
 ## 🗺️ Repo map
 
-The diagram below regenerates on every push to `main` ([repo-visualizer](https://github.com/githubocto/repo-visualizer) / [GitHub Next](https://githubnext.com/projects/repo-visualization/)). Open the SVG for an interactive view.
+The diagram below regenerates on every push to `main` ([repo-visualizer](https://github.com/githubocto/repo-visualizer) by [GitHub Next](https://githubnext.com/projects/repo-visualization/)). A schematic placeholder is committed to the repo so this image always renders, even before the workflow has run.
 
 <p align="center">
-  <a href="docs/assets/repo-visualization.svg"><img src="docs/assets/repo-visualization.svg" alt="TAMIAS repo visualization" width="100%" onerror="this.style.display='none'"/></a>
+  <a href="docs/assets/repo-visualization.svg"><img src="docs/assets/repo-visualization.svg" alt="TAMIAS repo visualization" width="100%"/></a>
 </p>
-
-> 🗺️ The diagram appears once the [Repo visualization](.github/workflows/repo-visualizer.yml) workflow runs (first push to `main` after this commit). Until then, this image link 404s gracefully.
 
 ---
 
@@ -150,7 +164,7 @@ The diagram below regenerates on every push to `main` ([repo-visualizer](https:/
 
 - **[ROADMAP](docs/ROADMAP.md)** — phased delivery & what's next
 - **[DEPLOY](docs/DEPLOY.md)** — every supported deploy mode + reverse-proxy + configuration
-- **[UPDATER](docs/UPDATER.md)** — auto-update setup, signing keys, release flow
+- **[UPDATER](docs/UPDATER.md)** — auto-update setup, signing keys, release flow, **from-zero new-machine guide**
 - **[CHANGELOG](CHANGELOG.md)** — release notes
 - **[CONTRIBUTING](CONTRIBUTING.md)** — what we accept and the dev loop
 - **[SECURITY](SECURITY.md)** — threat model and reporting
