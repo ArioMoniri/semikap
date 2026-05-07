@@ -23,7 +23,7 @@
   &nbsp;
   <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="docs/assets/download-windows.svg" alt="Download for Windows" height="64"/></a>
   &nbsp;
-  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="docs/assets/download-linux.svg" alt="Download for Linux" height="64"/></a>
+  <a href="https://github.com/ArioMoniri/semikap/releases/latest"><img src="docs/assets/download-linux.png" alt="Download for Linux" height="64"/></a>
 </p>
 
 <p align="center">

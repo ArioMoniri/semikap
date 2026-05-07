@@ -35,7 +35,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "category": "Healthcare",
+    "category": "Medical",
     "shortDescription": "Transparent locAl Medical Image AnalysiS Tool",
     "longDescription": "Browser-only PWA for running ONNX medical-imaging models on local DICOM/NIfTI/NRRD files, packaged as a desktop application. No upload, no server-side inference, all processing runs on the user's device GPU via WebGPU.",
     "createUpdaterArtifacts": true
