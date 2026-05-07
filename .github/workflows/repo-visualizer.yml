@@ -1,10 +1,14 @@
 name: Repo visualization
 
-# Generates an interactive SVG diagram of the repo on every push to main,
+# Generates an interactive SVG diagram of the repo on every push to main and
 # commits it back as docs/assets/repo-visualization.svg. The README embeds
 # the SVG so visitors get a live map of the codebase.
 #
 # Powered by github/next/projects/repo-visualization (githubocto/repo-visualizer).
+#
+# This workflow is split into two steps so failures are easy to attribute:
+#   1) generate the SVG into docs/assets/repo-visualization.svg
+#   2) commit + push if the file changed (via stefanzweifel/git-auto-commit-action)
 
 on:
   push:
@@ -24,14 +28,30 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Required so the auto-commit step can push back to the same branch.
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Generate repo visualization
         uses: githubocto/repo-visualizer@0.9.1
         with:
           excluded_paths: 'node_modules,dist,dev-dist,.git,target,gen'
           output_file: 'docs/assets/repo-visualization.svg'
-          should_push: true
-          commit_message: 'chore(docs): refresh repo visualization'
-          branch: 'main'
+          # Important: do NOT push from inside the action — we commit
+          # separately so failures are easier to debug and the action
+          # doesn't fight the auto-commit step.
+          should_push: false
           root_path: ''
           max_depth: '7'
+
+      - name: Commit refreshed visualization
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore(docs): refresh repo visualization'
+          file_pattern: docs/assets/repo-visualization.svg
+          commit_user_name: 'github-actions[bot]'
+          commit_user_email: '41898282+github-actions[bot]@users.noreply.github.com'
+          commit_author: 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>'
+          # Skip the commit silently when the SVG hasn't changed.
+          skip_dirty_check: false
