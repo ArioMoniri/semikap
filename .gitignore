@@ -3,6 +3,8 @@ dist
 dev-dist
 .vite
 .DS_Store
+# Claude Code local session data (not part of the project)
+.claude/
 *.local
 *.log
 .env
