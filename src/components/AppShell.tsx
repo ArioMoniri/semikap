@@ -146,13 +146,28 @@ export function AppShell() {
     ) => {
       if (!viewerRef.current) return;
       const overlay = useAppStore.getState().overlay;
+      // Pull the source volume's sform from the latest store state — the
+      // closure captures `volume`-from-render at handler-creation time,
+      // which is normally fine, but reading from the store guarantees we
+      // see the volume that was loaded by the time inference completed.
+      const v = useAppStore.getState().volume;
+      const meta = v?.meta;
+      const affine = meta
+        ? {
+            ...(meta.srowX ? { srowX: meta.srowX } : {}),
+            ...(meta.srowY ? { srowY: meta.srowY } : {}),
+            ...(meta.srowZ ? { srowZ: meta.srowZ } : {}),
+            origin: meta.origin,
+          }
+        : undefined;
       await viewerRef.current.addMaskOverlay(
         'mask',
         mask,
         dims,
         spacing,
         overlay.colormap,
-        overlay.opacity
+        overlay.opacity,
+        affine
       );
     },
     []

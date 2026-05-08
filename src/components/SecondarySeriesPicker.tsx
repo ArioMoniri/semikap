@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Layers, Trash2 } from 'lucide-react';
+import { Layers, Trash2, Plus } from 'lucide-react';
 import { isFileSystemAccessSupported, pickFile, readDroppedFile } from '../lib/fs/filesystem';
 import { useAppStore } from '../lib/state/store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
@@ -91,8 +91,8 @@ export function SecondarySeriesPicker({ viewerRef }: Props) {
             {!isFileSystemAccessSupported() && ' Drag-and-drop is also supported.'}
           </CardDescription>
         </div>
-        <Button size="sm" onClick={handlePick} disabled={disabled}>
-          Add…
+        <Button size="sm" onClick={handlePick} disabled={disabled} className="shrink-0 gap-1.5">
+          <Plus className="h-3.5 w-3.5" /> Add file
         </Button>
       </CardHeader>
       <CardContent className="space-y-2 text-xs">

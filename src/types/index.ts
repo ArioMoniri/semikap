@@ -97,6 +97,17 @@ export interface VolumeMetadata {
   dims: [number, number, number];
   spacing: [number, number, number];
   origin: [number, number, number];
+  /**
+   * Source NIfTI sform/qform rows, when the loader exposed them, expressed as
+   * three rows of four floats each (srow_x, srow_y, srow_z). Carries the full
+   * voxel→world affine including any RAS axis flips/rotations. When absent we
+   * fall back to spacing*identity + origin in the mask writer, which is only
+   * correct for axis-aligned RAS volumes — every other case mis-overlays the
+   * AI mask in the 3D / MPR view, which is what we hit on CT_AVM.nii.gz.
+   */
+  srowX?: [number, number, number, number];
+  srowY?: [number, number, number, number];
+  srowZ?: [number, number, number, number];
   /** Voxel data type as reported by the loader. */
   dtype: 'int16' | 'uint16' | 'int32' | 'float32' | 'uint8';
   modality?: Modality;

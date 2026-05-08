@@ -21,9 +21,19 @@ export interface NiftiWriteParams {
   dims: [number, number, number];
   spacing: [number, number, number];
   origin?: [number, number, number];
+  /**
+   * Optional sform rows from the source volume — `srowX = [a,b,c,tx]` and
+   * friends — when present we copy them verbatim into the output sform/qform
+   * so the mask renders in exactly the same world coordinates as the source
+   * (including RAS axis flips). When absent we synthesize spacing*identity +
+   * origin, which only matches when the source was already axis-aligned.
+   */
+  srowX?: [number, number, number, number];
+  srowY?: [number, number, number, number];
+  srowZ?: [number, number, number, number];
 }
 
-export function writeNifti1Uint8({ mask, dims, spacing, origin }: NiftiWriteParams): Bytes {
+export function writeNifti1Uint8({ mask, dims, spacing, origin, srowX, srowY, srowZ }: NiftiWriteParams): Bytes {
   const [nx, ny, nz] = dims;
   const expectedVoxels = nx * ny * nz;
   if (mask.length !== expectedVoxels) {
@@ -86,30 +96,35 @@ export function writeNifti1Uint8({ mask, dims, spacing, origin }: NiftiWritePara
   dv.setInt16(252, 1, true);
   dv.setInt16(254, 1, true);
 
-  // Quaternion (identity rotation)
+  // Quaternion (identity rotation) — qform path is only used by readers that
+  // ignore sform; the sform we write below is the canonical affine.
   dv.setFloat32(256, 0.0, true); // quatern_b
   dv.setFloat32(260, 0.0, true); // quatern_c
   dv.setFloat32(264, 0.0, true); // quatern_d
-  const ox = origin?.[0] ?? 0;
-  const oy = origin?.[1] ?? 0;
-  const oz = origin?.[2] ?? 0;
+  const ox = srowX?.[3] ?? origin?.[0] ?? 0;
+  const oy = srowY?.[3] ?? origin?.[1] ?? 0;
+  const oz = srowZ?.[3] ?? origin?.[2] ?? 0;
   dv.setFloat32(268, ox, true); // qoffset_x
   dv.setFloat32(272, oy, true); // qoffset_y
   dv.setFloat32(276, oz, true); // qoffset_z
 
-  // srow_x/y/z (3x4 affine, identity scaled by spacing, with origin)
-  dv.setFloat32(280, spacing[0], true);
-  dv.setFloat32(284, 0, true);
-  dv.setFloat32(288, 0, true);
-  dv.setFloat32(292, ox, true);
-  dv.setFloat32(296, 0, true);
-  dv.setFloat32(300, spacing[1], true);
-  dv.setFloat32(304, 0, true);
-  dv.setFloat32(308, oy, true);
-  dv.setFloat32(312, 0, true);
-  dv.setFloat32(316, 0, true);
-  dv.setFloat32(320, spacing[2], true);
-  dv.setFloat32(324, oz, true);
+  // srow_x/y/z. Prefer the source NIfTI's affine when we have it (carries
+  // any RAS axis flips and rotations); fall back to spacing*identity + origin.
+  const sx = srowX ?? ([spacing[0], 0, 0, ox] as const);
+  const sy = srowY ?? ([0, spacing[1], 0, oy] as const);
+  const sz = srowZ ?? ([0, 0, spacing[2], oz] as const);
+  dv.setFloat32(280, sx[0], true);
+  dv.setFloat32(284, sx[1], true);
+  dv.setFloat32(288, sx[2], true);
+  dv.setFloat32(292, sx[3], true);
+  dv.setFloat32(296, sy[0], true);
+  dv.setFloat32(300, sy[1], true);
+  dv.setFloat32(304, sy[2], true);
+  dv.setFloat32(308, sy[3], true);
+  dv.setFloat32(312, sz[0], true);
+  dv.setFloat32(316, sz[1], true);
+  dv.setFloat32(320, sz[2], true);
+  dv.setFloat32(324, sz[3], true);
 
   // intent_name[16] @ 328
   writeAscii(u8, 328, 'label', 16);

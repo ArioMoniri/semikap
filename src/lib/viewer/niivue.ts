@@ -40,6 +40,10 @@ interface NVImageHeader {
   qoffset_x?: number;
   qoffset_y?: number;
   qoffset_z?: number;
+  /** sform rows when sform_code != 0 — the canonical voxel→world affine. */
+  srow_x?: number[];
+  srow_y?: number[];
+  srow_z?: number[];
 }
 
 export interface ProbeReading {
@@ -58,6 +62,9 @@ interface NVDriver {
   setPenValue(label: number, isFilledPen?: boolean): void;
   drawUndo(): void;
   closeDrawing(): void;
+  /** Allocate a draw bitmap matching the primary volume's voxel grid.
+   *  Without it, brush + eraser are silent no-ops in NiiVue 0.44.x. */
+  createEmptyDrawing?(): void;
   /** Snapshot of every painted voxel (label index per voxel). May be empty until a stroke happens. */
   drawBitmap?: Uint8Array | null;
   /** True once a brush stroke has been made. */
@@ -124,6 +131,15 @@ export class NiivueViewer {
     this.nv.updateGLVolume();
     this.primaryIndex = 0;
 
+    // Allocate the brush/eraser bitmap matching this volume's grid. Without
+    // this, every paint stroke in AnnotationPanel is a silent no-op because
+    // NiiVue 0.44 only auto-creates the bitmap on first stroke if a primary
+    // volume is already loaded — and even then it's racy across versions.
+    const driver = this.nv as unknown as NVDriver;
+    if (typeof driver.createEmptyDrawing === 'function') {
+      driver.createEmptyDrawing();
+    }
+
     return extractVolume(image);
   }
 
@@ -177,7 +193,20 @@ export class NiivueViewer {
     dims: [number, number, number],
     spacing: [number, number, number],
     colorMap: OverlayColorMap = 'red',
-    opacity = 0.55
+    opacity = 0.55,
+    /**
+     * Optional source affine for proper RAS alignment. Without it the mask is
+     * written with spacing*identity + (0,0,0) origin and ends up drifting
+     * relative to the source volume in the 3D / MPR view (visible on
+     * CT_AVM.nii.gz). When `srowX/Y/Z` from the primary's NIfTI header are
+     * passed through they are written verbatim into the mask's sform.
+     */
+    affine?: {
+      srowX?: [number, number, number, number];
+      srowY?: [number, number, number, number];
+      srowZ?: [number, number, number, number];
+      origin?: [number, number, number];
+    }
   ): Promise<void> {
     if (this.primaryIndex < 0) {
       throw new Error('No base volume loaded; cannot overlay a mask.');
@@ -187,7 +216,15 @@ export class NiivueViewer {
       if (v) this.nv.removeVolume(v);
       this.maskIndex = -1;
     }
-    const nifti = writeNifti1Uint8({ mask, dims, spacing });
+    const nifti = writeNifti1Uint8({
+      mask,
+      dims,
+      spacing,
+      ...(affine?.origin !== undefined ? { origin: affine.origin } : {}),
+      ...(affine?.srowX !== undefined ? { srowX: affine.srowX } : {}),
+      ...(affine?.srowY !== undefined ? { srowY: affine.srowY } : {}),
+      ...(affine?.srowZ !== undefined ? { srowZ: affine.srowZ } : {}),
+    });
     const overlay = await NVImage.loadFromUrl({
       url: URL.createObjectURL(new Blob([nifti as BlobPart])),
       name: ensureNiiName(name),
@@ -321,6 +358,17 @@ function extractVolume(image: NVImage): LoadedVolume {
   const origin: [number, number, number] = hdr
     ? [hdr.qoffset_x ?? 0, hdr.qoffset_y ?? 0, hdr.qoffset_z ?? 0]
     : [0, 0, 0];
+  // Capture the source NIfTI's sform rows so the AI mask can be written with
+  // the same voxel→world affine and overlays correctly in NiiVue's MPR + 3D.
+  const toSrow = (
+    arr: number[] | undefined
+  ): [number, number, number, number] | undefined =>
+    arr && arr.length >= 4
+      ? [arr[0]!, arr[1]!, arr[2]!, arr[3]!]
+      : undefined;
+  const srowX = toSrow(hdr?.srow_x);
+  const srowY = toSrow(hdr?.srow_y);
+  const srowZ = toSrow(hdr?.srow_z);
   const img = image.img;
   if (!img) throw new Error('NiiVue produced no voxel data for this volume.');
   const dtype = inferDtype(img);
@@ -330,7 +378,18 @@ function extractVolume(image: NVImage): LoadedVolume {
     | Int32Array
     | Uint8Array
     | Float32Array;
-  return { voxels, meta: { dims, spacing, origin, dtype } };
+  return {
+    voxels,
+    meta: {
+      dims,
+      spacing,
+      origin,
+      dtype,
+      ...(srowX ? { srowX } : {}),
+      ...(srowY ? { srowY } : {}),
+      ...(srowZ ? { srowZ } : {}),
+    },
+  };
 }
 
 function parseLocation(data: unknown): ProbeReading | null {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Brain, FileCheck2, History, Trash2 } from 'lucide-react';
+import { Brain, FileCheck2, History, Trash2, FolderOpen } from 'lucide-react';
 import { pickFile } from '../lib/fs/filesystem';
 import { parseManifest } from '../lib/inference/manifest';
 import {
@@ -127,8 +127,8 @@ export function ModelPicker({ onLoaded, current }: Props) {
             Pick an .onnx (or .ort) followed by its manifest .json sidecar.
           </CardDescription>
         </div>
-        <Button size="sm" onClick={handlePickModel}>
-          Load…
+        <Button size="sm" onClick={handlePickModel} className="shrink-0 gap-1.5">
+          <FolderOpen className="h-3.5 w-3.5" /> Pick .onnx
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
