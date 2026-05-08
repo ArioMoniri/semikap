@@ -3,6 +3,20 @@ import type { Bytes, VolumeMetadata } from '../../types';
 import { writeNifti1Uint8 } from '../export/nifti';
 
 /**
+ * Ensure a name carries a recognised volume extension. NiiVue derives the
+ * loader from the URL or, when given a blob: URL, falls back to parsing
+ * extension from the `name` field. If neither has one, NVImage internally
+ * does `name.split('.').pop().toUpperCase()` on `undefined` and throws —
+ * which is what produced the "Inference failed: undefined is not an object
+ * (evaluating 'ext.toUpperCase')" crash on synthesised mask overlays whose
+ * name we set to a plain `'mask'`.
+ */
+const VOLUME_EXT_RE = /\.(nii|nii\.gz|nrrd|mha|mgz|dcm)$/i;
+function ensureNiiName(name: string): string {
+  return VOLUME_EXT_RE.test(name) ? name : `${name}.nii`;
+}
+
+/**
  * Thin wrapper around NiiVue. Responsibilities:
  *   - Mount the renderer onto a <canvas>
  *   - Load a primary volume from raw bytes (DICOM/NIfTI/NRRD/MHA detection by extension)
@@ -104,7 +118,7 @@ export class NiivueViewer {
 
     const image = await NVImage.loadFromUrl({
       url: URL.createObjectURL(new Blob([bytes as BlobPart])),
-      name,
+      name: ensureNiiName(name),
     });
     this.nv.addVolume(image);
     this.nv.updateGLVolume();
@@ -135,7 +149,7 @@ export class NiivueViewer {
     }
     const image = await NVImage.loadFromUrl({
       url: URL.createObjectURL(new Blob([bytes as BlobPart])),
-      name,
+      name: ensureNiiName(name),
       opacity,
       colormap,
     });
@@ -176,7 +190,7 @@ export class NiivueViewer {
     const nifti = writeNifti1Uint8({ mask, dims, spacing });
     const overlay = await NVImage.loadFromUrl({
       url: URL.createObjectURL(new Blob([nifti as BlobPart])),
-      name,
+      name: ensureNiiName(name),
       colormap: colorMap,
       opacity,
     });
