@@ -8,6 +8,13 @@ on:
 permissions:
   contents: write
 
+# Serialise simultaneous runs against the same tag so two parallel workflow
+# invocations can't race on the same draft release (which is what created the
+# orphaned v0.5.0 + missing macOS Intel .dmg + corrupted latest.json mess).
+concurrency:
+  group: tauri-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     strategy:
@@ -152,7 +159,10 @@ jobs:
             TAMIAS is for research, education, and demonstration purposes. **Not cleared for clinical decision-making.** Every export is stamped accordingly.
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: true
+          # Disabled: tauri-action's per-job latest.json upload races across the
+          # matrix. We reassemble it once in alias-assets after all builds are
+          # done — see "Reassemble latest.json from all .sig files" below.
+          includeUpdaterJson: false
           args: --target ${{ matrix.target }}
 
   # Republish each platform-specific bundle under a stable, version-less alias
@@ -199,25 +209,111 @@ jobs:
         run: |
           set -e
           # List assets via the release-id endpoint so this works on draft releases too.
-          ASSETS=$(gh api "repos/${{ github.repository }}/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
+          gh api "repos/${{ github.repository }}/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name' > /tmp/assets.txt
           echo "Assets in $TAG (release id $RELEASE_ID):"
-          printf '  %s\n' $ASSETS
+          sed 's|^|  |' /tmp/assets.txt
           mkdir -p /tmp/dl
-          for name in $ASSETS; do
-            # Strip "_<X.Y.Z>" or "-<X.Y.Z>" right after "TAMIAS"
-            alias=$(echo "$name" | sed -E 's|^TAMIAS[_-][0-9]+\.[0-9]+\.[0-9]+[_-]|TAMIAS_|; s|^TAMIAS-[0-9]+\.[0-9]+\.[0-9]+-|TAMIAS-|')
+          while IFS= read -r name; do
+            # README expects these exact alias names (matches the buttons in README.md):
+            #   TAMIAS_aarch64.dmg, TAMIAS_x64.dmg
+            #   TAMIAS_x64-setup.exe, TAMIAS_x64_en-US.msi (+ .sig)
+            #   TAMIAS_amd64.AppImage, TAMIAS_amd64.deb (+ .sig)
+            #   TAMIAS_x86_64.rpm (+ .sig)
+            #   TAMIAS_aarch64.app.tar.gz, TAMIAS_x64.app.tar.gz (+ .sig) — already versionless
+            case "$name" in
+              # Strip "_<X.Y.Z>" right after "TAMIAS_"
+              TAMIAS_*.dmg | \
+              TAMIAS_*-setup.exe | TAMIAS_*-setup.exe.sig | \
+              TAMIAS_*_en-US.msi | TAMIAS_*_en-US.msi.sig | \
+              TAMIAS_*.AppImage | TAMIAS_*.AppImage.sig | \
+              TAMIAS_*.deb | TAMIAS_*.deb.sig)
+                alias=$(echo "$name" | sed -E 's|^TAMIAS_[0-9]+\.[0-9]+\.[0-9]+_|TAMIAS_|')
+                ;;
+              # RPM uses dash separators + a release number: TAMIAS-0.5.1-1.x86_64.rpm
+              TAMIAS-*-*.x86_64.rpm | TAMIAS-*-*.x86_64.rpm.sig)
+                alias=$(echo "$name" | sed -E 's|^TAMIAS-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+\.x86_64|TAMIAS_x86_64|')
+                ;;
+              *)
+                alias="$name"
+                ;;
+            esac
             if [ "$alias" = "$name" ]; then
               echo "  skip (already alias / no version): $name"
               continue
             fi
             echo "  alias: $name → $alias"
-            # `gh release download` accepts drafts when the tag matches uniquely;
-            # if it ever stops working we can fall back to /assets/{id} downloads.
             gh release download "$TAG" -p "$name" -D /tmp/dl --clobber
             mv "/tmp/dl/$name" "/tmp/dl/$alias"
             gh release upload "$TAG" "/tmp/dl/$alias" --repo "${{ github.repository }}" --clobber
             rm -f "/tmp/dl/$alias"
-          done
+          done < /tmp/assets.txt
+
+      # Single-writer reassembly of latest.json from every .sig produced by the
+      # matrix builds. This replaces tauri-action's per-job latest.json upload
+      # (disabled above with includeUpdaterJson:false) which races across the
+      # parallel matrix and lost macOS entries on v0.5.0.
+      - name: Reassemble latest.json from all .sig files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          RELEASE_ID: ${{ steps.rel.outputs.release_id }}
+        run: |
+          set -e
+          REPO=${{ github.repository }}
+          BASE_URL="https://github.com/$REPO/releases/download/$TAG"
+          VERSION=${TAG#v}
+          mkdir -p /tmp/sigs
+          rm -f /tmp/sigs/*
+
+          # Fetch every .sig present on the release. Order doesn't matter.
+          gh api "repos/$REPO/releases/$RELEASE_ID/assets?per_page=100" \
+            --jq '.[] | select(.name|endswith(".sig")) | .name' > /tmp/sig_names.txt
+          echo ".sig files on release:"
+          sed 's|^|  |' /tmp/sig_names.txt
+          while IFS= read -r sig; do
+            gh release download "$TAG" --repo "$REPO" -p "$sig" -D /tmp/sigs --clobber
+          done < /tmp/sig_names.txt
+
+          # Pull the release body so latest.json's `notes` field stays in sync.
+          gh api "repos/$REPO/releases/$RELEASE_ID" --jq '.body' > /tmp/notes.md
+
+          # Helper: jq-merge one platform entry only if its .sig actually exists.
+          PLATFORMS='{}'
+          add_platform() {
+            local key="$1" sig_file="$2" bundle="$3"
+            if [ -f "/tmp/sigs/$sig_file" ]; then
+              local sig_b64
+              sig_b64=$(cat "/tmp/sigs/$sig_file")
+              PLATFORMS=$(echo "$PLATFORMS" | jq \
+                --arg k "$key" --arg s "$sig_b64" --arg u "$BASE_URL/$bundle" \
+                '.[$k] = {signature: $s, url: $u}')
+              echo "  + $key → $bundle"
+            else
+              echo "  - $key → $sig_file MISSING (skipped)"
+            fi
+          }
+
+          # Tauri v2 platform keys + their updater bundles. .dmg files are NOT
+          # the updater target on macOS — .app.tar.gz is. On Linux the AppImage
+          # is the canonical updater bundle. On Windows we point at the NSIS
+          # installer (matches tauri-action's default).
+          add_platform "darwin-aarch64" "TAMIAS_aarch64.app.tar.gz.sig"     "TAMIAS_aarch64.app.tar.gz"
+          add_platform "darwin-x86_64"  "TAMIAS_x64.app.tar.gz.sig"         "TAMIAS_x64.app.tar.gz"
+          add_platform "linux-x86_64"   "TAMIAS_${VERSION}_amd64.AppImage.sig" "TAMIAS_${VERSION}_amd64.AppImage"
+          add_platform "windows-x86_64" "TAMIAS_${VERSION}_x64-setup.exe.sig"  "TAMIAS_${VERSION}_x64-setup.exe"
+
+          jq -n \
+            --arg v "$VERSION" \
+            --arg pd "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" \
+            --rawfile notes /tmp/notes.md \
+            --argjson p "$PLATFORMS" \
+            '{version:$v, notes:$notes, pub_date:$pd, platforms:$p}' \
+            > /tmp/latest.json
+
+          echo "--- latest.json platform keys ---"
+          jq '.platforms | keys' /tmp/latest.json
+
+          gh release upload "$TAG" /tmp/latest.json --repo "$REPO" --clobber
 
       - name: Attach example test kit to the release
         env:
