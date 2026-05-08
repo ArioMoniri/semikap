@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ShieldCheck, X, Crosshair, ExternalLink as ExternalLinkIcon, Copy as CopyIcon, Check as CheckIcon } from 'lucide-react';
+import { ShieldCheck, X, Crosshair, ExternalLink as ExternalLinkIcon, Copy as CopyIcon, Check as CheckIcon, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { detectBackend } from '../lib/diagnostics/gpu';
 import type { ProbeReading } from './Viewer';
@@ -45,6 +45,51 @@ export function AppShell() {
   const viewerRef = useRef<ViewerHandle | null>(null);
   const [studyHint, setStudyHint] = useState<string>('');
   const [probe, setProbe] = useState<ProbeReading | null>(null);
+
+  // ── Resizable + collapsible sidebar ─────────────────────────────────────
+  // Width persists to localStorage; collapsed state is session-only so the
+  // user gets a visible sidebar on a fresh launch. Min 280px (panels stay
+  // legible), max 720px (don't crowd the viewer).
+  const SIDEBAR_MIN = 280;
+  const SIDEBAR_MAX = 720;
+  const SIDEBAR_DEFAULT = 400;
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return SIDEBAR_DEFAULT;
+    const v = Number(window.localStorage.getItem('tamias.sidebarWidth'));
+    return Number.isFinite(v) && v >= SIDEBAR_MIN && v <= SIDEBAR_MAX ? v : SIDEBAR_DEFAULT;
+  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const draggingRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('tamias.sidebarWidth', String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  const handleResizeStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = (ev: PointerEvent) => {
+      if (!draggingRef.current) return;
+      const next = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, startW + (ev.clientX - startX)));
+      setSidebarWidth(next);
+    };
+    const onUp = () => {
+      draggingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, [sidebarWidth]);
+
+  const toggleSidebar = useCallback(() => setSidebarCollapsed((c) => !c), []);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -157,8 +202,15 @@ export function AppShell() {
       </header>
 
       {/* Main */}
-      <main className="grid flex-1 min-h-0 grid-cols-1 lg:grid-cols-[400px_1fr]">
-        <aside className="flex min-h-0 flex-col gap-2.5 overflow-y-auto border-r border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
+      <main className="flex flex-1 min-h-0">
+        <aside
+          className={
+            sidebarCollapsed
+              ? 'hidden'
+              : 'flex min-h-0 shrink-0 flex-col gap-2.5 overflow-y-auto border-r border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950'
+          }
+          style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
+        >
           <GpuInfoPanel backend={backend} />
 
           <CollapsibleSection title="Inputs" defaultOpen trailing={volume ? 'loaded' : 'pick'}>
@@ -231,16 +283,48 @@ export function AppShell() {
           )}
         </aside>
 
+        {/* Drag handle — hidden when sidebar is collapsed so the toggle is the
+            only way to bring it back. 4px hit area, 1px visual line. */}
+        {!sidebarCollapsed && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            onPointerDown={handleResizeStart}
+            onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT)}
+            className="group relative w-1 shrink-0 cursor-col-resize bg-slate-200 hover:bg-tamias-accent/60 dark:bg-slate-800"
+            title="Drag to resize · double-click to reset"
+          >
+            <div className="pointer-events-none absolute inset-y-0 -left-1 -right-1" />
+          </div>
+        )}
+
         <section
           id="viewer"
           tabIndex={-1}
-          className="relative min-h-0 bg-black"
+          className="relative flex-1 min-h-0 min-w-0 bg-black"
           aria-label="Image viewer"
         >
+          {/* Collapse / expand toggle. Floats over the viewer at top-left, so
+              it remains reachable when the sidebar is hidden. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleSidebar}
+            aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+            title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+            className="absolute left-2 top-2 z-20 h-7 w-7 rounded-md border border-white/15 bg-black/45 p-0 text-white/85 backdrop-blur hover:bg-black/65"
+          >
+            {sidebarCollapsed ? (
+              <PanelLeftOpen className="h-3.5 w-3.5" />
+            ) : (
+              <PanelLeftClose className="h-3.5 w-3.5" />
+            )}
+          </Button>
           <Viewer ref={viewerRef} />
           {studyMeta && (
             <div
-              className="pointer-events-none absolute left-2 top-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"
+              className="pointer-events-none absolute left-11 top-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"
               role="status"
               aria-label="Study metadata"
             >

@@ -15,7 +15,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `devtools` enables the Web Inspector in PRODUCTION builds. Without it, users
+# can't right-click → Inspect Element on the installed .app — meaning we can't
+# diagnose worker / ORT failures unless we ship a debug build. The flag is
+# already on in `tauri dev` regardless; this line just turns it on for `tauri
+# build` too. Cost: a few hundred KB of WebKit inspector glue per binary.
+tauri = { version = "2", features = ["devtools"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-shell = "2"
