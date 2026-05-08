@@ -6,6 +6,13 @@
   "permissions": [
     "core:default",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    {
+      "identifier": "shell:allow-open",
+      "allow": [
+        { "url": "https://github.com/ArioMoniri/semikap" },
+        { "url": "https://github.com/ArioMoniri/semikap/**" }
+      ]
+    }
   ]
 }

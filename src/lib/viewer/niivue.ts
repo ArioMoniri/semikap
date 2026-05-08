@@ -69,6 +69,10 @@ export class NiivueViewer {
       show3Dcrosshair: true,
       isOrientCube: false,
       multiplanarForceRender: true,
+      // NiiVue prints its own giant "waiting for images..." banner before any
+      // volume loads. Our React empty-state already covers this case more
+      // tastefully, so suppress the canvas text.
+      loadingText: '',
     });
     void this.nv.attachToCanvas(canvas);
 

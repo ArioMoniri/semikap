@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ShieldCheck, X, Crosshair, ExternalLink } from 'lucide-react';
+import { ShieldCheck, X, Crosshair, ExternalLink as ExternalLinkIcon } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { detectBackend } from '../lib/diagnostics/gpu';
 import type { ProbeReading } from './Viewer';
@@ -14,8 +14,11 @@ import { GpuInfoPanel } from './GpuInfoPanel';
 import { OverlayControls } from './OverlayControls';
 import { AnnotationPanel } from './AnnotationPanel';
 import { SettingsPanel } from './SettingsPanel';
+import { AboutPanel } from './AboutPanel';
+import { ExamplesPanel } from './ExamplesPanel';
 import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
+import { ExternalLink } from './ExternalLink';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
@@ -144,14 +147,12 @@ export function AppShell() {
           )}
           <Badge variant="outline">v{__APP_VERSION__}</Badge>
           <ThemeToggle />
-          <a
+          <ExternalLink
             href={REPO_URL}
-            target="_blank"
-            rel="noreferrer"
             className="ml-1 inline-flex items-center gap-1 rounded-md border border-white/15 bg-white/10 px-2 py-1 text-[11px] text-white/80 hover:bg-white/15"
           >
-            GitHub <ExternalLink className="h-3 w-3" />
-          </a>
+            GitHub <ExternalLinkIcon className="h-3 w-3" />
+          </ExternalLink>
         </div>
       </header>
 
@@ -168,6 +169,10 @@ export function AppShell() {
               />
               <SecondarySeriesPicker viewerRef={viewerRef} />
             </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Examples" defaultOpen={!volume} trailing={volume ? '' : 'try one'}>
+            <ExamplesPanel viewerRef={viewerRef} />
           </CollapsibleSection>
 
           <CollapsibleSection title="Model" defaultOpen trailing={model ? 'ready' : 'pick'}>
@@ -188,6 +193,10 @@ export function AppShell() {
 
           <CollapsibleSection title="Export" defaultOpen={!!result}>
             <ExportPanel viewerRef={viewerRef} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="About & updates" defaultOpen={false}>
+            <AboutPanel />
           </CollapsibleSection>
 
           <CollapsibleSection title="Settings" defaultOpen={false}>

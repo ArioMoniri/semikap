@@ -118,3 +118,58 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           args: --target ${{ matrix.target }}
+
+  # Republish each platform-specific bundle under a stable, version-less alias
+  # so the README download buttons always point at
+  #   /releases/latest/download/TAMIAS_<arch>.<ext>
+  # without needing a per-release README edit. Also attach the example test
+  # kit as release artifacts so the in-app "Download examples" button has a
+  # consistent fetch URL.
+  alias-assets:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mirror versioned bundles → versionless aliases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          ASSETS=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq '.assets[].name')
+          echo "Assets in $TAG:"
+          printf '  %s\n' $ASSETS
+          mkdir -p /tmp/dl
+          for name in $ASSETS; do
+            # Strip "_<X.Y.Z>" or "-<X.Y.Z>" right after "TAMIAS"
+            alias=$(echo "$name" | sed -E 's|^TAMIAS[_-][0-9]+\.[0-9]+\.[0-9]+[_-]|TAMIAS_|; s|^TAMIAS-[0-9]+\.[0-9]+\.[0-9]+-|TAMIAS-|')
+            if [ "$alias" = "$name" ]; then
+              echo "  skip (already alias / no version): $name"
+              continue
+            fi
+            echo "  alias: $name → $alias"
+            gh release download "$TAG" -p "$name" -D /tmp/dl --clobber
+            mv "/tmp/dl/$name" "/tmp/dl/$alias"
+            gh release upload "$TAG" "/tmp/dl/$alias" --repo "${{ github.repository }}" --clobber
+            rm -f "/tmp/dl/$alias"
+          done
+
+      - name: Attach example test kit to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          # Pack the smoke-test kit into a single zip + upload individual files
+          # so the in-app downloader has a stable URL.
+          mkdir -p /tmp/kit
+          cp examples/CT_AVM.nii.gz examples/threshold_seg.onnx examples/threshold_seg.json /tmp/kit/
+          (cd /tmp/kit && zip -j tamias-examples.zip CT_AVM.nii.gz threshold_seg.onnx threshold_seg.json)
+          for f in tamias-examples.zip CT_AVM.nii.gz threshold_seg.onnx threshold_seg.json; do
+            gh release upload "$TAG" "/tmp/kit/$f" --repo "${{ github.repository }}" --clobber
+            echo "  uploaded $f"
+          done

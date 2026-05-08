@@ -71,16 +71,33 @@ Volumetrics row should look something like:
 
 Where N is roughly the number of CT voxels with HU > midpoint of the volume's intensity range. Visually it'll highlight bone + dense contrast in the CT.
 
-## Going beyond the smoke test
+## Going beyond the smoke test — more imaging data
 
-Once you've confirmed TAMIAS works end-to-end, swap in a real medical AI model. Public sources:
+If you want larger / more diverse images to play with, all of the below are free and public:
 
-- **[MONAI Model Zoo](https://monai.io/model-zoo.html)** — has bundles for spleen, prostate, pancreas, liver, etc. Each can be exported to ONNX with the bundle's `convert_to_onnx.py` script.
-- **[TotalSegmentator](https://github.com/wasserth/TotalSegmentator)** — 104-class organ segmentation. PyTorch by default; community ONNX exports exist.
-- **[MedSAM](https://github.com/bowang-lab/MedSAM)** — interactive segmentation. Has ONNX export instructions.
+| Source | What | License | Size |
+|---|---|---|---|
+| **[niivue-demo-images](https://github.com/niivue/niivue-demo-images)** | 30+ small CT/MR/fMRI NIfTI files (the source of `CT_AVM.nii.gz`) | CC-BY-SA | ~80 MB total |
+| **[Medical Decathlon](http://medicaldecathlon.com/)** | 10 organ-segmentation tasks (Spleen smallest, ~1.5 GB) | CC-BY-SA | 1.5–60 GB per task |
+| **[TCIA — The Cancer Imaging Archive](https://www.cancerimagingarchive.net/collections/)** | Hundreds of de-identified DICOM collections | varies (mostly CC-BY) | varies |
+| **[OpenNeuro](https://openneuro.org/)** | Neuroimaging datasets in BIDS format (NIfTI + JSON) | CC0 / PDDL | varies |
+| **[Visible Human (NIH)](https://www.nlm.nih.gov/research/visible/visible_human.html)** | Whole-body cryosections + CT + MR | public domain | very large |
+| **[3D Slicer sample data](https://www.slicer.org/wiki/SampleData)** | Brain MR, head CT, ultrasound, microscopy | varies | small |
+
+For DICOM specifically, the smallest reliable source is **[3D Slicer's MR-head sample](https://github.com/Slicer/SlicerTestingData)** (~10 MB DICOM series).
+
+## Going beyond the smoke test — real ONNX models
+
+Swap the toy threshold model for a real medical AI:
+
+- **[MONAI Model Zoo](https://monai.io/model-zoo.html)** — bundles for spleen, prostate, pancreas, liver, etc. Each can be exported to ONNX with the bundle's `convert_to_onnx.py` script.
+- **[TotalSegmentator](https://github.com/wasserth/TotalSegmentator)** — 104-class whole-body organ segmentation. PyTorch by default; community ONNX exports exist on Hugging Face.
+- **[MedSAM](https://github.com/bowang-lab/MedSAM)** — interactive medical Segment Anything. Has ONNX export instructions in their repo.
+- **[SAM-Med2D](https://github.com/OpenGVLab/SAM-Med2D)** — 2D medical SAM with smaller weights.
+- **[nnU-Net pre-trained models](https://github.com/MIC-DKFZ/nnUNet)** — DKFZ's task-specific models. Convert via `nnUNet_export_model_to_onnx`.
 - **[Hugging Face](https://huggingface.co/models?search=medical+onnx)** — search "medical onnx".
 
-Pair any of these with the matching modality + spacing + normalisation in your manifest, and TAMIAS will run them. See the **[Bring your own model](../README.md#-bring-your-own-model)** section of the main README for the full manifest schema.
+Pair any of these with a matching modality + spacing + normalisation in your manifest, and TAMIAS will run them. See **[Bring your own model](../README.md#-bring-your-own-model)** for the full manifest schema.
 
 ## License
 

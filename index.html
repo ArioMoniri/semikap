@@ -17,9 +17,14 @@
       - worker-src 'self' blob: : Vite ships workers as blob URLs in dev
       - img-src 'self' data: blob: : viewer renders to canvas/blob URLs
     -->
+    <!--
+      connect-src adds raw.githubusercontent.com so the in-app "Download
+      example kit" button can fetch the smoke-test files from this repo.
+      Image data still cannot be uploaded — fetch() is one-way (download).
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src 'self' blob: data:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+      content="default-src 'self'; connect-src 'self' blob: data: https://raw.githubusercontent.com; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
     />
 
     <title>TAMIAS — Local Medical Image Analysis</title>
