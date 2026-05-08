@@ -123,13 +123,13 @@ jobs:
 
             | Platform | Installer |
             |---|---|
-            | 🍎 **macOS** Apple Silicon | [`TAMIAS_aarch64.dmg`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_aarch64.dmg) |
-            | 🍎 **macOS** Intel | [`TAMIAS_x64.dmg`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_x64.dmg) |
-            | 🪟 **Windows** (NSIS) | [`TAMIAS_x64-setup.exe`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_x64-setup.exe) |
-            | 🪟 **Windows** (MSI) | [`TAMIAS_x64_en-US.msi`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_x64_en-US.msi) |
-            | 🐧 **Linux** AppImage | [`TAMIAS_amd64.AppImage`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_amd64.AppImage) |
-            | 🐧 **Linux** Debian/Ubuntu | [`TAMIAS_amd64.deb`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_amd64.deb) |
-            | 🐧 **Linux** Fedora/RHEL | [`TAMIAS_x86_64.rpm`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_x86_64.rpm) |
+            | 🍎 **macOS** Apple Silicon | [`Tamias_aarch64.dmg`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Tamias_aarch64.dmg) |
+            | 🍎 **macOS** Intel | [`Tamias_x64.dmg`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Tamias_x64.dmg) |
+            | 🪟 **Windows** (NSIS) | [`Tamias_x64-setup.exe`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Tamias_x64-setup.exe) |
+            | 🪟 **Windows** (MSI) | [`Tamias_x64_en-US.msi`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Tamias_x64_en-US.msi) |
+            | 🐧 **Linux** AppImage | [`Tamias_amd64.AppImage`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Tamias_amd64.AppImage) |
+            | 🐧 **Linux** Debian/Ubuntu | [`Tamias_amd64.deb`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Tamias_amd64.deb) |
+            | 🐧 **Linux** Fedora/RHEL | [`Tamias_x86_64.rpm`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Tamias_x86_64.rpm) |
             | 🧪 **Smoke-test kit** | [`tamias-examples.zip`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/tamias-examples.zip) (CT NIfTI + tiny ONNX + manifest, ~470 KB) |
 
             ### 🔐 What's signed
