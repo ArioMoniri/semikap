@@ -8,6 +8,7 @@ import type {
   VolumeMetadata,
 } from '../../types';
 import type { PickedFile } from '../fs/filesystem';
+import type { SamPrompt } from '../sam/types';
 
 export interface VolumeRecord {
   source: PickedFile;
@@ -81,6 +82,43 @@ interface AppState {
   errors: AppError[];
   pushError(message: string, opts?: { stack?: string }): void;
   clearErrors(): void;
+
+  /** SAM (Segment Anything) interactive-annotation state — see docs/SAM.md. */
+  sam: SamState;
+  setSam(patch: Partial<SamState>): void;
+  addSamPrompt(p: SamPrompt): void;
+  removeSamPrompt(idx: number): void;
+  clearSamPrompts(): void;
+
+  /** User-level UI preferences that persist across sessions. */
+  prefs: UserPrefs;
+  setPrefs(patch: Partial<UserPrefs>): void;
+}
+
+export interface SamState {
+  /** True once an encoder + decoder ONNX have been loaded (from disk or
+   *  HuggingFace cache) and verified. Drives the SamPanel UI. */
+  modelLoaded: boolean;
+  /** Friendly name shown when `modelLoaded` is true (e.g. "Xenova/medsam"). */
+  modelName: string | null;
+  /** Active prompt list — see SamPrompt for the shape. The decoder runs
+   *  against the cached embedding + this list every time it changes. */
+  prompts: SamPrompt[];
+}
+
+export interface UserPrefs {
+  /**
+   * Where canvas screenshots get saved.
+   *  - 'ask': prompt for a path each time (current default behaviour)
+   *  - 'auto': save to the directory in `screenshotDir` without prompting
+   * The "auto" path requires File System Access API support; on
+   * fallbacks the toolbar falls back to "ask" silently.
+   */
+  screenshotMode: 'ask' | 'auto';
+  /** When `screenshotMode === 'auto'`, save to this directory handle.
+   *  Stored as a serialisable name; the actual handle lives in OPFS state
+   *  (we'll expand to FileSystemDirectoryHandle persistence in v0.5.8). */
+  screenshotDirName: string | null;
 }
 
 /**
@@ -128,4 +166,66 @@ export const useAppStore = create<AppState>((set) => ({
       ],
     })),
   clearErrors: () => set({ errors: [] }),
+
+  sam: {
+    modelLoaded: false,
+    modelName: null,
+    prompts: [],
+  },
+  setSam: (patch) => set((s) => ({ sam: { ...s.sam, ...patch } })),
+  addSamPrompt: (p) =>
+    set((s) => ({ sam: { ...s.sam, prompts: [...s.sam.prompts, p] } })),
+  removeSamPrompt: (idx) =>
+    set((s) => ({
+      sam: { ...s.sam, prompts: s.sam.prompts.filter((_, i) => i !== idx) },
+    })),
+  clearSamPrompts: () => set((s) => ({ sam: { ...s.sam, prompts: [] } })),
+
+  prefs: loadPrefs(),
+  setPrefs: (patch) =>
+    set((s) => {
+      const next = { ...s.prefs, ...patch };
+      savePrefs(next);
+      return { prefs: next };
+    }),
 }));
+
+// ── Local-storage backed preferences ────────────────────────────────────
+//
+// Keep the prefs simple — current schema is just the screenshot-save mode.
+// We persist to localStorage so the user'\''s choice survives reload + the
+// auto-update self-restart, but each pref is optional so missing keys
+// degrade to safe defaults.
+
+const PREFS_KEY = 'tamias.userPrefs.v1';
+
+function loadPrefs(): UserPrefs {
+  if (typeof window === 'undefined') return defaultPrefs();
+  try {
+    const raw = window.localStorage.getItem(PREFS_KEY);
+    if (!raw) return defaultPrefs();
+    const parsed = JSON.parse(raw) as Partial<UserPrefs>;
+    return {
+      ...defaultPrefs(),
+      ...parsed,
+    };
+  } catch {
+    return defaultPrefs();
+  }
+}
+
+function savePrefs(p: UserPrefs): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+  } catch {
+    /* quota / privacy mode — silently ignore */
+  }
+}
+
+function defaultPrefs(): UserPrefs {
+  return {
+    screenshotMode: 'ask',
+    screenshotDirName: null,
+  };
+}

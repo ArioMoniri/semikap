@@ -14,6 +14,7 @@ import { GpuInfoPanel } from './GpuInfoPanel';
 import { OverlayControls } from './OverlayControls';
 import { LayoutPanel } from './LayoutPanel';
 import { ToolsPanel } from './ToolsPanel';
+import { SamPanel } from './SamPanel';
 import { AnnotationPanel } from './AnnotationPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { AboutPanel } from './AboutPanel';
@@ -334,6 +335,14 @@ export function AppShell() {
 
           <CollapsibleSection title="Inference" defaultOpen trailing={result ? 'done' : ''}>
             <InferencePanel onResultMask={handleResultMask} />
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="SAM (assisted)"
+            defaultOpen={false}
+            trailing="preview"
+          >
+            <SamPanel />
           </CollapsibleSection>
 
           <CollapsibleSection title="Layout" defaultOpen={false}>

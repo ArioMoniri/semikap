@@ -82,6 +82,34 @@ A browser-only PWA for running ONNX medical-imaging models on local DICOM/NIfTI/
 - 🩻 ROI rectangle / ellipse / freehand (overlay annotations, exportable) — pending
 - 📐 Angle / Cobb-angle measurement — pending
 
+### v0.5.8 — SAM (Segment Anything) assisted annotation
+
+Branch: `feat/sam-radiology`. Scaffolding ✅ shipped on the branch; runtime ONNX execution in the next iteration.
+
+**Phase A — Scaffolding ✅ shipped**
+- 🪄 New "SAM (assisted)" sidebar section: onboarding (local manifest + ONNX or HuggingFace one-click), prompt UI (positive points / negative points / box / text), prompt list with per-entry remove, "Generate mask" button.
+- 🧠 `src/lib/sam/` types + OPFS cache; `src/workers/sam.worker.ts` Comlink stub with typed `encode()` + `decode()` request/response envelopes.
+- 📸 Screenshot save preference in Settings (Ask each time · Auto-save to folder).
+- 🔌 CSP additions for `huggingface.co` + `cdn-lfs.huggingface.co` (opt-in weight download only).
+- 🗂️ `docs/SAM.md` — full implementation plan + HuggingFace-compatible exports table + performance budget.
+
+**Phase B — Runtime wiring** (next)
+- 🚀 Encoder + decoder ONNX Runtime Web sessions against a default backbone (`Xenova/medsam` initial; SAM 2 Tiny as the lightweight path).
+- 🎚️ Prompt-encoding tensor packing (point_coords, point_labels, box_coords, mask_input) per HuggingFace conventions.
+- 🩻 Mask up-sampling (256² → source-slice dims) via bilinear; binary threshold at score-conditional value.
+- 🖱️ Click-to-prompt overlay: shift-click for negative, drag for box, text input for SAM 3+ free-text prompts.
+- 🩻 "Commit to mask" → merges SAM result into the active inference mask or one of the brush-colour labels.
+- 🧪 SAM model cache + sha-256 verification + the existing model-picker UX.
+
+**Phase C — Smart brush + multi-slice**
+- 🖌️ Smart brush mode in Correction panel — strokes become positive points; output is a SAM-segmented region that snaps to anatomy.
+- 🧭 Cross-slice propagation via SAM 2's video-tracker pipeline (with explicit "track this object across slices" toggle).
+- 🔄 Real-time decoder feedback (< 100 ms per click) on WebGPU; WASM fallback for the decoder when WebGPU's compile path is too slow.
+
+**Out of scope** for the v0.5.8 SAM cut:
+- 3D-native SAM models (SAM-Med3D / MedSAM-3D) — different encoder pipeline, deferred.
+- Pathology-mode SAM — same architecture but plumbed through the v0.6.0 OpenSeadragon viewer.
+
 ### v0.6.0 — Pathology mode
 
 A second viewer track for histopathology whole-slide images. Same architectural commitments as Radiology (no upload, no server, BYOM ONNX, signed updater).

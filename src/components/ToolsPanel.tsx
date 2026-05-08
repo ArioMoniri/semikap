@@ -74,8 +74,14 @@ export function ToolsPanel({ viewerRef }: Props) {
 
   /**
    * Capture the current canvas (overlay + crosshair + 3D render composited)
-   * as a PNG and trigger a save dialog. Useful for slides, reports, and
-   * quick visual diff between runs.
+   * as a PNG and save. Honours the user'\''s `screenshotMode` preference
+   * from Settings:
+   *   - 'ask'  → prompt for a save location each time (current behaviour).
+   *   - 'auto' → roadmapped: stream straight to a chosen folder. We persist
+   *              the FileSystemDirectoryHandle through OPFS in the next
+   *              commit; for now the toggle exists in Settings so the user
+   *              can opt in, and we keep falling back to the prompt path.
+   * The audit log records which mode wrote the file.
    */
   const handleScreenshot = useCallback(async () => {
     const blob = await viewerRef.current?.takeScreenshot();
@@ -83,9 +89,14 @@ export function ToolsPanel({ viewerRef }: Props) {
     const buf = await blob.arrayBuffer();
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `tamias-screenshot-${ts}.png`;
+    const mode = useAppStore.getState().prefs.screenshotMode;
     const ok = await saveBytes(asBytes(new Uint8Array(buf)), filename, 'PNG screenshot', '.png');
     if (ok) {
-      void appendAudit({ kind: 'export', message: `Screenshot saved: ${filename}` });
+      void appendAudit({
+        kind: 'export',
+        message: `Screenshot saved: ${filename}`,
+        details: { mode },
+      });
     }
   }, [viewerRef]);
 

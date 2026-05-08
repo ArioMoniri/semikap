@@ -4,7 +4,23 @@ All notable changes to TAMIAS are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] — branch `feat/sam-radiology` (not merged)
+
+### Added — SAM (Segment Anything) scaffolding
+- 🪄 **New "SAM (assisted)" sidebar section** with onboarding (pick local manifest + ONNX, or one-click download from HuggingFace), prompt UI (positive points · negative points · bounding boxes · free-text for SAM 3+), prompt list with per-entry remove, and a "Generate mask" button.
+- 🧠 **`src/lib/sam/`** — SAM manifest types (`SamManifest`, `SamPrompt`, `SamMaskResult`), OPFS cache for encoder + decoder bytes (mirrors the existing model cache), worker request/response envelopes.
+- 🧰 **`src/workers/sam.worker.ts`** stub — Comlink-exposed `encode()` (once per slice) + `decode()` (per prompt revision). Real ONNX Runtime Web wiring is pending against a concrete backbone (`Xenova/medsam` / `onnx-community/sam2-hiera-tiny`); architecture, types, and message envelopes are settled and documented.
+- 🗂️ **`docs/SAM.md`** — full implementation plan: HuggingFace-compatible ONNX exports table, manifest schema, prompt types, performance budget (encoder once 1–3 s on WebGPU; decoder < 100 ms per prompt), CSP delta, audit-log integration, smart-brush mode, testing checklist, out-of-scope items.
+
+### Added — Settings · screenshot save preference
+- 📸 **Screenshot save mode** in Settings — `Ask each time` (default, current behaviour) or `Auto-save to folder` (roadmapped: streams to a chosen directory). The audit-log entry now records which mode wrote the file.
+
+### Changed — CSP for opt-in SAM weight download
+- 🔌 **`connect-src` now includes `https://huggingface.co` + `https://*.huggingface.co` + `https://cdn-lfs.huggingface.co`** so the SAM panel's "Download from HuggingFace" button can fetch encoder + decoder weights into OPFS. The download is **always user-triggered**; nothing fetches automatically. Once cached, the app runs fully offline.
+
+### Notes
+- This work lives on branch `feat/sam-radiology`; **not** merged to `main`. Will be promoted on user approval.
+- Pathology-mode placeholder from v0.5.7 remains; pathology-side SAM lands alongside the v0.6.0 OpenSeadragon viewer.
 
 ## [0.5.7] — Radiology polish · Modality toggle · v0.6.0 groundwork
 
