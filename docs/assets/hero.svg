@@ -23,34 +23,11 @@
   <rect width="1280" height="320" fill="url(#glow)"/>
   <rect width="1280" height="320" fill="url(#glow2)"/>
 
-  <!-- Logo card with chipmunk silhouette (Tamias is the genus name for chipmunks) -->
+  <!-- Logo card with embedded squirrel silhouette (Tamias = chipmunk) -->
   <g transform="translate(72 80)">
     <rect x="0" y="0" width="160" height="160" rx="36" fill="#1d4ed8" fill-opacity="0.18"/>
     <rect x="0.75" y="0.75" width="158.5" height="158.5" rx="35.25" fill="none" stroke="#60a5fa" stroke-width="1.5"/>
-
-    <!-- Chipmunk silhouette inside the card. Drawn in white using simple shapes. -->
-    <g transform="translate(28 30)" fill="#ffffff">
-      <!-- Body (round teardrop) -->
-      <path d="M22 64 C18 50 22 36 38 30 C56 24 76 30 84 44 C92 60 86 86 70 96 C54 106 32 102 24 88 C20 80 20 72 22 64 Z"/>
-      <!-- Head (slightly forward of body) -->
-      <ellipse cx="80" cy="40" rx="22" ry="20"/>
-      <!-- Ears (small triangles on top of head) -->
-      <path d="M68 22 L74 30 L78 24 Z"/>
-      <path d="M86 18 L92 28 L96 22 Z"/>
-      <!-- Big bushy tail curving up and over the back -->
-      <path d="M22 70 C8 60 4 38 16 22 C28 8 48 6 50 22 C52 32 42 38 38 46 C36 50 38 56 36 62 C34 68 28 74 22 70 Z" opacity="0.95"/>
-      <!-- Tail outline highlight to emphasise the bushiness -->
-      <path d="M22 70 C8 60 4 38 16 22 C28 8 48 6 50 22" fill="none" stroke="#0a1830" stroke-width="1.5" stroke-opacity="0.35"/>
-      <!-- Foreleg (small) -->
-      <ellipse cx="58" cy="86" rx="6" ry="9"/>
-      <!-- Eye -->
-      <circle cx="86" cy="38" r="3" fill="#0a1830"/>
-      <circle cx="86.6" cy="37.4" r="0.9" fill="#ffffff"/>
-      <!-- Nose dot -->
-      <circle cx="100" cy="44" r="1.6" fill="#0a1830"/>
-      <!-- Cheek stripe (chipmunk signature) -->
-      <path d="M70 48 C76 50 82 50 88 46" fill="none" stroke="#0a1830" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.5"/>
-    </g>
+    <image href="data:image/png;base64,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" x="10" y="10" width="140" height="140" preserveAspectRatio="xMidYMid meet"/>
 
     <!-- Crosshair pip on the bottom-right of the logo -->
     <g transform="translate(118 122)">
@@ -106,12 +83,5 @@
         <text x="62" y="18.5" text-anchor="middle" fill="#fbcfe8">AUTO-UPDATE</text>
       </g>
     </g>
-  </g>
-
-  <!-- Faint watermark of the chipmunk in the lower-right -->
-  <g transform="translate(1090 200) scale(0.8) rotate(-10)" fill="#ffffff" fill-opacity="0.04">
-    <ellipse cx="60" cy="40" rx="22" ry="20"/>
-    <path d="M22 64 C18 50 22 36 38 30 C56 24 76 30 84 44 C92 60 86 86 70 96 C54 106 32 102 24 88 C20 80 20 72 22 64 Z"/>
-    <path d="M22 70 C8 60 4 38 16 22 C28 8 48 6 50 22 C52 32 42 38 38 46 C36 50 38 56 36 62 C34 68 28 74 22 70 Z"/>
   </g>
 </svg>

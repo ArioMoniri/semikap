@@ -22,9 +22,9 @@
   <!-- Architecture-aware direct downloads. Each link points at the most common
        installer per platform. The "all assets" line below the buttons covers
        the rest (Intel Mac, .deb, .rpm, …). -->
-  <a href="https://github.com/ArioMoniri/semikap/releases/latest/download/TAMIAS_aarch64.dmg"><img src="docs/assets/download-macos.svg" alt="Download macOS Apple Silicon (.dmg)" height="64"/></a>
+  <a href="https://github.com/ArioMoniri/semikap/releases/latest/download/TAMIAS_aarch64.dmg"><img src="docs/assets/download-macos.png" alt="Download macOS Apple Silicon (.dmg)" height="64"/></a>
   &nbsp;
-  <a href="https://github.com/ArioMoniri/semikap/releases/latest/download/TAMIAS_x64-setup.exe"><img src="docs/assets/download-windows.svg" alt="Download Windows installer (.exe)" height="64"/></a>
+  <a href="https://github.com/ArioMoniri/semikap/releases/latest/download/TAMIAS_x64-setup.exe"><img src="docs/assets/download-windows.png" alt="Download Windows installer (.exe)" height="64"/></a>
   &nbsp;
   <a href="https://github.com/ArioMoniri/semikap/releases/latest/download/TAMIAS_amd64.AppImage"><img src="docs/assets/download-linux.png" alt="Download Linux AppImage" height="64"/></a>
 </p>

@@ -105,15 +105,51 @@ jobs:
           # WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'TAMIAS ${{ github.ref_name }}'
+          releaseName: '🐿️ TAMIAS ${{ github.ref_name }}'
           releaseBody: |
-            Desktop builds of TAMIAS for macOS, Windows, and Linux.
+            ## 🐿️ TAMIAS ${{ github.ref_name }}
 
-            Inference still runs entirely on the user's device — the desktop
-            wrapper is just a native window around the same browser engine.
+            Browser-only PWA for medical-imaging ONNX inference, packaged as a desktop app.
+            **No upload · No telemetry · WebGPU on every GPU vendor.**
 
-            Existing installs will pick this update up automatically the next
-            time they launch (signed updater manifest at `latest.json`).
+            ### 📥 Download
+
+            | Platform | Installer |
+            |---|---|
+            | 🍎 **macOS** Apple Silicon | [`TAMIAS_aarch64.dmg`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_aarch64.dmg) |
+            | 🍎 **macOS** Intel | [`TAMIAS_x64.dmg`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_x64.dmg) |
+            | 🪟 **Windows** (NSIS) | [`TAMIAS_x64-setup.exe`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_x64-setup.exe) |
+            | 🪟 **Windows** (MSI) | [`TAMIAS_x64_en-US.msi`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_x64_en-US.msi) |
+            | 🐧 **Linux** AppImage | [`TAMIAS_amd64.AppImage`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_amd64.AppImage) |
+            | 🐧 **Linux** Debian/Ubuntu | [`TAMIAS_amd64.deb`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_amd64.deb) |
+            | 🐧 **Linux** Fedora/RHEL | [`TAMIAS_x86_64.rpm`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/TAMIAS_x86_64.rpm) |
+            | 🧪 **Smoke-test kit** | [`tamias-examples.zip`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/tamias-examples.zip) (CT NIfTI + tiny ONNX + manifest, ~470 KB) |
+
+            ### 🔐 What's signed
+
+            - 🍎 macOS bundles are **code-signed** with our Apple Developer ID and **notarised by Apple** — installs cleanly without Gatekeeper warnings.
+            - 🔄 All bundles are **signed with our Tauri updater Ed25519 key** — the in-app auto-updater verifies the signature before applying.
+            - 🪟 Windows is currently distributed unsigned — SmartScreen will show a "More info → Run anyway" warning the first time. Authenticode signing is on the roadmap.
+
+            ### 🔄 Auto-update
+
+            Installed users on `< ${{ github.ref_name }}` will be offered this update on next launch (or within ~6 hours via the in-app **About → Check for updates**). Bundles are verified against `latest.json` (in this release) before installing.
+
+            ### 🧠 What you'll need to actually run inference
+
+            TAMIAS doesn't ship medical AI models — bring your own ONNX. Or click **Examples → Download** in the app to fetch a tiny smoke-test kit and run an end-to-end inference in seconds. See [`examples/README.md`](https://github.com/${{ github.repository }}/blob/main/examples/README.md) for sources of real medical models (MONAI Model Zoo, TotalSegmentator, MedSAM, …).
+
+            ### 📚 Learn more
+
+            - 🌐 [Try the browser PWA](https://github.com/${{ github.repository }}#%EF%B8%8F-deploy-on-a-server-clone--run) (no install)
+            - 📦 [Deploy on a server](https://github.com/${{ github.repository }}/blob/main/docs/DEPLOY.md)
+            - 🛠️ [Auto-updater + signing setup](https://github.com/${{ github.repository }}/blob/main/docs/UPDATER.md)
+            - 🗺️ [Roadmap](https://github.com/${{ github.repository }}/blob/main/docs/ROADMAP.md)
+            - 📜 [Changelog](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)
+
+            ### ⚠️ Research Use Only
+
+            TAMIAS is for research, education, and demonstration purposes. **Not cleared for clinical decision-making.** Every export is stamped accordingly.
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
