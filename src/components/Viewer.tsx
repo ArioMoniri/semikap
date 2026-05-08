@@ -19,7 +19,13 @@ export interface ViewerHandle {
     dims: [number, number, number],
     spacing: [number, number, number],
     colormap?: OverlayColorMap,
-    opacity?: number
+    opacity?: number,
+    affine?: {
+      srowX?: [number, number, number, number];
+      srowY?: [number, number, number, number];
+      srowZ?: [number, number, number, number];
+      origin?: [number, number, number];
+    }
   ): Promise<void>;
   removeMaskOverlay(): void;
   setMaskOpacity(opacity: number): void;
@@ -32,6 +38,13 @@ export interface ViewerHandle {
    *  when no corrections have been drawn. */
   getCorrectedMask(aiMask: Uint8Array): Uint8Array | null;
   onProbe(listener: (r: ProbeReading | null) => void): () => void;
+  // ── Layout / chrome ──
+  setSliceMode(mode: 'multi' | 'axial' | 'coronal' | 'sagittal' | 'render'): void;
+  setMultiplanarLayout(layout: 'auto' | 'column' | 'grid' | 'row'): void;
+  setOrientCube(on: boolean): void;
+  setColorbar(on: boolean): void;
+  set3DCrosshair(on: boolean): void;
+  setRadiologicalConvention(on: boolean): void;
 }
 
 export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
@@ -64,9 +77,9 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       removeSecondary() {
         viewerRef.current?.removeSecondary();
       },
-      async addMaskOverlay(name, mask, dims, spacing, colormap, opacity) {
+      async addMaskOverlay(name, mask, dims, spacing, colormap, opacity, affine) {
         if (!viewerRef.current) throw new Error('Viewer not ready');
-        await viewerRef.current.addMaskOverlay(name, mask, dims, spacing, colormap, opacity);
+        await viewerRef.current.addMaskOverlay(name, mask, dims, spacing, colormap, opacity, affine);
       },
       removeMaskOverlay() {
         viewerRef.current?.removeMaskOverlay();
@@ -95,6 +108,24 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       onProbe(listener) {
         if (!viewerRef.current) return () => undefined;
         return viewerRef.current.onProbe(listener);
+      },
+      setSliceMode(mode) {
+        viewerRef.current?.setSliceMode(mode);
+      },
+      setMultiplanarLayout(layout) {
+        viewerRef.current?.setMultiplanarLayout(layout);
+      },
+      setOrientCube(on) {
+        viewerRef.current?.setOrientCube(on);
+      },
+      setColorbar(on) {
+        viewerRef.current?.setColorbar(on);
+      },
+      set3DCrosshair(on) {
+        viewerRef.current?.set3DCrosshair(on);
+      },
+      setRadiologicalConvention(on) {
+        viewerRef.current?.setRadiologicalConvention(on);
       },
     }),
     []

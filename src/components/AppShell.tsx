@@ -12,6 +12,7 @@ import { InferencePanel } from './InferencePanel';
 import { ExportPanel } from './ExportPanel';
 import { GpuInfoPanel } from './GpuInfoPanel';
 import { OverlayControls } from './OverlayControls';
+import { LayoutPanel } from './LayoutPanel';
 import { AnnotationPanel } from './AnnotationPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { AboutPanel } from './AboutPanel';
@@ -248,6 +249,10 @@ export function AppShell() {
 
           <CollapsibleSection title="Inference" defaultOpen trailing={result ? 'done' : ''}>
             <InferencePanel onResultMask={handleResultMask} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Layout" defaultOpen={false}>
+            <LayoutPanel viewerRef={viewerRef} />
           </CollapsibleSection>
 
           <CollapsibleSection title="Display" defaultOpen={false}>

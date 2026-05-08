@@ -330,6 +330,61 @@ export class NiivueViewer {
     return out;
   }
 
+  // ── Layout / chrome ──────────────────────────────────────────────────────
+  /**
+   * Switch the canvas presentation:
+   *  - `multi`   = 3-plane MPR + 3D render (default)
+   *  - `axial` / `coronal` / `sagittal` = single plane only
+   *  - `render`  = 3D-only
+   * NiiVue's underlying SLICE_TYPE values: AXIAL=0, CORONAL=1, SAGITTAL=2,
+   * MULTIPLANAR=3, RENDER=4. We expose them by name to keep call sites
+   * readable without having to import NiiVue's enum on the consumer side.
+   */
+  setSliceMode(mode: 'multi' | 'axial' | 'coronal' | 'sagittal' | 'render'): void {
+    const code =
+      mode === 'axial' ? 0 :
+      mode === 'coronal' ? 1 :
+      mode === 'sagittal' ? 2 :
+      mode === 'render' ? 4 :
+      3;
+    (this.nv as unknown as { setSliceType(t: number): void }).setSliceType(code);
+  }
+
+  /**
+   * Multi-plane tile arrangement when `setSliceMode('multi')` is active.
+   * NiiVue values: AUTO=0, COLUMN=1, GRID=2, ROW=3.
+   */
+  setMultiplanarLayout(layout: 'auto' | 'column' | 'grid' | 'row'): void {
+    const code = layout === 'column' ? 1 : layout === 'grid' ? 2 : layout === 'row' ? 3 : 0;
+    const opts = (this.nv as unknown as { opts: { multiplanarLayout: number } }).opts;
+    opts.multiplanarLayout = code;
+    this.nv.drawScene();
+  }
+
+  setOrientCube(on: boolean): void {
+    const opts = (this.nv as unknown as { opts: { isOrientCube: boolean } }).opts;
+    opts.isOrientCube = on;
+    this.nv.drawScene();
+  }
+
+  setColorbar(on: boolean): void {
+    const opts = (this.nv as unknown as { opts: { isColorbar: boolean } }).opts;
+    opts.isColorbar = on;
+    this.nv.drawScene();
+  }
+
+  set3DCrosshair(on: boolean): void {
+    const opts = (this.nv as unknown as { opts: { show3Dcrosshair: boolean } }).opts;
+    opts.show3Dcrosshair = on;
+    this.nv.drawScene();
+  }
+
+  setRadiologicalConvention(on: boolean): void {
+    const opts = (this.nv as unknown as { opts: { isRadiologicalConvention: boolean } }).opts;
+    opts.isRadiologicalConvention = on;
+    this.nv.drawScene();
+  }
+
   resize(): void {
     this.nv.resizeListener();
   }
