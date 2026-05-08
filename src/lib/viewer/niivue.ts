@@ -102,6 +102,41 @@ export class NiivueViewer {
       const r = parseLocation(data);
       this.probeListeners.forEach((fn) => fn(r));
     };
+
+    // Seat a fixed 6-colour brush palette into NiiVue's draw lookup table at
+    // label indices 1..6. Without this the user'\''s brush colour was always
+    // whatever the model manifest happened to declare for label 1, which
+    // for our example threshold model is just one green entry — so the
+    // colour-picker UI had nothing to switch between. With a fixed palette
+    // the user can pick any of the six colours regardless of manifest.
+    this.installBrushPalette();
+  }
+
+  /**
+   * Default brush colour table, indexed by label. label 0 is reserved for
+   * the eraser (transparent). Anything > 6 falls back to NiiVue'\''s default
+   * LUT entries.
+   */
+  private installBrushPalette(): void {
+    const palette: Array<[number, number, number]> = [
+      [239,  68,  68], // red    — label 1
+      [ 34, 197,  94], // green  — label 2
+      [ 59, 130, 246], // blue   — label 3
+      [234, 179,   8], // yellow — label 4
+      [  6, 182, 212], // cyan   — label 5
+      [217,  70, 239], // magenta— label 6
+    ];
+    type DrawLut = { lut?: Uint8Array | Uint8ClampedArray };
+    const lut = (this.nv as unknown as { drawLut?: DrawLut }).drawLut?.lut;
+    if (!lut || lut.length < 7 * 4) return;
+    for (let i = 0; i < palette.length; i++) {
+      const [r, g, b] = palette[i]!;
+      const off = (i + 1) * 4;
+      lut[off + 0] = r;
+      lut[off + 1] = g;
+      lut[off + 2] = b;
+      lut[off + 3] = 255;
+    }
   }
 
   onProbe(listener: ProbeListener): () => void {
@@ -328,8 +363,37 @@ export class NiivueViewer {
     (this.nv as unknown as NVDriver).setPenValue(label, true);
   }
 
+  /**
+   * Brush opacity (0..1). NiiVue defaults to 0.5 which makes corrections
+   * hard to see against an already-translucent AI mask overlay. We expose
+   * it so the AnnotationPanel can crank it up when brush mode is active.
+   */
+  setBrushOpacity(opacity: number): void {
+    const opts = (this.nv as unknown as { opts: { drawOpacity?: number } }).opts;
+    if (opts) opts.drawOpacity = Math.max(0, Math.min(1, opacity));
+    this.nv.drawScene();
+  }
+
+  /**
+   * Force NiiVue to push the current draw bitmap into its 3D draw mesh and
+   * trigger a render. Without this, brush strokes are visible only in the
+   * 2D MPR slices — the 3D volumetric raycaster never sees them. Call once
+   * per stroke completion (pointerup) and the 3D view updates within a
+   * frame. Falls back to a no-op when the underlying API isn'\''t exposed.
+   */
+  refreshDrawing(): void {
+    const nv = this.nv as unknown as { refreshDrawing?(force: boolean): void };
+    if (typeof nv.refreshDrawing === 'function') {
+      nv.refreshDrawing(true);
+    }
+    this.nv.drawScene();
+  }
+
   undoLastBrushStroke(): void {
     (this.nv as unknown as NVDriver).drawUndo();
+    // Also refresh 3D so the undone stroke disappears from the volumetric
+    // render, not just the MPR slices.
+    this.refreshDrawing();
   }
 
   /**

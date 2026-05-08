@@ -33,6 +33,11 @@ export interface ViewerHandle {
   setWindow(level: number, width: number): void;
   setDrawingEnabled(on: boolean): void;
   setBrushLabel(label: number): void;
+  setBrushOpacity(opacity: number): void;
+  /** Push current draw bitmap into the 3D mesh + redraw. Call on pointerup
+   *  so the user'\''s brush strokes appear in the volumetric render, not
+   *  just the 2D MPR slices. */
+  refreshDrawing(): void;
   undoLastBrushStroke(): void;
   /** Returns the AI mask merged with any user brush corrections, or null
    *  when no corrections have been drawn. */
@@ -56,8 +61,19 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
     viewerRef.current = new NiivueViewer(canvasRef.current);
     const onResize = () => viewerRef.current?.resize();
     window.addEventListener('resize', onResize);
+
+    // Auto-refresh the 3D draw mesh after every brush stroke. NiiVue paints
+    // straight into the 2D MPRs as the user drags but doesn'\''t propagate to
+    // the volumetric raycaster until refreshDrawing() runs. Tying that to
+    // pointerup keeps the 3D view in lockstep without spamming a refresh on
+    // every move event (which would tank framerate).
+    const canvas = canvasRef.current;
+    const onPointerUp = () => viewerRef.current?.refreshDrawing();
+    canvas.addEventListener('pointerup', onPointerUp);
+
     return () => {
       window.removeEventListener('resize', onResize);
+      canvas.removeEventListener('pointerup', onPointerUp);
       viewerRef.current?.destroy();
       viewerRef.current = null;
     };
@@ -98,6 +114,12 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       setBrushLabel(label) {
         viewerRef.current?.setBrushLabel(label);
+      },
+      setBrushOpacity(opacity) {
+        viewerRef.current?.setBrushOpacity(opacity);
+      },
+      refreshDrawing() {
+        viewerRef.current?.refreshDrawing();
       },
       undoLastBrushStroke() {
         viewerRef.current?.undoLastBrushStroke();

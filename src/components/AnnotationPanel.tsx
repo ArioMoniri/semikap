@@ -12,16 +12,31 @@ interface Props {
 
 type Mode = 'off' | 'brush' | 'eraser';
 
+/**
+ * Brush palette. The label index is what NiiVue writes into the draw bitmap;
+ * the colour swatch is what NiiVue paints for that label after we install
+ * the matching RGB into `nv.drawLut.lut` in the viewer constructor. So a
+ * manifest with one label still gets six brush colours to choose from —
+ * the user just picks which of label 1..6 is the active brush colour.
+ */
+const BRUSH_PALETTE: Array<{ label: number; name: string; color: string }> = [
+  { label: 1, name: 'Red',     color: '#ef4444' },
+  { label: 2, name: 'Green',   color: '#22c55e' },
+  { label: 3, name: 'Blue',    color: '#3b82f6' },
+  { label: 4, name: 'Yellow',  color: '#eab308' },
+  { label: 5, name: 'Cyan',    color: '#06b6d4' },
+  { label: 6, name: 'Magenta', color: '#d946ef' },
+];
+
 export function AnnotationPanel({ viewerRef }: Props) {
   const result = useAppStore((s) => s.result);
   const model = useAppStore((s) => s.model);
   const [mode, setMode] = useState<Mode>('off');
   const [label, setLabel] = useState<number>(1);
 
+  // Manifest labels are still used for tooltips on the colour swatches so
+  // the user sees e.g. "Red · liver" when the model author named label 1.
   const labels = model?.manifest.output.labels ?? {};
-  const colors = model?.manifest.output.colors ?? {};
-  // Foreground labels only (skip background = 0).
-  const labelEntries = Object.entries(labels).filter(([k]) => k !== '0');
 
   useEffect(() => {
     if (!viewerRef.current) return;
@@ -88,33 +103,30 @@ export function AnnotationPanel({ viewerRef }: Props) {
             <RotateCcw className="h-3.5 w-3.5" /> Undo
           </Button>
         </div>
-        {mode === 'brush' && labelEntries.length > 1 && (
+        {mode === 'brush' && (
           <div className="space-y-1">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Active label
+              Brush colour
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {labelEntries.map(([k, name]) => {
-                const idx = Number(k);
-                const color = colors[idx] ?? '#22c55e';
-                const active = idx === label;
+            <div className="grid grid-cols-6 gap-1">
+              {BRUSH_PALETTE.map((p) => {
+                const active = p.label === label;
+                const manifestName = labels[p.label];
+                const tooltip = manifestName ? `${p.name} · ${manifestName}` : p.name;
                 return (
                   <button
-                    key={k}
+                    key={p.label}
                     type="button"
-                    onClick={() => setLabel(idx)}
-                    className={`flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] ${
+                    onClick={() => setLabel(p.label)}
+                    aria-label={tooltip}
+                    title={tooltip}
+                    className={`relative h-7 w-full rounded border-2 transition ${
                       active
-                        ? 'border-tamias-accent bg-blue-50 text-tamias-ink'
-                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        ? 'border-tamias-accent ring-2 ring-tamias-accent/30'
+                        : 'border-slate-200 hover:border-slate-400'
                     }`}
-                  >
-                    <span
-                      className="inline-block h-2.5 w-2.5 rounded-sm"
-                      style={{ background: color }}
-                    />
-                    {name}
-                  </button>
+                    style={{ background: p.color }}
+                  />
                 );
               })}
             </div>
@@ -122,10 +134,10 @@ export function AnnotationPanel({ viewerRef }: Props) {
         )}
         <div className="text-[11px] text-slate-500">
           {mode === 'off'
-            ? 'Pick a tool to start correcting.'
+            ? 'Pick Brush or Eraser to start correcting.'
             : mode === 'eraser'
-              ? 'Drawing zeros (erasing).'
-              : `Drawing label "${labels[label] ?? label}".`}
+              ? 'Drag on a 2D slice to erase.'
+              : `Painting in ${BRUSH_PALETTE.find((p) => p.label === label)?.name.toLowerCase() ?? 'colour'}. Strokes appear in 2D + 3D after release.`}
         </div>
         <Badge variant="warn">
           Corrections are visual; the original AI mask is preserved on Save .nii.
