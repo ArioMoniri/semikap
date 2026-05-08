@@ -73,13 +73,16 @@ export function InferencePanel({ onResultMask }: Props) {
         message: `via ${res.provider} (${(res.elapsedMs / 1000).toFixed(1)}s)`,
       });
     } catch (e) {
-      const msg = (e as Error).message;
-      pushError(`Inference failed: ${msg}`);
+      const err = e as Error;
+      const msg = err.message;
+      const stack = err.stack;
+      const opts = stack !== undefined ? { stack } : undefined;
+      pushError(`Inference failed: ${msg}`, opts);
       setProgress({ active: false, stage: 'error', fraction: 0 });
       void appendAudit({
         kind: 'app-error',
         message: `Inference failed: ${msg}`,
-        details: { model: model.manifest.name, modelHash: model.hash },
+        details: { model: model.manifest.name, modelHash: model.hash, stack },
       });
     } finally {
       worker.terminate();

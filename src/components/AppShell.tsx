@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ShieldCheck, X, Crosshair, ExternalLink as ExternalLinkIcon } from 'lucide-react';
+import { ShieldCheck, X, Crosshair, ExternalLink as ExternalLinkIcon, Copy as CopyIcon, Check as CheckIcon } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { detectBackend } from '../lib/diagnostics/gpu';
 import type { ProbeReading } from './Viewer';
@@ -218,9 +218,12 @@ export function AppShell() {
                 </Button>
               </CardHeader>
               <CardContent>
-                <ul className="list-disc space-y-0.5 pl-4 text-xs text-red-700">
+                <ul className="list-disc space-y-1.5 pl-4 text-xs text-red-700">
                   {errors.map((e, i) => (
-                    <li key={i}>{e}</li>
+                    <li key={i}>
+                      <span className="block">{e.message}</span>
+                      {e.stack ? <ErrorStackBlock stack={e.stack} /> : null}
+                    </li>
                   ))}
                 </ul>
               </CardContent>
@@ -283,5 +286,58 @@ export function AppShell() {
         </section>
       </main>
     </div>
+  );
+}
+
+/**
+ * Renders a captured Error.stack as an expandable <details> block with a
+ * one-click copy. Lets users without DevTools share the raw trace when
+ * something blows up inside ORT / a worker. Falls back to legacy execCommand
+ * when navigator.clipboard is unavailable (older Tauri WebViews).
+ */
+function ErrorStackBlock({ stack }: { stack: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(stack);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = stack;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore — user can still select the text manually */
+    }
+  }, [stack]);
+
+  return (
+    <details className="mt-1 rounded border border-red-200 bg-white/70 px-2 py-1">
+      <summary className="cursor-pointer text-[11px] font-medium text-red-700/80 select-none">
+        Stack trace
+      </summary>
+      <div className="mt-1 flex items-start gap-2">
+        <pre className="flex-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-red-50 p-1.5 font-mono text-[10px] leading-snug text-red-900">
+{stack}
+        </pre>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 shrink-0 p-0 text-red-700 hover:bg-red-100"
+          onClick={handleCopy}
+          aria-label={copied ? 'Copied' : 'Copy stack trace'}
+          title={copied ? 'Copied' : 'Copy'}
+        >
+          {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
+        </Button>
+      </div>
+    </details>
   );
 }

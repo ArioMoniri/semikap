@@ -78,9 +78,19 @@ interface AppState {
   progress: ProgressState;
   setProgress(p: Partial<ProgressState>): void;
 
-  errors: string[];
-  pushError(message: string): void;
+  errors: AppError[];
+  pushError(message: string, opts?: { stack?: string }): void;
   clearErrors(): void;
+}
+
+/**
+ * One entry in the in-app error list. `stack` is captured when available
+ * (typically the original Error.stack from a worker / async catch) so users
+ * without DevTools can still copy the trace from the UI.
+ */
+export interface AppError {
+  message: string;
+  stack?: string;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -110,7 +120,12 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => ({ progress: { ...s.progress, ...p } as ProgressState })),
 
   errors: [],
-  pushError: (message) =>
-    set((s) => ({ errors: [...s.errors.slice(-9), message] })),
+  pushError: (message, opts) =>
+    set((s) => ({
+      errors: [
+        ...s.errors.slice(-9),
+        { message, ...(opts?.stack !== undefined ? { stack: opts.stack } : {}) },
+      ],
+    })),
   clearErrors: () => set({ errors: [] }),
 }));
