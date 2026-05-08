@@ -93,18 +93,24 @@ Branch: `feat/sam-radiology`. Scaffolding ✅ shipped on the branch; runtime ONN
 - 🔌 CSP additions for `huggingface.co` + `cdn-lfs.huggingface.co` (opt-in weight download only).
 - 🗂️ `docs/SAM.md` — full implementation plan + HuggingFace-compatible exports table + performance budget.
 
-**Phase B — Runtime wiring** (next)
-- 🚀 Encoder + decoder ONNX Runtime Web sessions against a default backbone (`Xenova/medsam` initial; SAM 2 Tiny as the lightweight path).
-- 🎚️ Prompt-encoding tensor packing (point_coords, point_labels, box_coords, mask_input) per HuggingFace conventions.
-- 🩻 Mask up-sampling (256² → source-slice dims) via bilinear; binary threshold at score-conditional value.
-- 🖱️ Click-to-prompt overlay: shift-click for negative, drag for box, text input for SAM 3+ free-text prompts.
-- 🩻 "Commit to mask" → merges SAM result into the active inference mask or one of the brush-colour labels.
-- 🧪 SAM model cache + sha-256 verification + the existing model-picker UX.
+**Phase B — Runtime wiring ✅ shipped on branch**
+- 🚀 Encoder + decoder ONNX Runtime Web sessions against three preset backbones (SAM 2 Tiny ~30 MB, SAM 2 Base+ ~80 MB, MedSAM ~360 MB). SAM 3 ONNX URL slot ready.
+- 🎚️ Prompt-encoding tensor packing (point_coords, point_labels with 0/1/2/3 + −1 padding) per HuggingFace conventions.
+- 🩻 Mask up-sampling (256² → source-slice dims) via bilinear + threshold; `pickBestSamMask` picks the highest-IoU candidate.
+- 🖱️ Click-to-prompt overlay: shift-click for negative, drag for box, text input wired (SAM 3+ honours; SAM 1/2 ignore).
+- 🩻 "Commit" merges SAM result into the existing `addMaskOverlay` pipeline (inherits the v0.5.5 RAS-alignment fix).
+- 🧪 SAM model cache (OPFS, keyed by sha-256) + verification + streaming HuggingFace download with progress.
 
 **Phase C — Smart brush + multi-slice**
-- 🖌️ Smart brush mode in Correction panel — strokes become positive points; output is a SAM-segmented region that snaps to anatomy.
-- 🧭 Cross-slice propagation via SAM 2's video-tracker pipeline (with explicit "track this object across slices" toggle).
-- 🔄 Real-time decoder feedback (< 100 ms per click) on WebGPU; WASM fallback for the decoder when WebGPU's compile path is too slow.
+- 🪄 ✅ AnnotationPanel handoff: Correction panel points users at the SAM panel for click-to-mask assisted segmentation.
+- 🖌️ Pending: dedicated single-stroke smart-brush mode that hands a brush stroke directly to SAM and commits without an explicit Generate click.
+- 🧭 Pending: cross-slice propagation via SAM 2's video-tracker pipeline (with explicit "track this object across slices" toggle).
+- 🔄 Decoder fallback: when WebGPU's compile path is too slow on a target device the wrapper auto-falls back to WASM-SIMD.
+
+**Phase E — Auto-save screenshots ✅ shipped on branch**
+- 📸 Settings panel folder picker via the File System Access API.
+- 📸 ToolsPanel screenshot button writes straight to the chosen folder when `prefs.screenshotMode === 'auto'`; falls back to the prompt path on permission revoke.
+- 📒 Pending: IndexedDB-backed persistence for the directory handle so the user's choice survives a reload.
 
 **Out of scope** for the v0.5.8 SAM cut:
 - 3D-native SAM models (SAM-Med3D / MedSAM-3D) — different encoder pipeline, deferred.

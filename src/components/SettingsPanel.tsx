@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Settings, FileDown, Trash2, Camera } from 'lucide-react';
+import { Settings, FileDown, Trash2, Camera, FolderOpen } from 'lucide-react';
 import { clearAuditLog, exportAuditLog, readAuditLog, type AuditEntry } from '../lib/fs/audit';
-import { saveBytes } from '../lib/fs/filesystem';
+import { saveBytes, pickDirectory } from '../lib/fs/filesystem';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { useAppStore } from '../lib/state/store';
@@ -79,10 +79,37 @@ export function SettingsPanel() {
               </Button>
             </div>
             {prefs.screenshotMode === 'auto' && (
-              <div className="text-[11px] text-slate-500">
-                Tip: when auto-save is enabled, screenshots are filed straight
-                to the directory you pick the next time you press the camera
-                button. The browser will only ask you to grant access once.
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    onClick={async () => {
+                      const handle = await pickDirectory();
+                      if (handle) {
+                        setPrefs({
+                          screenshotDirHandle: handle,
+                          screenshotDirName: handle.name,
+                        });
+                      }
+                    }}
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" /> Pick folder
+                  </Button>
+                  <span className="text-[11px] text-slate-500">
+                    {prefs.screenshotDirHandle
+                      ? `Active: ${prefs.screenshotDirName ?? '(unnamed)'}`
+                      : prefs.screenshotDirName
+                      ? `Last used: ${prefs.screenshotDirName} — re-pick to grant access this session`
+                      : 'No folder selected yet.'}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  The folder choice is per session — the browser doesn'\''t let
+                  us hold onto the directory handle across reloads in this
+                  build. Persistence via IndexedDB lands in the next iteration.
+                </div>
               </div>
             )}
           </div>

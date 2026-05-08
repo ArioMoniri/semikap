@@ -11,7 +11,7 @@ import {
   ZoomOut,
   Camera,
 } from 'lucide-react';
-import { saveBytes } from '../lib/fs/filesystem';
+import { saveBytes, saveBytesToDirectory } from '../lib/fs/filesystem';
 import { asBytes } from '../types';
 import { appendAudit } from '../lib/fs/audit';
 import { useAppStore } from '../lib/state/store';
@@ -76,21 +76,31 @@ export function ToolsPanel({ viewerRef }: Props) {
    * Capture the current canvas (overlay + crosshair + 3D render composited)
    * as a PNG and save. Honours the user'\''s `screenshotMode` preference
    * from Settings:
-   *   - 'ask'  → prompt for a save location each time (current behaviour).
-   *   - 'auto' → roadmapped: stream straight to a chosen folder. We persist
-   *              the FileSystemDirectoryHandle through OPFS in the next
-   *              commit; for now the toggle exists in Settings so the user
-   *              can opt in, and we keep falling back to the prompt path.
-   * The audit log records which mode wrote the file.
+   *   - 'ask'  → prompt for a save location each time.
+   *   - 'auto' → write straight to the directory the user picked in
+   *              Settings. Falls back to 'ask' if no directory handle
+   *              is currently active (e.g. on first load before re-pick).
    */
   const handleScreenshot = useCallback(async () => {
     const blob = await viewerRef.current?.takeScreenshot();
     if (!blob) return;
     const buf = await blob.arrayBuffer();
+    const bytes = asBytes(new Uint8Array(buf));
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `tamias-screenshot-${ts}.png`;
-    const mode = useAppStore.getState().prefs.screenshotMode;
-    const ok = await saveBytes(asBytes(new Uint8Array(buf)), filename, 'PNG screenshot', '.png');
+    const prefs = useAppStore.getState().prefs;
+    let mode: 'ask' | 'auto' = prefs.screenshotMode;
+    let ok = false;
+    if (mode === 'auto' && prefs.screenshotDirHandle) {
+      ok = await saveBytesToDirectory(prefs.screenshotDirHandle, bytes, filename);
+      if (!ok) {
+        mode = 'ask';
+        ok = await saveBytes(bytes, filename, 'PNG screenshot', '.png');
+      }
+    } else {
+      mode = 'ask';
+      ok = await saveBytes(bytes, filename, 'PNG screenshot', '.png');
+    }
     if (ok) {
       void appendAudit({
         kind: 'export',

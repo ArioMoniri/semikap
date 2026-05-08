@@ -631,6 +631,68 @@ export class NiivueViewer {
    * when at least one of its 6-neighbour voxels is zero. Stashes the original
    * voxel data so the toggle is reversible without re-running inference.
    */
+  /**
+   * Extract the current axial slice (the one the crosshair is sitting on)
+   * as a Float32 array sized [width * height]. SAM consumes this for
+   * encoding. We only support axial today — the SAM panel renders against
+   * the axial multiplanar pane regardless of which plane the user is
+   * currently focused on; coronal / sagittal SAM lands once we settle on
+   * a slicer-aware UX (the prompts in those planes look weird in 3D).
+   */
+  getCurrentAxialSlice(): { pixels: Float32Array; width: number; height: number; index: number } | null {
+    if (this.primaryIndex < 0) return null;
+    const v = this.nv.volumes[this.primaryIndex] as unknown as {
+      img?: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array;
+      hdr?: { dims: number[] };
+    } | undefined;
+    if (!v || !v.img || !v.hdr) return null;
+    const X = v.hdr.dims[1] ?? 1;
+    const Y = v.hdr.dims[2] ?? 1;
+    const Z = v.hdr.dims[3] ?? 1;
+    if (Z <= 0) return null;
+    // Crosshair position — NiiVue exposes scene.crosshairPos in 0..1 frac
+    // along each axis. Fall back to the central slice when not available.
+    const frac =
+      (this.nv as unknown as { scene?: { crosshairPos?: [number, number, number] } }).scene
+        ?.crosshairPos?.[2] ?? 0.5;
+    const z = Math.max(0, Math.min(Z - 1, Math.floor(frac * Z)));
+    const slab = X * Y;
+    const offset = z * slab;
+    const out = new Float32Array(slab);
+    for (let i = 0; i < slab; i++) out[i] = v.img[offset + i] ?? 0;
+    return { pixels: out, width: X, height: Y, index: z };
+  }
+
+  /**
+   * Map a canvas-space click (e.g. from a pointerdown event) to source-
+   * voxel coords on the current axial slice. Returns null when the click
+   * is outside any slice tile. Used by the SAM prompt overlay to convert
+   * user clicks into prompts.
+   */
+  canvasToAxialVoxel(
+    canvasX: number,
+    canvasY: number
+  ): { x: number; y: number } | null {
+    const nv = this.nv as unknown as {
+      mm2frac?(mm: [number, number, number]): [number, number, number];
+      frac2canvasPos?(frac: [number, number, number]): [number, number];
+      sliceTypeAxial?: number;
+      tileMM?(canvasX: number, canvasY: number): [number, number, number] | null;
+    };
+    // NiiVue 0.44 exposes a private `tileMM` helper that converts canvas
+    // coords to source-mm — use it when available; otherwise fall back to
+    // null so the caller falls back to a centre-click default.
+    const mm = nv.tileMM?.(canvasX, canvasY);
+    if (!mm) return null;
+    const frac = nv.mm2frac?.(mm);
+    if (!frac) return null;
+    if (this.primaryIndex < 0) return null;
+    const v = this.nv.volumes[this.primaryIndex] as unknown as { hdr?: { dims: number[] } };
+    const X = v?.hdr?.dims[1] ?? 1;
+    const Y = v?.hdr?.dims[2] ?? 1;
+    return { x: Math.round(frac[0] * X), y: Math.round(frac[1] * Y) };
+  }
+
   setMaskOutlineOnly(on: boolean): void {
     if (this.maskIndex < 0) return;
     const v = this.nv.volumes[this.maskIndex] as unknown as {

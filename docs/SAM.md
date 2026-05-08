@@ -198,21 +198,46 @@ Falls back to plain brush when no SAM model is loaded, so the UI stays useful in
 
 ## File map (current commit)
 
-The scaffolding for the architecture above lives at:
-
 ```
 src/
   lib/
     sam/
-      types.ts        — manifest, prompt, mask types
-      cache.ts        — OPFS cache for encoder + decoder bytes
-      session.ts      — InferenceSession wrappers (encoder + decoder)
+      types.ts          — manifest, prompt, mask types
+      cache.ts          — OPFS cache for encoder + decoder bytes
+      preprocess.ts     — slice → 1024² ImageNet-normalised tensor
+      postprocess.ts    — 256² logit mask → source-slice binary mask
+      loader.ts         — fetch from HuggingFace + sha256 + OPFS
+      session.ts        — InferenceSession wrappers + prompt packer
   workers/
-    sam.worker.ts     — encoder once-per-slice + decoder per-prompt
+    sam.worker.ts       — encoder once-per-slice + decoder per-prompt (live)
   components/
-    SamPanel.tsx      — onboarding + prompt UI
+    SamPanel.tsx        — onboarding + prompt UI + commit
+    SamPromptOverlay.tsx — click-capture surface over the viewer
 docs/
-  SAM.md              — this document
+  SAM.md                — this document
 ```
 
-The actual encoder/decoder ONNX execution is wired with TODO markers — the architecture is in place, the runtime tensor shapes and prompt encoding still need to be filled against a concrete model. That happens in the next iteration once we settle on a default backbone.
+## Status
+
+| Phase | Status |
+|---|---|
+| **A** — Scaffolding (types, cache, manifest schema) | ✅ shipped on `feat/sam-radiology` |
+| **B** — Runtime ONNX wiring (real encode + decode) | ✅ shipped on `feat/sam-radiology` |
+| **C.1** — Smart brush handoff (AnnotationPanel → SAM panel) | ✅ shipped |
+| **C.2** — Single-stroke smart-brush mode (brush stroke = positive point, immediate commit) | pending |
+| **D** — Cross-slice propagation (SAM 2 video tracker) | pending |
+| **E** — Screenshot auto-save folder | ✅ shipped (in-memory handle) |
+| **E.2** — IndexedDB-backed handle persistence across reloads | pending |
+| **F** — Pathology-mode SAM (plumbed through OpenSeadragon) | v0.6.0 |
+
+When the user's device has WebGPU, the encoder + decoder run on the GPU; when it doesn't, the same code path runs through WASM-SIMD. The fallback chain is `webgpu → webnn → wasm` for both sessions, and the worker auto-promotes to a less ambitious EP if the preferred one fails to compile.
+
+## End-to-end happy path (current commit)
+
+1. User clicks **SAM (assisted) → Download SAM 2 Tiny** in the sidebar.
+2. Loader streams `~30 MB` from `huggingface.co/onnx-community/sam2-hiera-tiny/resolve/main/onnx/{encoder,decoder}.onnx` into OPFS, with a progress bar.
+3. User clicks **Encode current slice** (~1–3 s on WebGPU). Embedding cached in zustand state.
+4. User picks **Point** mode and clicks on the slice → positive prompt added.
+5. User clicks **Generate mask** (decoder runs ~50–100 ms on WebGPU). Preview renders in the panel with an IoU score.
+6. User clicks **Commit** → mask is written into a single-slice volume and handed to `addMaskOverlay()`. Inherits the v0.5.5 RAS-alignment fix automatically, so it overlays correctly in 2D + 3D.
+7. Existing **Export** panel saves to NIfTI / DICOM-SEG / per-colour brush mask / reproducibility bundle as usual.

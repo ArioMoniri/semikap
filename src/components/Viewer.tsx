@@ -60,6 +60,14 @@ export interface ViewerHandle {
   zoomBy(factor: number): void;
   /** Capture the canvas as a PNG; null when the GL context isn't ready. */
   takeScreenshot(): Promise<Blob | null>;
+  // ── SAM helpers ──
+  /** Pull the current axial slice as Float32 grayscale + dims, for SAM
+   *  encoding. Returns null when no primary volume is loaded. */
+  getCurrentAxialSlice(): { pixels: Float32Array; width: number; height: number; index: number } | null;
+  /** Map a click in canvas coords (relative to the overlay rect, which
+   *  matches the canvas position) to source-axial-slice voxel coords.
+   *  Returns null when the click is outside any slice tile. */
+  canvasToAxialVoxel(canvasX: number, canvasY: number): { x: number; y: number } | null;
 }
 
 export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
@@ -176,6 +184,12 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       async takeScreenshot() {
         return (await viewerRef.current?.takeScreenshot()) ?? null;
+      },
+      getCurrentAxialSlice() {
+        return viewerRef.current?.getCurrentAxialSlice() ?? null;
+      },
+      canvasToAxialVoxel(x, y) {
+        return viewerRef.current?.canvasToAxialVoxel(x, y) ?? null;
       },
     }),
     []

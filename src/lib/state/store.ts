@@ -8,7 +8,7 @@ import type {
   VolumeMetadata,
 } from '../../types';
 import type { PickedFile } from '../fs/filesystem';
-import type { SamPrompt } from '../sam/types';
+import type { SamPrompt, SamManifest } from '../sam/types';
 
 export interface VolumeRecord {
   source: PickedFile;
@@ -99,26 +99,50 @@ export interface SamState {
   /** True once an encoder + decoder ONNX have been loaded (from disk or
    *  HuggingFace cache) and verified. Drives the SamPanel UI. */
   modelLoaded: boolean;
-  /** Friendly name shown when `modelLoaded` is true (e.g. "Xenova/medsam"). */
+  /** Friendly name shown when `modelLoaded` is true (e.g. "SAM 2 Tiny"). */
   modelName: string | null;
   /** Active prompt list — see SamPrompt for the shape. The decoder runs
    *  against the cached embedding + this list every time it changes. */
   prompts: SamPrompt[];
+  /** Loaded model assets — only populated when modelLoaded === true.
+   *  Held in zustand alongside the rest of the SAM slice; React components
+   *  rely on `modelLoaded` rather than these fields for re-render gating
+   *  so the 30-360 MB ONNX bytes don't cause UI churn. */
+  manifest: SamManifest | null;
+  encoderBytes: Bytes | null;
+  decoderBytes: Bytes | null;
+  /** Cache of the most recently encoded slice, keyed by axis+index, so
+   *  re-running the decoder with new prompts skips the encoder. */
+  embedding: { axis: 'axial' | 'coronal' | 'sagittal'; index: number; bytes: Bytes } | null;
+  /** Most recent decoder output — drives the live overlay before the user
+   *  decides to commit. */
+  preview: { mask: Uint8Array; width: number; height: number; score: number; sliceIndex: number } | null;
+  /** Stage of the user-visible long-running task. `null` means idle. */
+  busy: SamBusy | null;
 }
+
+export type SamBusy =
+  | { stage: 'fetching'; label: string; bytesLoaded: number; bytesTotal?: number }
+  | { stage: 'encoding'; label: string }
+  | { stage: 'decoding'; label: string };
 
 export interface UserPrefs {
   /**
    * Where canvas screenshots get saved.
    *  - 'ask': prompt for a path each time (current default behaviour)
-   *  - 'auto': save to the directory in `screenshotDir` without prompting
-   * The "auto" path requires File System Access API support; on
-   * fallbacks the toolbar falls back to "ask" silently.
+   *  - 'auto': save to the directory in `screenshotDirHandle` without
+   *            prompting. Requires File System Access API; falls back to
+   *            'ask' silently on Safari.
    */
   screenshotMode: 'ask' | 'auto';
-  /** When `screenshotMode === 'auto'`, save to this directory handle.
-   *  Stored as a serialisable name; the actual handle lives in OPFS state
-   *  (we'll expand to FileSystemDirectoryHandle persistence in v0.5.8). */
+  /** Display name of the chosen folder — persisted to localStorage so the
+   *  user sees their selection on reload even if they have to re-grant
+   *  the FSA permission. */
   screenshotDirName: string | null;
+  /** The actual FileSystemDirectoryHandle. NOT serialisable to JSON, so
+   *  not persisted via the localStorage prefs path — survives only the
+   *  current session. IDB-backed persistence ships in a follow-up. */
+  screenshotDirHandle: FileSystemDirectoryHandle | null;
 }
 
 /**
@@ -171,6 +195,12 @@ export const useAppStore = create<AppState>((set) => ({
     modelLoaded: false,
     modelName: null,
     prompts: [],
+    manifest: null,
+    encoderBytes: null,
+    decoderBytes: null,
+    embedding: null,
+    preview: null,
+    busy: null,
   },
   setSam: (patch) => set((s) => ({ sam: { ...s.sam, ...patch } })),
   addSamPrompt: (p) =>
@@ -205,9 +235,13 @@ function loadPrefs(): UserPrefs {
     const raw = window.localStorage.getItem(PREFS_KEY);
     if (!raw) return defaultPrefs();
     const parsed = JSON.parse(raw) as Partial<UserPrefs>;
+    // The dir handle never round-trips through localStorage (it's not
+    // serialisable). Always restore as null; the user re-picks once per
+    // session if auto-save is enabled.
     return {
       ...defaultPrefs(),
       ...parsed,
+      screenshotDirHandle: null,
     };
   } catch {
     return defaultPrefs();
@@ -217,7 +251,11 @@ function loadPrefs(): UserPrefs {
 function savePrefs(p: UserPrefs): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+    // Strip the live handle before serialising — it'd JSON-stringify to
+    // `{}` and confuse the load path.
+    const { screenshotDirHandle: _omit, ...persistable } = p;
+    void _omit;
+    window.localStorage.setItem(PREFS_KEY, JSON.stringify(persistable));
   } catch {
     /* quota / privacy mode — silently ignore */
   }
@@ -227,5 +265,6 @@ function defaultPrefs(): UserPrefs {
   return {
     screenshotMode: 'ask',
     screenshotDirName: null,
+    screenshotDirHandle: null,
   };
 }

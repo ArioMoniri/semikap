@@ -96,6 +96,8 @@ flowchart LR
 | 💽 OPFS warm cache | 🔒 SHA-256 model verification | ❤️ `/healthz` for K8s probes | 🪪 RUO stamp on every export |
 
 > 🔬 **Pathology mode arriving in v0.6.0** — whole-slide image viewer (OpenSeadragon + OME-TIFF / SVS / NDPI), tile-based ONNX inference, public-domain WSI examples. Tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md#v060--pathology-mode); the modality switcher in the header is already live so the entry-point is discoverable.
+>
+> 🪄 **SAM (Segment Anything) — branch `feat/sam-radiology`** — click + box + text prompts → mask, one-click HuggingFace download (SAM 2 Tiny ~30 MB, MedSAM ~360 MB), encoder runs once per slice on WebGPU then decoder is sub-100 ms per prompt. **No upload**, weights cached in OPFS. SAM 3 ONNX URL slot ready for when a stable export ships. See [`docs/SAM.md`](docs/SAM.md) for the full plan + status table.
 
 ---
 

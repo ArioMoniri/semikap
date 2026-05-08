@@ -6,21 +6,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased] — branch `feat/sam-radiology` (not merged)
 
-### Added — SAM (Segment Anything) scaffolding
-- 🪄 **New "SAM (assisted)" sidebar section** with onboarding (pick local manifest + ONNX, or one-click download from HuggingFace), prompt UI (positive points · negative points · bounding boxes · free-text for SAM 3+), prompt list with per-entry remove, and a "Generate mask" button.
-- 🧠 **`src/lib/sam/`** — SAM manifest types (`SamManifest`, `SamPrompt`, `SamMaskResult`), OPFS cache for encoder + decoder bytes (mirrors the existing model cache), worker request/response envelopes.
-- 🧰 **`src/workers/sam.worker.ts`** stub — Comlink-exposed `encode()` (once per slice) + `decode()` (per prompt revision). Real ONNX Runtime Web wiring is pending against a concrete backbone (`Xenova/medsam` / `onnx-community/sam2-hiera-tiny`); architecture, types, and message envelopes are settled and documented.
-- 🗂️ **`docs/SAM.md`** — full implementation plan: HuggingFace-compatible ONNX exports table, manifest schema, prompt types, performance budget (encoder once 1–3 s on WebGPU; decoder < 100 ms per prompt), CSP delta, audit-log integration, smart-brush mode, testing checklist, out-of-scope items.
+### Added — SAM (Segment Anything) — Phases A + B + E live on the branch
 
-### Added — Settings · screenshot save preference
-- 📸 **Screenshot save mode** in Settings — `Ask each time` (default, current behaviour) or `Auto-save to folder` (roadmapped: streams to a chosen directory). The audit-log entry now records which mode wrote the file.
+**Phase A — Scaffolding**:
+- 🧠 `src/lib/sam/` — `SamManifest` schema, prompt types (point / box / text), `SamMaskResult`, OPFS cache (`cache.ts`), worker envelopes.
+- 🗂️ `docs/SAM.md` — full implementation plan: HuggingFace ONNX exports table (SAM 2 Tiny / Base+ / MedSAM, SAM 3 stub), encoder-once + decoder-per-prompt architecture, manifest schema, prompt types, performance budget, CSP delta, smart-brush spec, testing checklist.
+
+**Phase B — Runtime ONNX wiring** (now live):
+- ⚙️ `src/lib/sam/preprocess.ts` — auto-window (1st/99th percentile) → 1024² RGB float32 ImageNet-normalised tensor with bilinear resize, channel replicate, HWC→CHW transpose fused into one pass.
+- ⚙️ `src/lib/sam/postprocess.ts` — bilinear up-sample of the 256² logit mask to source-slice dims + threshold; `pickBestSamMask` selects the highest-IoU candidate.
+- ⚙️ `src/lib/sam/loader.ts` — streaming `fetch` with progress, sha256 verification, OPFS persistence. Three preset models: SAM 2 Tiny (~30 MB), SAM 2 Base+ (~80 MB), MedSAM (~360 MB). SAM 3 ONNX URL is a one-line config swap when the export ships.
+- ⚙️ `src/lib/sam/session.ts` — encoder + decoder `ort.InferenceSession` wrappers with WebGPU → WebNN → WASM fallback; `packSamPointPrompts` packs prompt tensors per HuggingFace conventions.
+- ⚙️ `src/workers/sam.worker.ts` — Comlink-exposed `encode()` runs the heavy encoder once per slice; `decode()` runs the cheap decoder per prompt revision against the cached embedding. Module-scope session cache persists across calls. `reset()` releases GPU memory.
+- 🩻 `src/lib/viewer/niivue.ts` — `getCurrentAxialSlice()` + `canvasToAxialVoxel(x, y)` so the panel can grab the active slice and convert clicks to voxel coords.
+- 🖱️ `src/components/SamPromptOverlay.tsx` — absolute click-capture surface. Point mode = click for positive, shift-click for negative; box mode = drag rectangle.
+- 🪄 `src/components/SamPanel.tsx` — full UI: onboarding (pick local manifest + ONNX OR one-click HuggingFace download with progress), encode-current-slice button, prompt mode chooser, prompt list, generate-mask, preview (with IoU score), commit / cancel.
+- 🩻 **Mask commit** writes the SAM mask into a single-slice volume and hands it through the existing `addMaskOverlay` pipeline so it picks up the v0.5.5 RAS-alignment fix and renders aligned in 2D + 3D.
+
+**Phase C — Smart brush handoff**:
+- 🪄 AnnotationPanel now points users at the SAM panel for click-to-mask assisted segmentation. A dedicated single-stroke smart-brush mode is roadmapped (docs/SAM.md → Phase C).
+
+**Phase E — Auto-save folder for screenshots**:
+- 📸 Settings panel picks a folder via the File System Access API (`showDirectoryPicker`); handle goes to `prefs.screenshotDirHandle`.
+- 📸 ToolsPanel screenshot button writes straight there when `prefs.screenshotMode === 'auto'`; falls back to the prompt path if the handle is missing or write permission was revoked. Audit-log records which mode wrote the file.
+- 🆕 `pickDirectory` + `saveBytesToDirectory` helpers in `src/lib/fs/filesystem.ts`.
 
 ### Changed — CSP for opt-in SAM weight download
-- 🔌 **`connect-src` now includes `https://huggingface.co` + `https://*.huggingface.co` + `https://cdn-lfs.huggingface.co`** so the SAM panel's "Download from HuggingFace" button can fetch encoder + decoder weights into OPFS. The download is **always user-triggered**; nothing fetches automatically. Once cached, the app runs fully offline.
+- 🔌 `connect-src` now includes `https://huggingface.co` + `https://*.huggingface.co` + `https://cdn-lfs.huggingface.co` so the SAM panel's "Download from HuggingFace" button can fetch encoder + decoder weights into OPFS. The download is **always user-triggered**; nothing fetches automatically. Once cached, the app runs fully offline.
 
 ### Notes
-- This work lives on branch `feat/sam-radiology`; **not** merged to `main`. Will be promoted on user approval.
-- Pathology-mode placeholder from v0.5.7 remains; pathology-side SAM lands alongside the v0.6.0 OpenSeadragon viewer.
+- Branch `feat/sam-radiology`; **not** merged to `main`. Promotes on user approval.
+- Single-stroke smart-brush flow + IndexedDB-persisted directory handle land in the next commit (Phase C + E continuations) per `docs/SAM.md`.
+- Pathology-mode placeholder from v0.5.7 remains; pathology-side SAM lands with the v0.6.0 OpenSeadragon viewer.
 
 ## [0.5.7] — Radiology polish · Modality toggle · v0.6.0 groundwork
 

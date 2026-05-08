@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Brush, Eraser, RotateCcw } from 'lucide-react';
+import { Brush, Eraser, RotateCcw, Sparkles } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import type { ViewerHandle } from './Viewer';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
@@ -102,6 +102,23 @@ export function AnnotationPanel({ viewerRef }: Props) {
           <Button size="sm" variant="ghost" onClick={handleUndo} className="gap-1.5">
             <RotateCcw className="h-3.5 w-3.5" /> Undo
           </Button>
+        </div>
+
+        {/* Smart-brush handoff. The SAM panel offers click-to-mask
+            segmentation that's strictly faster than free-hand brushing
+            for organ contours; we point users at it rather than
+            duplicating the worker pipeline here. A dedicated single-
+            click "Smart" mode that hands a brush stroke straight to
+            SAM is roadmapped (docs/SAM.md → Phase C). */}
+        <div className="flex items-start gap-1.5 rounded border border-tamias-accent/30 bg-blue-50 p-2 text-[11px] text-tamias-ink dark:bg-blue-950 dark:text-slate-200">
+          <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-tamias-accent" />
+          <span>
+            <span className="font-medium">Tip:</span> for click-to-mask
+            assisted segmentation, open the <strong>SAM (assisted)</strong>{' '}
+            section above. Encode the slice once, then click + box +
+            text prompts produce snapped contours faster than free-hand
+            brushing.
+          </span>
         </div>
         {mode === 'brush' && (
           <div className="space-y-1">

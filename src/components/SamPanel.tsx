@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import * as Comlink from 'comlink';
 import {
   Sparkles,
   Download,
@@ -8,95 +9,409 @@ import {
   X as XIcon,
   Square,
   Type as TypeIcon,
-  WandSparkles,
+  Wand2,
+  Check,
 } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
-import type { SamPrompt } from '../lib/sam/types';
+import { Progress } from './ui/Progress';
+import type {
+  SamPrompt,
+  SamMaskResult,
+  SamSliceEmbedding,
+  SamManifest,
+} from '../lib/sam/types';
+import type { SamApi } from '../workers/sam.worker';
 import { ExternalLink } from './ExternalLink';
+import { PRESET_SAM_MODELS, loadSamModel, type SamLoadProgress } from '../lib/sam/loader';
+import { pickFile } from '../lib/fs/filesystem';
+import { appendAudit } from '../lib/fs/audit';
+import type { ViewerHandle } from './Viewer';
+import { SamPromptOverlay } from './SamPromptOverlay';
 
 const SAM_DOC_URL = 'https://github.com/ArioMoniri/semikap/blob/main/docs/SAM.md';
 
+interface Props {
+  viewerRef: React.MutableRefObject<ViewerHandle | null>;
+}
+
 /**
- * SAM (Segment Anything) onboarding + prompt UI. Three states:
+ * SAM (Segment Anything) panel.
  *
- *   1. No model loaded — show the three onboarding paths (pick from disk,
- *      download from HuggingFace, paste a custom URL) and a link to the
- *      implementation doc.
+ * Three states (driven by `sam.modelLoaded` + `sam.busy`):
+ *   1. No model loaded → onboarding (preset HuggingFace download + local
+ *      file picker).
+ *   2. Loading → progress bar + cancel.
+ *   3. Ready → prompt mode chooser, prompt list, encode/decode buttons,
+ *      preview-mask commit.
  *
- *   2. Model loading — progress + cancel.
- *
- *   3. Model ready — prompt UI: the active prompt mode (point / box / text),
- *      a list of accumulated prompts the user can selectively delete, and
- *      "Generate mask" / "Commit to mask" / "Clear" buttons.
- *
- * Wires through to the SAM worker (src/workers/sam.worker.ts). The worker
- * itself is currently a typed stub — see docs/SAM.md for the runtime
- * pipeline that's pending wiring against a concrete checkpoint.
+ * The panel ALSO renders the SamPromptOverlay back into the viewer pane
+ * when in an active prompt mode. The overlay listens for clicks and
+ * pushes prompts directly into store state via addSamPrompt; the panel
+ * just displays the resulting list.
  */
-export function SamPanel() {
+export function SamPanel({ viewerRef }: Props) {
   const sam = useAppStore((s) => s.sam);
   const setSam = useAppStore((s) => s.setSam);
-  const addPrompt = useAppStore((s) => s.addSamPrompt);
-  const clearPrompts = useAppStore((s) => s.clearSamPrompts);
   const removePrompt = useAppStore((s) => s.removeSamPrompt);
+  const clearPrompts = useAppStore((s) => s.clearSamPrompts);
+  const pushError = useAppStore((s) => s.pushError);
 
-  const [activeMode, setActiveMode] = useState<'point' | 'box' | 'text'>('point');
+  const [activeMode, setActiveMode] = useState<'point' | 'box' | 'text' | 'off'>('off');
   const [textValue, setTextValue] = useState('');
 
   const handleAddText = useCallback(() => {
     if (!textValue.trim()) return;
-    addPrompt({ kind: 'text', value: textValue.trim() });
+    useAppStore.getState().addSamPrompt({ kind: 'text', value: textValue.trim() });
     setTextValue('');
-  }, [textValue, addPrompt]);
+  }, [textValue]);
+
+  const handleDownloadPreset = useCallback(
+    async (presetId: string) => {
+      const preset = PRESET_SAM_MODELS.find((p) => p.id === presetId);
+      if (!preset) return;
+      const sizeMB = (
+        (preset.approxBytesEncoder + preset.approxBytesDecoder) /
+        (1024 * 1024)
+      ).toFixed(0);
+      const ok = confirm(
+        `Download ${preset.manifest.name} from HuggingFace?\n\n` +
+          `~${sizeMB} MB · ${preset.manifest.license} · cached locally after download · no upload.\n\n` +
+          'The download is one-shot; subsequent loads come from your browser cache (OPFS) and ' +
+          'work offline.'
+      );
+      if (!ok) return;
+      try {
+        setSam({
+          busy: { stage: 'fetching', label: 'Downloading encoder…', bytesLoaded: 0 },
+        });
+        const bytes = await loadSamModel(preset.manifest, (p: SamLoadProgress) => {
+          setSam({
+            busy: {
+              stage: 'fetching',
+              label:
+                p.stage === 'encoder'
+                  ? 'Downloading encoder…'
+                  : p.stage === 'decoder'
+                  ? 'Downloading decoder…'
+                  : p.stage === 'verify'
+                  ? 'Verifying…'
+                  : p.stage === 'cache'
+                  ? 'Caching to OPFS…'
+                  : 'Done',
+              bytesLoaded: p.bytesLoaded,
+              ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
+            },
+          });
+        });
+        setSam({
+          modelLoaded: true,
+          modelName: preset.manifest.name,
+          manifest: preset.manifest,
+          encoderBytes: bytes.encoderBytes,
+          decoderBytes: bytes.decoderBytes,
+          embedding: null,
+          preview: null,
+          prompts: [],
+          busy: null,
+        });
+        void appendAudit({
+          kind: 'export',
+          message: `SAM model loaded: ${preset.manifest.name}`,
+          details: { family: preset.manifest.family, license: preset.manifest.license },
+        });
+      } catch (e) {
+        const err = e as Error;
+        pushError(`SAM download failed: ${err.message}`, err.stack ? { stack: err.stack } : undefined);
+        setSam({ busy: null });
+      }
+    },
+    [setSam, pushError]
+  );
+
+  const handlePickLocal = useCallback(async () => {
+    try {
+      // 1) manifest.json
+      const manifestFile = await pickFile({
+        types: [{ description: 'SAM manifest', accept: { 'application/json': ['.json'] } }],
+      });
+      if (!manifestFile) return;
+      const text = new TextDecoder().decode(manifestFile.bytes);
+      const parsed = JSON.parse(text);
+      if (parsed.kind !== 'sam') {
+        throw new Error('Manifest is not a SAM manifest (missing `kind: "sam"`).');
+      }
+      // Lightweight cast — SAM manifest schema is documented in
+      // src/lib/sam/types.ts and docs/SAM.md. Full schema-validation
+      // lands alongside the existing parseManifest() in a follow-up.
+      const manifest = parsed as SamManifest;
+
+      // 2) encoder.onnx
+      const enc = await pickFile({
+        types: [{ description: 'SAM encoder ONNX', accept: { 'application/octet-stream': ['.onnx'] } }],
+      });
+      if (!enc) return;
+      // 3) decoder.onnx
+      const dec = await pickFile({
+        types: [{ description: 'SAM decoder ONNX', accept: { 'application/octet-stream': ['.onnx'] } }],
+      });
+      if (!dec) return;
+
+      setSam({
+        modelLoaded: true,
+        modelName: manifest.name ?? 'SAM (local)',
+        manifest,
+        encoderBytes: enc.bytes,
+        decoderBytes: dec.bytes,
+        embedding: null,
+        preview: null,
+        prompts: [],
+        busy: null,
+      });
+      void appendAudit({
+        kind: 'export',
+        message: `SAM model loaded from disk: ${manifest.name ?? 'unnamed'}`,
+      });
+    } catch (e) {
+      pushError(`SAM load failed: ${(e as Error).message}`);
+    }
+  }, [setSam, pushError]);
+
+  const handleEncode = useCallback(async () => {
+    if (!sam.modelLoaded || !sam.manifest || !sam.encoderBytes) return;
+    const slice = viewerRef.current?.getCurrentAxialSlice();
+    if (!slice) {
+      pushError('No slice loaded — pick a primary volume first.');
+      return;
+    }
+    setSam({ busy: { stage: 'encoding', label: `Encoding slice ${slice.index + 1}…` } });
+    try {
+      const worker = new Worker(new URL('../workers/sam.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+      const api = Comlink.wrap<SamApi>(worker);
+      // Convert Float32Array → Uint8Array byte-view (preprocess does its
+      // own typed read, we just need ArrayLike<number>).
+      const pixels = new Uint8Array(slice.width * slice.height);
+      for (let i = 0; i < pixels.length; i++) {
+        // Quantise to 8-bit for the worker — preprocess re-windows internally.
+        pixels[i] = Math.max(0, Math.min(255, slice.pixels[i] ?? 0));
+      }
+      const res = (await api.encode({
+        kind: 'encode',
+        manifest: sam.manifest,
+        encoderBytes: sam.encoderBytes,
+        pixels,
+        width: slice.width,
+        height: slice.height,
+      })) as SamSliceEmbedding;
+      worker.terminate();
+      setSam({
+        embedding: { axis: 'axial', index: slice.index, bytes: res.embedding },
+        busy: null,
+      });
+      void appendAudit({
+        kind: 'export',
+        message: `SAM encode: slice ${slice.index + 1} in ${res.encodeMs.toFixed(0)}ms`,
+      });
+    } catch (e) {
+      const err = e as Error;
+      pushError(`SAM encode failed: ${err.message}`, err.stack ? { stack: err.stack } : undefined);
+      setSam({ busy: null });
+    }
+  }, [sam, viewerRef, setSam, pushError]);
+
+  const handleGenerate = useCallback(async () => {
+    if (!sam.modelLoaded || !sam.manifest || !sam.decoderBytes || !sam.embedding) {
+      pushError('Encode the slice first.');
+      return;
+    }
+    if (sam.prompts.length === 0) {
+      pushError('Add at least one prompt (click on the slice).');
+      return;
+    }
+    const slice = viewerRef.current?.getCurrentAxialSlice();
+    if (!slice) return;
+    setSam({ busy: { stage: 'decoding', label: 'Generating mask…' } });
+    try {
+      const worker = new Worker(new URL('../workers/sam.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+      const api = Comlink.wrap<SamApi>(worker);
+      const res = (await api.decode({
+        kind: 'decode',
+        manifest: sam.manifest,
+        decoderBytes: sam.decoderBytes,
+        embedding: sam.embedding.bytes,
+        prompts: sam.prompts,
+        width: slice.width,
+        height: slice.height,
+      })) as SamMaskResult;
+      worker.terminate();
+      setSam({
+        preview: {
+          mask: res.mask,
+          width: res.width,
+          height: res.height,
+          score: res.score,
+          sliceIndex: slice.index,
+        },
+        busy: null,
+      });
+      void appendAudit({
+        kind: 'export',
+        message: `SAM decode: ${(res.score * 100).toFixed(0)}% IoU in ${res.decodeMs.toFixed(0)}ms`,
+      });
+    } catch (e) {
+      const err = e as Error;
+      pushError(`SAM decode failed: ${err.message}`, err.stack ? { stack: err.stack } : undefined);
+      setSam({ busy: null });
+    }
+  }, [sam, viewerRef, setSam, pushError]);
+
+  const handleCommit = useCallback(async () => {
+    if (!sam.preview) return;
+    const volume = useAppStore.getState().volume;
+    if (!volume || !viewerRef.current) return;
+    const [X, Y, Z] = volume.meta.dims;
+    if (sam.preview.width !== X || sam.preview.height !== Y) {
+      pushError('Preview mask size does not match the volume — re-encode the slice.');
+      return;
+    }
+    // Materialise the slice mask into a full-volume Uint8Array (zero
+    // everywhere except the encoded slice, where we copy the SAM mask).
+    const full = new Uint8Array(X * Y * Z);
+    const slab = X * Y;
+    const off = sam.preview.sliceIndex * slab;
+    for (let i = 0; i < slab; i++) full[off + i] = sam.preview.mask[i] ?? 0;
+    await viewerRef.current.addMaskOverlay(
+      'sam',
+      full,
+      [X, Y, Z],
+      volume.meta.spacing,
+      'green',
+      0.5,
+      {
+        ...(volume.meta.srowX ? { srowX: volume.meta.srowX } : {}),
+        ...(volume.meta.srowY ? { srowY: volume.meta.srowY } : {}),
+        ...(volume.meta.srowZ ? { srowZ: volume.meta.srowZ } : {}),
+        origin: volume.meta.origin,
+      }
+    );
+    setSam({ preview: null });
+    void appendAudit({ kind: 'export', message: 'SAM mask committed to viewer' });
+  }, [sam, viewerRef, setSam, pushError]);
+
+  const handleForget = useCallback(() => {
+    setSam({
+      modelLoaded: false,
+      modelName: null,
+      manifest: null,
+      encoderBytes: null,
+      decoderBytes: null,
+      embedding: null,
+      preview: null,
+      prompts: [],
+      busy: null,
+    });
+  }, [setSam]);
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
-        <div className="space-y-1">
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-tamias-accent" /> SAM (assisted)
-          </CardTitle>
-          <CardDescription>
-            Click + box + text prompts → mask. Runs in your browser via WebGPU.
-          </CardDescription>
+    <>
+      {/* Click-capture overlay over the viewer. Only fires when the user
+          is actively in a point/box prompt mode. */}
+      {sam.modelLoaded && (
+        <SamPromptOverlay viewerRef={viewerRef} mode={activeMode} />
+      )}
+
+      <Card>
+        <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-tamias-accent" /> SAM (assisted)
+            </CardTitle>
+            <CardDescription>
+              Click + box + text prompts → mask. Runs in your browser via WebGPU.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3 text-xs">
+          {sam.busy && <BusyView busy={sam.busy} />}
+
+          {!sam.modelLoaded && !sam.busy && (
+            <OnboardingView onPickLocal={handlePickLocal} onDownload={handleDownloadPreset} />
+          )}
+
+          {sam.modelLoaded && !sam.busy && (
+            <ReadyView
+              activeMode={activeMode}
+              setActiveMode={setActiveMode}
+              textValue={textValue}
+              setTextValue={setTextValue}
+              handleAddText={handleAddText}
+              prompts={sam.prompts}
+              removePrompt={removePrompt}
+              clearPrompts={clearPrompts}
+              modelName={sam.modelName}
+              forget={handleForget}
+              encoded={!!sam.embedding}
+              onEncode={handleEncode}
+              onGenerate={handleGenerate}
+              hasPreview={!!sam.preview}
+              previewScore={sam.preview?.score ?? null}
+              onCommit={handleCommit}
+              onCancelPreview={() => setSam({ preview: null })}
+            />
+          )}
+
+          <Badge variant="warn" className="gap-1.5">
+            See{' '}
+            <ExternalLink href={SAM_DOC_URL} className="underline">
+              docs/SAM.md
+            </ExternalLink>{' '}
+            for compatible HuggingFace exports + the BYOM contract.
+          </Badge>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+function BusyView({ busy }: { busy: NonNullable<ReturnType<typeof useAppStore.getState>['sam']['busy']> }) {
+  let pct = -1;
+  if (busy.stage === 'fetching' && busy.bytesTotal) {
+    pct = Math.round((busy.bytesLoaded / busy.bytesTotal) * 100);
+  }
+  return (
+    <div className="space-y-1.5 rounded border border-blue-200 bg-blue-50 p-2 dark:border-blue-900 dark:bg-blue-950">
+      <div className="text-[11px] font-medium text-blue-900 dark:text-blue-200">
+        {busy.label}
+      </div>
+      {pct >= 0 ? (
+        <Progress value={pct} />
+      ) : (
+        <div className="h-2 w-full animate-pulse rounded-full bg-blue-200" />
+      )}
+      {busy.stage === 'fetching' && (
+        <div className="text-[10px] tabular-nums text-blue-800/70 dark:text-blue-200/60">
+          {(busy.bytesLoaded / (1024 * 1024)).toFixed(1)} MB
+          {busy.bytesTotal
+            ? ` / ${(busy.bytesTotal / (1024 * 1024)).toFixed(1)} MB`
+            : ''}
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3 text-xs">
-        {!sam.modelLoaded ? (
-          <OnboardingView setSam={setSam} />
-        ) : (
-          <ReadyView
-            activeMode={activeMode}
-            setActiveMode={setActiveMode}
-            textValue={textValue}
-            setTextValue={setTextValue}
-            handleAddText={handleAddText}
-            prompts={sam.prompts}
-            removePrompt={removePrompt}
-            clearPrompts={clearPrompts}
-            modelName={sam.modelName}
-            forgetModel={() => setSam({ modelLoaded: false, modelName: null, prompts: [] })}
-          />
-        )}
-        <Badge variant="warn" className="gap-1.5">
-          <WandSparkles className="h-3 w-3" /> Bring your own SAM weights — see{' '}
-          <ExternalLink href={SAM_DOC_URL} className="underline">
-            docs/SAM.md
-          </ExternalLink>{' '}
-          for compatible HuggingFace exports.
-        </Badge>
-      </CardContent>
-    </Card>
+      )}
+    </div>
   );
 }
 
 function OnboardingView({
-  setSam,
+  onPickLocal,
+  onDownload,
 }: {
-  setSam: (patch: { modelLoaded: boolean; modelName: string | null }) => void;
+  onPickLocal: () => void;
+  onDownload: (id: string) => void;
 }) {
   return (
     <div className="space-y-2">
@@ -110,40 +425,45 @@ function OnboardingView({
           variant="ink"
           size="sm"
           className="justify-start gap-1.5"
-          onClick={() => alert('SAM model picker — runtime wiring pending. See docs/SAM.md.')}
+          onClick={onPickLocal}
         >
           <FolderOpen className="h-3.5 w-3.5" /> Pick local manifest + ONNX
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="justify-start gap-1.5"
-          onClick={() => {
-            // Placeholder — real impl prompts the user, fetches from HF,
-            // hashes + caches in OPFS, then flips modelLoaded.
-            const ok = confirm(
-              'Download Xenova/medsam from HuggingFace?\n\n' +
-                '~360 MB · Apache-2.0 · cached locally after download · no upload.\n\n' +
-                "Runtime wiring is pending; this is a placeholder."
-            );
-            if (ok) setSam({ modelLoaded: true, modelName: 'Xenova/medsam (stub)' });
-          }}
-        >
-          <Download className="h-3.5 w-3.5" /> Download from HuggingFace
-        </Button>
+        {PRESET_SAM_MODELS.map((preset) => {
+          const sizeMB = (
+            (preset.approxBytesEncoder + preset.approxBytesDecoder) /
+            (1024 * 1024)
+          ).toFixed(0);
+          return (
+            <Button
+              key={preset.id}
+              variant="outline"
+              size="sm"
+              className="justify-between gap-1.5"
+              onClick={() => onDownload(preset.id)}
+            >
+              <span className="flex items-center gap-1.5">
+                <Download className="h-3.5 w-3.5" /> {preset.manifest.name}
+              </span>
+              <span className="text-[10px] text-slate-500">
+                ~{sizeMB} MB · {preset.manifest.license}
+              </span>
+            </Button>
+          );
+        })}
       </div>
       <div className="text-[11px] text-slate-500">
-        Recommended starter: <strong>SAM 2 Tiny</strong> (~30 MB encoder, runs
-        on phones) or <strong>MedSAM</strong> (~360 MB, fine-tuned on medical
-        imaging). Both offer the same prompt UX.
+        Recommended starter: <strong>SAM 2 Tiny</strong> (~30 MB, runs on phones)
+        or <strong>MedSAM</strong> (~360 MB, fine-tuned on medical imaging).
+        SAM 3 ONNX export pending — drop it in here when it ships.
       </div>
     </div>
   );
 }
 
 function ReadyView(props: {
-  activeMode: 'point' | 'box' | 'text';
-  setActiveMode: (m: 'point' | 'box' | 'text') => void;
+  activeMode: 'point' | 'box' | 'text' | 'off';
+  setActiveMode: (m: 'point' | 'box' | 'text' | 'off') => void;
   textValue: string;
   setTextValue: (s: string) => void;
   handleAddText: () => void;
@@ -151,7 +471,14 @@ function ReadyView(props: {
   removePrompt: (idx: number) => void;
   clearPrompts: () => void;
   modelName: string | null;
-  forgetModel: () => void;
+  forget: () => void;
+  encoded: boolean;
+  onEncode: () => void;
+  onGenerate: () => void;
+  hasPreview: boolean;
+  previewScore: number | null;
+  onCommit: () => void;
+  onCancelPreview: () => void;
 }) {
   const {
     activeMode,
@@ -163,7 +490,14 @@ function ReadyView(props: {
     removePrompt,
     clearPrompts,
     modelName,
-    forgetModel,
+    forget,
+    encoded,
+    onEncode,
+    onGenerate,
+    hasPreview,
+    previewScore,
+    onCommit,
+    onCancelPreview,
   } = props;
 
   return (
@@ -172,10 +506,15 @@ function ReadyView(props: {
         <div className="flex min-w-0 items-center gap-1.5 text-emerald-800 dark:text-emerald-300">
           <Sparkles className="h-3 w-3 shrink-0" />
           <span className="truncate text-[11px]">{modelName ?? 'Model loaded'}</span>
+          {encoded && (
+            <Badge variant="ok" className="ml-1 text-[10px]">
+              encoded
+            </Badge>
+          )}
         </div>
         <button
           type="button"
-          onClick={forgetModel}
+          onClick={forget}
           aria-label="Forget loaded SAM model"
           className="rounded p-1 text-slate-400 hover:bg-red-100 hover:text-red-600"
           title="Unload model"
@@ -184,106 +523,144 @@ function ReadyView(props: {
         </button>
       </div>
 
-      <div className="space-y-1">
-        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-          Prompt mode
-        </div>
-        <div className="grid grid-cols-3 gap-1">
-          <ModeBtn
-            label="Point"
-            icon={<Plus className="h-3.5 w-3.5" />}
-            active={activeMode === 'point'}
-            onClick={() => setActiveMode('point')}
-            hint="Click slice (shift-click = negative)"
-          />
-          <ModeBtn
-            label="Box"
-            icon={<Square className="h-3.5 w-3.5" />}
-            active={activeMode === 'box'}
-            onClick={() => setActiveMode('box')}
-            hint="Drag a rectangle"
-          />
-          <ModeBtn
-            label="Text"
-            icon={<TypeIcon className="h-3.5 w-3.5" />}
-            active={activeMode === 'text'}
-            onClick={() => setActiveMode('text')}
-            hint="SAM 3+ free-text prompts"
-          />
-        </div>
-      </div>
-
-      {activeMode === 'text' && (
-        <div className="flex items-center gap-1.5">
-          <input
-            type="text"
-            value={textValue}
-            onChange={(e) => setTextValue(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddText()}
-            placeholder='e.g. "left kidney"'
-            className="flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs placeholder:text-slate-400 focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-900"
-          />
-          <Button size="sm" variant="outline" onClick={handleAddText} className="shrink-0">
-            Add
-          </Button>
-        </div>
+      {!encoded && (
+        <Button size="sm" variant="ink" onClick={onEncode} className="w-full gap-1.5">
+          <Wand2 className="h-3.5 w-3.5" /> Encode current slice
+        </Button>
       )}
 
-      <div className="space-y-1">
-        <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-slate-500">
-          <span>Prompts ({prompts.length})</span>
-          {prompts.length > 0 && (
-            <button
-              type="button"
-              onClick={clearPrompts}
-              className="text-slate-500 hover:text-red-600"
-            >
-              clear
-            </button>
-          )}
-        </div>
-        {prompts.length === 0 ? (
-          <div className="text-[11px] text-slate-500">
-            No prompts yet — pick a mode and click on the slice.
+      {encoded && (
+        <>
+          <div className="space-y-1">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+              Prompt mode
+            </div>
+            <div className="grid grid-cols-4 gap-1">
+              <ModeBtn
+                label="Off"
+                icon={<XIcon className="h-3.5 w-3.5" />}
+                active={activeMode === 'off'}
+                onClick={() => setActiveMode('off')}
+              />
+              <ModeBtn
+                label="Point"
+                icon={<Plus className="h-3.5 w-3.5" />}
+                active={activeMode === 'point'}
+                onClick={() => setActiveMode('point')}
+              />
+              <ModeBtn
+                label="Box"
+                icon={<Square className="h-3.5 w-3.5" />}
+                active={activeMode === 'box'}
+                onClick={() => setActiveMode('box')}
+              />
+              <ModeBtn
+                label="Text"
+                icon={<TypeIcon className="h-3.5 w-3.5" />}
+                active={activeMode === 'text'}
+                onClick={() => setActiveMode('text')}
+              />
+            </div>
           </div>
-        ) : (
-          <ul className="space-y-1">
-            {prompts.map((p, i) => (
-              <li
-                key={i}
-                className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] dark:border-slate-800 dark:bg-slate-900"
-              >
-                <span className="min-w-0 truncate">
-                  <PromptIcon kind={p.kind} />{' '}
-                  <span className="font-mono text-slate-600 dark:text-slate-300">
-                    {summarisePrompt(p)}
-                  </span>
-                </span>
+
+          {activeMode === 'text' && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={textValue}
+                onChange={(e) => setTextValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddText()}
+                placeholder='e.g. "left kidney"'
+                className="flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs placeholder:text-slate-400 focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-900"
+              />
+              <Button size="sm" variant="outline" onClick={handleAddText} className="shrink-0">
+                Add
+              </Button>
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-slate-500">
+              <span>Prompts ({prompts.length})</span>
+              {prompts.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => removePrompt(i)}
-                  aria-label={`Remove prompt ${i + 1}`}
-                  className="rounded p-0.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
+                  onClick={clearPrompts}
+                  className="text-slate-500 hover:text-red-600"
                 >
-                  <XIcon className="h-3 w-3" />
+                  clear
                 </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+              )}
+            </div>
+            {prompts.length === 0 ? (
+              <div className="text-[11px] text-slate-500">
+                No prompts yet — pick Point / Box / Text and click on the slice.
+              </div>
+            ) : (
+              <ul className="space-y-1">
+                {prompts.map((p, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] dark:border-slate-800 dark:bg-slate-900"
+                  >
+                    <span className="min-w-0 truncate font-mono text-slate-600 dark:text-slate-300">
+                      {summarisePrompt(p)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removePrompt(i)}
+                      aria-label={`Remove prompt ${i + 1}`}
+                      className="rounded p-0.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
+                    >
+                      <XIcon className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
-      <Button size="sm" variant="ink" disabled className="w-full gap-1.5">
-        <Sparkles className="h-3.5 w-3.5" /> Generate mask (runtime pending)
-      </Button>
+          <Button
+            size="sm"
+            variant="ink"
+            onClick={onGenerate}
+            disabled={prompts.length === 0}
+            className="w-full gap-1.5"
+          >
+            <Sparkles className="h-3.5 w-3.5" /> Generate mask
+          </Button>
+
+          {hasPreview && (
+            <div className="space-y-1.5 rounded border border-emerald-300 bg-emerald-50 p-2 dark:border-emerald-800 dark:bg-emerald-950">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-medium text-emerald-900 dark:text-emerald-200">
+                  Preview ready
+                </span>
+                {previewScore !== null && (
+                  <Badge variant="ok" className="text-[10px]">
+                    IoU {(previewScore * 100).toFixed(0)}%
+                  </Badge>
+                )}
+              </div>
+              <div className="flex gap-1.5">
+                <Button size="sm" variant="ink" onClick={onCommit} className="flex-1 gap-1.5">
+                  <Check className="h-3.5 w-3.5" /> Commit
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onCancelPreview}
+                  className="flex-1 gap-1.5"
+                >
+                  <XIcon className="h-3.5 w-3.5" /> Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
-}
-
-function PromptIcon({ kind }: { kind: SamPrompt['kind'] }) {
-  if (kind === 'point') return <Plus className="inline h-3 w-3 text-emerald-600" />;
-  if (kind === 'box') return <Square className="inline h-3 w-3 text-blue-600" />;
-  return <TypeIcon className="inline h-3 w-3 text-fuchsia-600" />;
 }
 
 function summarisePrompt(p: SamPrompt): string {
@@ -299,21 +676,18 @@ function ModeBtn({
   icon,
   active,
   onClick,
-  hint,
 }: {
   label: string;
   icon: React.ReactNode;
   active: boolean;
   onClick: () => void;
-  hint: string;
 }) {
   return (
     <Button
       size="sm"
       variant={active ? 'ink' : 'outline'}
       onClick={onClick}
-      title={hint}
-      className={`h-auto justify-start gap-1.5 px-2 py-1.5 text-[11px] ${
+      className={`h-auto justify-center gap-1 px-1 py-1.5 text-[11px] ${
         active ? '' : 'text-slate-700 dark:text-slate-200'
       }`}
     >

@@ -342,7 +342,7 @@ export function AppShell() {
             defaultOpen={false}
             trailing="preview"
           >
-            <SamPanel />
+            <SamPanel viewerRef={viewerRef} />
           </CollapsibleSection>
 
           <CollapsibleSection title="Layout" defaultOpen={false}>
