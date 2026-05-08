@@ -81,6 +81,15 @@ export class NiivueViewer {
   private secondaryIndex = -1;
   /** Index of the segmentation overlay (if any). */
   private maskIndex = -1;
+  /**
+   * True when the user is actively in brush/eraser mode. Gates
+   * `refreshDrawing()` so we don't trigger NiiVue's draw-mesh rebuild on
+   * every plain canvas click — calling `nv.refreshDrawing(true)` against
+   * an empty/never-painted bitmap blanked the canvas on cursor-leave in
+   * v0.5.4 because NiiVue cleared the GL state and waited for the next
+   * paint event to redraw the volumes.
+   */
+  private drawingActive = false;
   private probeListeners = new Set<ProbeListener>();
 
   constructor(canvas: HTMLCanvasElement) {
@@ -267,23 +276,50 @@ export class NiivueViewer {
       opacity,
     });
 
-    // 3D rendering path: NiiVue computes the volumetric raycaster's transform
-    // from each volume's `matRAS` (4x4 voxel→world). Even when both volumes
-    // declare matching sforms in their NIfTI headers, NiiVue caches matRAS at
-    // load time and the cached values can drift between primary + overlay due
-    // to qform/sform reconciliation order. Copying the primary's matRAS onto
-    // the overlay forces both to share the exact same world transform, which
-    // is what makes the AI mask register with the source vessels in 3D.
-    const primary = this.nv.volumes[this.primaryIndex] as
-      | { matRAS?: Float32Array | number[] }
-      | undefined;
-    const matRAS = primary?.matRAS;
-    if (matRAS) {
-      const ov = overlay as unknown as { matRAS: Float32Array | number[] };
-      ov.matRAS =
-        matRAS instanceof Float32Array
-          ? new Float32Array(matRAS)
-          : Float32Array.from(matRAS);
+    // 3D rendering: NiiVue's volumetric raycaster derives each volume's
+    // transform from FOUR fields, not just matRAS:
+    //   matRAS      — 4x4 voxel→world
+    //   dimsRAS     — RAS-aligned dims (post-permutation), [n, x, y, z]
+    //   pixDimsRAS  — RAS-aligned spacing
+    //   permRAS     — axis permutation (e.g. [-1, 2, -3] for an LPI source)
+    //
+    // NiiVue computes those four at load time from the NIfTI sform/qform.
+    // Even when our writeNifti1Uint8 emits the same sform as the source,
+    // qform/sform reconciliation can produce different cached values for
+    // primary vs overlay — and on a non-axis-aligned source (any LPI volume,
+    // many MR + most non-axial CTs) the two diverge enough that the 3D
+    // overlay drifts from the source vessels. Copying ALL FOUR from primary
+    // forces the overlay into the exact same RAS frame, which makes the
+    // alignment volume-agnostic — works on the bundled threshold demo, on
+    // arbitrary nnU-Net / TotalSegmentator outputs, on user-supplied models.
+    type RasFields = {
+      matRAS?: Float32Array | number[];
+      dimsRAS?: number[];
+      pixDimsRAS?: number[];
+      permRAS?: number[];
+      obliqueRAS?: Float32Array | number[];
+    };
+    const primary = this.nv.volumes[this.primaryIndex] as RasFields | undefined;
+    if (primary) {
+      const ov = overlay as unknown as RasFields;
+      const cloneFloat = (v: Float32Array | number[] | undefined) =>
+        v === undefined
+          ? undefined
+          : v instanceof Float32Array
+          ? new Float32Array(v)
+          : Float32Array.from(v);
+      const cloneNums = (v: number[] | undefined) =>
+        v === undefined ? undefined : [...v];
+      const m = cloneFloat(primary.matRAS);
+      if (m) ov.matRAS = m;
+      const d = cloneNums(primary.dimsRAS);
+      if (d) ov.dimsRAS = d;
+      const p = cloneNums(primary.pixDimsRAS);
+      if (p) ov.pixDimsRAS = p;
+      const r = cloneNums(primary.permRAS);
+      if (r) ov.permRAS = r;
+      const o = cloneFloat(primary.obliqueRAS);
+      if (o) ov.obliqueRAS = o;
     }
 
     this.nv.addVolume(overlay);
@@ -344,6 +380,7 @@ export class NiivueViewer {
    * (older builds) so behaviour degrades gracefully instead of throwing.
    */
   setDrawingEnabled(on: boolean): void {
+    this.drawingActive = on;
     const nv = this.nv as unknown as {
       setDrawingEnabled?(on: boolean): void;
       drawingEnabled?: boolean;
@@ -356,6 +393,11 @@ export class NiivueViewer {
       nv.drawingEnabled = on;
       if (nv.opts) nv.opts.drawingEnabled = on;
     }
+  }
+
+  /** Read-only: is the brush currently active? */
+  isDrawingActive(): boolean {
+    return this.drawingActive;
   }
 
   /** Set the brush label index. Pass `0` for eraser. */
@@ -379,9 +421,22 @@ export class NiivueViewer {
    * trigger a render. Without this, brush strokes are visible only in the
    * 2D MPR slices — the 3D volumetric raycaster never sees them. Call once
    * per stroke completion (pointerup) and the 3D view updates within a
-   * frame. Falls back to a no-op when the underlying API isn'\''t exposed.
+   * frame.
+   *
+   * IMPORTANT: this is a no-op when drawing mode is OFF and nothing has been
+   * painted. Calling `nv.refreshDrawing(true)` against an empty/never-
+   * allocated bitmap caused NiiVue 0.44 to leave the GL context in a state
+   * where mouse-leave (NiiVue'\''s hover-redraw) cleared the canvas to the
+   * background colour and didn'\''t restore the volumes until the cursor
+   * re-entered a slice — the v0.5.4 "plots disappear when cursor leaves"
+   * regression.
    */
   refreshDrawing(): void {
+    if (!this.drawingActive) {
+      // Nothing to push to the 3D mesh — and skipping the call avoids the
+      // empty-bitmap GL-state issue described above.
+      return;
+    }
     const nv = this.nv as unknown as { refreshDrawing?(force: boolean): void };
     if (typeof nv.refreshDrawing === 'function') {
       nv.refreshDrawing(true);
