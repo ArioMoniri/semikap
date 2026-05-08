@@ -1,0 +1,16 @@
+{
+  "name": "Intensity-Threshold-Test",
+  "version": "1.0.0",
+  "license": "CC0-1.0",
+  "modality": "Other",
+  "spacing": [1.0, 1.0, 1.0],
+  "orientation": "RAS",
+  "normalization": { "type": "minmax", "min": 0, "max": 255 },
+  "inference": { "type": "sliding_window", "patch": [64, 64, 64], "overlap": 0.25 },
+  "output": {
+    "type": "segmentation",
+    "labels": { "0": "background", "1": "bright_voxels" },
+    "colors": { "1": "#22c55e" }
+  },
+  "sha256": "68db998884ab5884200d9d21cde7feb36fb07aa3595daff336f2a37b35d8376f"
+}

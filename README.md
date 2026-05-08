@@ -162,6 +162,7 @@ The diagram below regenerates on every push to `main` ([repo-visualizer](https:/
 
 ## 📚 Docs
 
+- **[examples/](examples/)** — drop-in 3-file test kit (CT NIfTI + tiny ONNX + manifest, ~470 KB) for an end-to-end smoke test
 - **[ROADMAP](docs/ROADMAP.md)** — phased delivery & what's next
 - **[DEPLOY](docs/DEPLOY.md)** — every supported deploy mode + reverse-proxy + configuration
 - **[UPDATER](docs/UPDATER.md)** — auto-update setup, signing keys, release flow, **from-zero new-machine guide**
