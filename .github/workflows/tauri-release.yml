@@ -170,14 +170,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Mirror versioned bundles → versionless aliases
+      - name: Resolve release id (works for draft + published)
+        id: rel
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           set -e
-          ASSETS=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq '.assets[].name')
-          echo "Assets in $TAG:"
+          # `gh api releases/tags/{tag}` ONLY finds PUBLISHED releases — drafts return 404.
+          # tauri-action ships releases as drafts (releaseDraft: true), so we must look
+          # them up by listing /releases and filtering on tag_name. We also pick the
+          # NEWEST matching release (by created_at desc) so a re-run that creates a
+          # second draft for the same tag still resolves to the latest one.
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases?per_page=50" \
+            --jq "[.[] | select(.tag_name==\"$TAG\")] | sort_by(.created_at) | reverse | .[0].id")
+          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
+            echo "::error::No release found for tag $TAG (draft or published)."
+            exit 1
+          fi
+          echo "  resolved release id: $RELEASE_ID for tag $TAG"
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Mirror versioned bundles → versionless aliases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          RELEASE_ID: ${{ steps.rel.outputs.release_id }}
+        run: |
+          set -e
+          # List assets via the release-id endpoint so this works on draft releases too.
+          ASSETS=$(gh api "repos/${{ github.repository }}/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
+          echo "Assets in $TAG (release id $RELEASE_ID):"
           printf '  %s\n' $ASSETS
           mkdir -p /tmp/dl
           for name in $ASSETS; do
@@ -188,6 +211,8 @@ jobs:
               continue
             fi
             echo "  alias: $name → $alias"
+            # `gh release download` accepts drafts when the tag matches uniquely;
+            # if it ever stops working we can fall back to /assets/{id} downloads.
             gh release download "$TAG" -p "$name" -D /tmp/dl --clobber
             mv "/tmp/dl/$name" "/tmp/dl/$alias"
             gh release upload "$TAG" "/tmp/dl/$alias" --repo "${{ github.repository }}" --clobber
