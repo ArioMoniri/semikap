@@ -90,6 +90,9 @@ export class NiivueViewer {
    * paint event to redraw the volumes.
    */
   private drawingActive = false;
+  /** Stash of the AI mask voxels before outline-mode replaced them. Lets us
+   *  toggle outline mode reversibly without re-running inference. */
+  private maskFilledVoxels: Uint8Array | null = null;
   private probeListeners = new Set<ProbeListener>();
 
   constructor(canvas: HTMLCanvasElement) {
@@ -260,6 +263,9 @@ export class NiivueViewer {
       if (v) this.nv.removeVolume(v);
       this.maskIndex = -1;
     }
+    // A new mask invalidates any cached filled-voxel stash from the previous
+    // run's outline toggle.
+    this.maskFilledVoxels = null;
     const nifti = writeNifti1Uint8({
       mask,
       dims,
@@ -332,6 +338,7 @@ export class NiivueViewer {
     const v = this.nv.volumes[this.maskIndex];
     if (v) this.nv.removeVolume(v);
     this.maskIndex = -1;
+    this.maskFilledVoxels = null;
     this.nv.updateGLVolume();
   }
 
@@ -543,6 +550,102 @@ export class NiivueViewer {
     const opts = (this.nv as unknown as { opts: { isRadiologicalConvention: boolean } }).opts;
     opts.isRadiologicalConvention = on;
     this.nv.drawScene();
+  }
+
+  // ── Radiology tools ───────────────────────────────────────────────────────
+  /**
+   * Switch what a left-click-drag does on a 2D slice. Mirrors the standard
+   * radiology-viewer toolbar:
+   *   - `contrast`    = window/level (drag X = width, drag Y = level)
+   *   - `pan`         = pan the slice viewport
+   *   - `measurement` = distance ruler (click + drag draws a line, mm reading
+   *                     shown at the cursor)
+   *   - `none`        = drag does nothing (good when brush mode is on)
+   * NiiVue'\''s underlying enum: NONE=0, CONTRAST=1, MEASUREMENT=2, PAN=3,
+   * SLICER3D=4, CALLBACK=5. Identical numeric mapping in 0.44.x.
+   */
+  setDragMode(mode: 'none' | 'contrast' | 'measurement' | 'pan'): void {
+    const code = mode === 'contrast' ? 1 : mode === 'measurement' ? 2 : mode === 'pan' ? 3 : 0;
+    const opts = (this.nv as unknown as { opts: { dragMode: number } }).opts;
+    opts.dragMode = code;
+    this.nv.drawScene();
+  }
+
+  /**
+   * Reset the viewport: zoom 1.0, crosshair to volume centre, default
+   * window/level. Equivalent to NiiVue'\''s built-in reset behaviour but
+   * exposed so the Tools panel can have an explicit Reset button.
+   */
+  resetView(): void {
+    const nv = this.nv as unknown as {
+      scene: { volScaleMultiplier?: number; pan2Dxyzmm?: [number, number, number, number] };
+      resetBriCon?(): void;
+      drawScene?(): void;
+    };
+    if (nv.scene) {
+      nv.scene.volScaleMultiplier = 1;
+      nv.scene.pan2Dxyzmm = [0, 0, 0, 1];
+    }
+    if (typeof nv.resetBriCon === 'function') nv.resetBriCon();
+    this.nv.drawScene();
+  }
+
+  /**
+   * Replace the AI-mask volume with a 1-voxel-thick boundary version of
+   * itself (or restore the filled mask). Lets the user verify segmentation
+   * boundaries against the underlying anatomy without the fill obscuring
+   * what'\''s underneath — the standard "outline" mode in radiology viewers.
+   *
+   * Implemented client-side: walks each non-zero voxel and keeps it only
+   * when at least one of its 6-neighbour voxels is zero. Stashes the original
+   * voxel data so the toggle is reversible without re-running inference.
+   */
+  setMaskOutlineOnly(on: boolean): void {
+    if (this.maskIndex < 0) return;
+    const v = this.nv.volumes[this.maskIndex] as unknown as {
+      img?: Uint8Array;
+      hdr?: { dims: number[] };
+    } | undefined;
+    if (!v || !v.img || !v.hdr) return;
+    const X = v.hdr.dims[1] ?? 0;
+    const Y = v.hdr.dims[2] ?? 0;
+    const Z = v.hdr.dims[3] ?? 0;
+    if (X * Y * Z !== v.img.length) return;
+
+    if (on) {
+      if (!this.maskFilledVoxels) {
+        // Stash the original filled voxels so we can restore on toggle off.
+        this.maskFilledVoxels = new Uint8Array(v.img);
+      }
+      const src = this.maskFilledVoxels;
+      const dst = v.img;
+      const slab = X * Y;
+      for (let z = 0; z < Z; z++) {
+        for (let y = 0; y < Y; y++) {
+          for (let x = 0; x < X; x++) {
+            const i = z * slab + y * X + x;
+            const cur = src[i]!;
+            if (cur === 0) {
+              dst[i] = 0;
+              continue;
+            }
+            // Edge if any 6-neighbour is zero (or off-volume).
+            const isEdge =
+              x === 0 || src[i - 1] === 0 ||
+              x === X - 1 || src[i + 1] === 0 ||
+              y === 0 || src[i - X] === 0 ||
+              y === Y - 1 || src[i + X] === 0 ||
+              z === 0 || src[i - slab] === 0 ||
+              z === Z - 1 || src[i + slab] === 0;
+            dst[i] = isEdge ? cur : 0;
+          }
+        }
+      }
+    } else if (this.maskFilledVoxels) {
+      v.img.set(this.maskFilledVoxels);
+      this.maskFilledVoxels = null;
+    }
+    this.nv.updateGLVolume();
   }
 
   resize(): void {

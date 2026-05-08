@@ -5,6 +5,7 @@ import type { PickedFile } from '../lib/fs/filesystem';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
+import { VolumePreview } from './VolumePreview';
 import { cn } from '../lib/ui/cn';
 
 const IMAGE_ACCEPT: Record<string, string[]> = {
@@ -58,11 +59,14 @@ export function LocalFilePicker({ onPicked, current }: Props) {
           <Upload className="h-3.5 w-3.5" /> Browse
         </Button>
       </CardHeader>
-      <CardContent className="space-y-1.5">
+      <CardContent className="space-y-2">
         {current ? (
-          <div className="truncate text-xs text-slate-700">
-            <span className="font-medium">Loaded:</span> {current.name}
-          </div>
+          <>
+            <div className="truncate text-xs text-slate-700">
+              <span className="font-medium">Loaded:</span> {current.name}
+            </div>
+            <VolumePreview />
+          </>
         ) : (
           <div className="text-xs text-slate-500">
             Drop a file here or click <span className="font-medium">Browse</span>.

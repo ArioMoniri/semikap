@@ -42,6 +42,9 @@ export interface ViewerHandle {
   /** Returns the AI mask merged with any user brush corrections, or null
    *  when no corrections have been drawn. */
   getCorrectedMask(aiMask: Uint8Array): Uint8Array | null;
+  /** Returns the raw user brush layer (label per voxel; 0 = unpainted) so
+   *  callers can split it by colour for per-label export. */
+  getDrawnLayer(): Uint8Array | null;
   onProbe(listener: (r: ProbeReading | null) => void): () => void;
   // ── Layout / chrome ──
   setSliceMode(mode: 'multi' | 'axial' | 'coronal' | 'sagittal' | 'render'): void;
@@ -50,6 +53,10 @@ export interface ViewerHandle {
   setColorbar(on: boolean): void;
   set3DCrosshair(on: boolean): void;
   setRadiologicalConvention(on: boolean): void;
+  // ── Radiology tools ──
+  setDragMode(mode: 'none' | 'contrast' | 'measurement' | 'pan'): void;
+  setMaskOutlineOnly(on: boolean): void;
+  resetView(): void;
 }
 
 export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
@@ -127,6 +134,9 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       getCorrectedMask(aiMask) {
         return viewerRef.current?.getCorrectedMask(aiMask) ?? null;
       },
+      getDrawnLayer() {
+        return viewerRef.current?.getDrawnLayer() ?? null;
+      },
       onProbe(listener) {
         if (!viewerRef.current) return () => undefined;
         return viewerRef.current.onProbe(listener);
@@ -148,6 +158,15 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       setRadiologicalConvention(on) {
         viewerRef.current?.setRadiologicalConvention(on);
+      },
+      setDragMode(mode) {
+        viewerRef.current?.setDragMode(mode);
+      },
+      setMaskOutlineOnly(on) {
+        viewerRef.current?.setMaskOutlineOnly(on);
+      },
+      resetView() {
+        viewerRef.current?.resetView();
       },
     }),
     []

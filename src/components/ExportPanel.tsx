@@ -6,6 +6,7 @@ import {
   Image as ImageIcon,
   Brush,
   FileBox,
+  Palette,
 } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { writeNifti1Uint8 } from '../lib/export/nifti';
@@ -100,6 +101,81 @@ export function ExportPanel({ viewerRef }: Props) {
       }
     } catch (e) {
       pushError(`Export failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }, [result, viewerRef, baseName, modelTag, model, pushError]);
+
+  /**
+   * Save one NIfTI per non-empty brush colour. The user can pick e.g. "Red"
+   * and "Blue" while painting; this exports `..__brush_red.nii` and
+   * `..__brush_blue.nii` separately so each colour can be used as its own
+   * mask in downstream tools (training labels, ITK-SNAP overlays, etc).
+   * Names match the v0.5.4 brush palette.
+   */
+  const BRUSH_COLOUR_NAMES: Record<number, string> = {
+    1: 'red',
+    2: 'green',
+    3: 'blue',
+    4: 'yellow',
+    5: 'cyan',
+    6: 'magenta',
+  };
+  const handleExportBrushPerColour = useCallback(async () => {
+    if (!result) return;
+    const drawn = viewerRef.current?.getDrawnLayer();
+    if (!drawn) {
+      pushError('No brush strokes to save (paint on the mask first).');
+      return;
+    }
+    setBusy('brushColours');
+    try {
+      // Find which labels were used.
+      const labelsPresent = new Set<number>();
+      for (let i = 0; i < drawn.length; i++) {
+        const v = drawn[i]!;
+        if (v !== 0) labelsPresent.add(v);
+      }
+      if (labelsPresent.size === 0) {
+        pushError('Brush layer is empty.');
+        return;
+      }
+      let savedCount = 0;
+      for (const lbl of labelsPresent) {
+        // Per-colour binary mask — 1 where this label was painted, 0 elsewhere.
+        const layer = new Uint8Array(drawn.length);
+        for (let i = 0; i < drawn.length; i++) {
+          if (drawn[i] === lbl) layer[i] = 1;
+        }
+        const colourName = BRUSH_COLOUR_NAMES[lbl] ?? `label${lbl}`;
+        const bytes = writeNifti1Uint8({
+          mask: layer,
+          dims: result.dims,
+          spacing: result.spacing,
+          origin: result.origin,
+        });
+        const suggested = `${baseName}__${modelTag}__brush_${colourName}.nii`;
+        const ok = await saveBytes(
+          bytes,
+          suggested,
+          `NIfTI brush mask · ${colourName}`,
+          '.nii'
+        );
+        if (ok) savedCount++;
+      }
+      if (savedCount > 0) {
+        await appendAudit({
+          kind: 'export',
+          message: `Exported ${savedCount} per-colour brush mask${savedCount === 1 ? '' : 's'}`,
+          details: {
+            model: model?.manifest.name,
+            modelHash: model?.hash,
+            colours: [...labelsPresent].map((l) => BRUSH_COLOUR_NAMES[l] ?? `label${l}`),
+          },
+        });
+      }
+    } catch (e) {
+      pushError(`Per-colour brush export failed: ${(e as Error).message}`);
     } finally {
       setBusy(null);
     }
@@ -225,6 +301,17 @@ export function ExportPanel({ viewerRef }: Props) {
             title="Export the AI mask merged with your brush corrections."
           >
             <Brush className="h-3.5 w-3.5" /> {busy === 'corrected' ? 'Saving…' : 'Save corrected'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExportBrushPerColour}
+            disabled={busy !== null}
+            className="gap-1.5"
+            title="Save one .nii per brush colour you painted (red, green, …)."
+          >
+            <Palette className="h-3.5 w-3.5" />
+            {busy === 'brushColours' ? 'Saving…' : 'Save brush colours'}
           </Button>
           <Button
             size="sm"
