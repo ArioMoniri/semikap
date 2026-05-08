@@ -65,6 +65,59 @@ A browser-only PWA for running ONNX medical-imaging models on local DICOM/NIfTI/
 - 🔄 **Tauri Sparkle-style auto-updater** ✅ shipped (signed `latest.json` manifest, in-app install + relaunch, 6 h poll)
 - 🛠️ **`scripts/release.mjs`** + **`scripts/init-updater.mjs`** ✅ shipped
 
+### Phase 6 — Radiology viewer polish (v0.5.x line)
+
+- 🎨 **Resizable + collapsible sidebar** ✅ shipped (v0.5.2)
+- 🖼️ **Layout panel** (MPR / single-plane / 3D-only / row / column / 2×2) ✅ shipped (v0.5.2)
+- 🎚️ **Working brush + eraser** with palette + 3D propagation ✅ shipped (v0.5.4 + v0.5.5)
+- 🧭 **General-model 3D alignment** (matRAS + dimsRAS + permRAS clone) ✅ shipped (v0.5.5)
+- 🩻 **Sidebar volume preview** (mid-axial thumbnail) ✅ shipped (v0.5.6)
+- 🛠️ **Radiology toolbar** (Default / W-L / Pan / Distance / Outline / Reset) ✅ shipped (v0.5.6)
+- 🎨 **Per-colour brush export** (one `.nii` per painted colour) ✅ shipped (v0.5.6)
+- 🍎 **macOS-conventional app icon** (~10% inset) ✅ shipped (v0.5.6)
+- 🔍 **Zoom in / out / reset** ✅ shipped (v0.5.7)
+- 📸 **Canvas screenshot** (PNG, with overlay + crosshair + 3D composited) ✅ shipped (v0.5.7)
+- 🔎 **Cached models search bar** ✅ shipped (v0.5.7)
+- 🔬 **Modality toggle** (Radiology default · Pathology placeholder) ✅ shipped (v0.5.7)
+- 🩻 ROI rectangle / ellipse / freehand (overlay annotations, exportable) — pending
+- 📐 Angle / Cobb-angle measurement — pending
+
+### v0.6.0 — Pathology mode
+
+A second viewer track for histopathology whole-slide images. Same architectural commitments as Radiology (no upload, no server, BYOM ONNX, signed updater).
+
+**v0.6.0 — Phase A: Viewer foundation**
+- 🔬 OpenSeadragon-based pyramidal viewer (DZI tile sources, deep-zoom)
+- 🧬 OME-TIFF loader (browser-native via `geotiff.js` for tiled, multi-resolution)
+- 🧬 SVS / NDPI loader via OpenSlide-WASM (Aperio + Hamamatsu)
+- 🧬 Single-file fallback: PNG / JPEG / TIFF (non-pyramidal) with auto-tiling
+- 🎨 Same Tools panel idiom (Default / Pan / Distance / Reset / Screenshot)
+- 🔎 Real-zoom / fit-to-screen / 1:1 pixel buttons
+- 📏 Distance ruler in microns (using `MPP` from OME-TIFF / SVS metadata)
+
+**v0.6.0 — Phase B: Inference pipeline**
+- 🧠 Tile-based ONNX inference worker (patch-by-patch, configurable patch size + stride from manifest)
+- 📋 Pathology manifest schema:
+  - `mpp` — target microns per pixel
+  - `patch` — `[width, height]` pixels at MPP
+  - `stride` — overlap factor for stitched tiling
+  - `output.type` — `classification | segmentation | detection`
+  - `colors` per label (same convention as Radiology)
+- 🩺 Built-in support: HoVer-Net (nuclei segmentation), CLAM (slide classification), tile-CNN
+- 🎚️ Brush + eraser on slide overlay (same six-colour palette)
+
+**v0.6.0 — Phase C: Examples + docs**
+- 🧪 Public-domain WSI sample (lo-res CAMELYON16 patch or PANDA tile, ~5 MB) bundled in `examples/pathology/`
+- 🧠 One small, public-domain pathology ONNX example (binary tissue mask)
+- 📜 Pathology section in README, docs/PATHOLOGY.md, CHANGELOG entry
+- 🩻 Updated repo-visualization, hero banner with both modalities
+
+**Out of scope for v0.6.0** (deferred to later):
+- Z-stack / focal-stack scrolling
+- Stain normalization / Macenko / Reinhard
+- Multi-slide composite analysis
+- Server-side OpenSlide proxy (we stay pure-browser)
+
 ## Supported file types (Phase 1)
 
 **Images** (via NiiVue + itk-wasm where needed):

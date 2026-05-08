@@ -7,7 +7,13 @@ import {
   Move,
   Undo2,
   Spline,
+  ZoomIn,
+  ZoomOut,
+  Camera,
 } from 'lucide-react';
+import { saveBytes } from '../lib/fs/filesystem';
+import { asBytes } from '../types';
+import { appendAudit } from '../lib/fs/audit';
 import { useAppStore } from '../lib/state/store';
 import type { ViewerHandle } from './Viewer';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
@@ -63,6 +69,26 @@ export function ToolsPanel({ viewerRef }: Props) {
     viewerRef.current?.setDragMode('none');
   }, [viewerRef]);
 
+  const handleZoomIn = useCallback(() => viewerRef.current?.zoomBy(1.25), [viewerRef]);
+  const handleZoomOut = useCallback(() => viewerRef.current?.zoomBy(0.8), [viewerRef]);
+
+  /**
+   * Capture the current canvas (overlay + crosshair + 3D render composited)
+   * as a PNG and trigger a save dialog. Useful for slides, reports, and
+   * quick visual diff between runs.
+   */
+  const handleScreenshot = useCallback(async () => {
+    const blob = await viewerRef.current?.takeScreenshot();
+    if (!blob) return;
+    const buf = await blob.arrayBuffer();
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `tamias-screenshot-${ts}.png`;
+    const ok = await saveBytes(asBytes(new Uint8Array(buf)), filename, 'PNG screenshot', '.png');
+    if (ok) {
+      void appendAudit({ kind: 'export', message: `Screenshot saved: ${filename}` });
+    }
+  }, [viewerRef]);
+
   return (
     <Card>
       <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
@@ -106,6 +132,35 @@ export function ToolsPanel({ viewerRef }: Props) {
               active={drag === 'measurement'}
               onClick={() => apply('measurement')}
               hint="Drag for mm ruler"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            Zoom + capture
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            <ToolBtn
+              label="Zoom in"
+              icon={<ZoomIn className="h-3.5 w-3.5" />}
+              active={false}
+              onClick={handleZoomIn}
+              hint="1.25× — also Ctrl/Cmd-scroll"
+            />
+            <ToolBtn
+              label="Zoom out"
+              icon={<ZoomOut className="h-3.5 w-3.5" />}
+              active={false}
+              onClick={handleZoomOut}
+              hint="0.8×"
+            />
+            <ToolBtn
+              label="PNG"
+              icon={<Camera className="h-3.5 w-3.5" />}
+              active={false}
+              onClick={handleScreenshot}
+              hint="Save canvas screenshot"
             />
           </div>
         </div>

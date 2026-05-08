@@ -25,6 +25,12 @@ interface Props {
 export function ModelPicker({ onLoaded, current }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [cached, setCached] = useState<CachedModelMeta[]>([]);
+  /**
+   * Free-text filter applied to the cached-models list. Matches case-
+   * insensitively against name, version, and modality so users with a
+   * dozen+ cached models can scan to the right one quickly.
+   */
+  const [search, setSearch] = useState('');
 
   const refreshCache = useCallback(async () => {
     try {
@@ -162,8 +168,28 @@ export function ModelPicker({ onLoaded, current }: Props) {
               <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 <History className="h-3 w-3" /> Cached models
               </div>
+              {cached.length > 4 && (
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search cached models…"
+                  aria-label="Search cached models"
+                  className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs placeholder:text-slate-400 focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-900"
+                />
+              )}
               <ul className="space-y-1">
-                {cached.map((m) => {
+                {cached
+                  .filter((m) => {
+                    if (!search.trim()) return true;
+                    const q = search.toLowerCase();
+                    return (
+                      m.name.toLowerCase().includes(q) ||
+                      m.manifest.version.toLowerCase().includes(q) ||
+                      m.manifest.modality.toLowerCase().includes(q)
+                    );
+                  })
+                  .map((m) => {
                   const isCurrent = current?.hash === m.hash;
                   return (
                     <li

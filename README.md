@@ -89,9 +89,13 @@ flowchart LR
 |---|---|---|---|
 | 🛡️ Strict CSP — no upload | 🌐 PWA install | 🖥️ Tauri desktop builds | 🔄 Sparkle-style auto-updater |
 | 🚀 WebGPU + WebNN + WASM | 🌫️ Gaussian-blended tiling | 🧱 3D sliding-window inference | 🎚️ WW/WL CT presets |
-| 🖌️ Brush + eraser correction | 🩻 Multi-series overlay | 🔬 Cursor probe (vox · mm · value) | 🌗 Light / Dark / System theme |
+| 🛠️ Radiology toolbar (W-L · Pan · Distance) | 🩻 Outline mode for masks | 🔍 Zoom in / out · 📸 PNG screenshot | 🖼️ Layout: MPR / single-plane / 3D / grid |
+| 🎨 6-colour brush + per-colour mask export | 🖌️ Brush strokes visible in 3D | 🩻 Multi-series overlay | 🔬 Cursor probe (vox · mm · value) |
+| 🩻 Sidebar volume preview (mid-axial thumb) | 🔎 Cached-models search | 🌗 Light / Dark / System theme | 🪪 Modality toggle (Radiology · Pathology preview) |
 | 💾 NIfTI mask export | 🩻 DICOM-SEG export (PACS) | 🧾 Reproducibility bundle | 📒 Local audit log (NDJSON) |
 | 💽 OPFS warm cache | 🔒 SHA-256 model verification | ❤️ `/healthz` for K8s probes | 🪪 RUO stamp on every export |
+
+> 🔬 **Pathology mode arriving in v0.6.0** — whole-slide image viewer (OpenSeadragon + OME-TIFF / SVS / NDPI), tile-based ONNX inference, public-domain WSI examples. Tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md#v060--pathology-mode); the modality switcher in the header is already live so the entry-point is discoverable.
 
 ---
 

@@ -57,6 +57,9 @@ export interface ViewerHandle {
   setDragMode(mode: 'none' | 'contrast' | 'measurement' | 'pan'): void;
   setMaskOutlineOnly(on: boolean): void;
   resetView(): void;
+  zoomBy(factor: number): void;
+  /** Capture the canvas as a PNG; null when the GL context isn't ready. */
+  takeScreenshot(): Promise<Blob | null>;
 }
 
 export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
@@ -167,6 +170,12 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       resetView() {
         viewerRef.current?.resetView();
+      },
+      zoomBy(factor) {
+        viewerRef.current?.zoomBy(factor);
+      },
+      async takeScreenshot() {
+        return (await viewerRef.current?.takeScreenshot()) ?? null;
       },
     }),
     []

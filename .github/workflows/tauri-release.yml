@@ -213,25 +213,27 @@ jobs:
           echo "Assets in $TAG (release id $RELEASE_ID):"
           sed 's|^|  |' /tmp/assets.txt
           mkdir -p /tmp/dl
+          # Patterns are productName-agnostic — `tauri-action` uses whatever
+          # `productName` is in tauri.conf.json (TAMIAS, Tamias, Foo, …) as
+          # the file prefix. Matching on a generic capture group keeps the
+          # alias step working when the productName casing changes (which is
+          # what broke v0.5.6: TAMIAS → Tamias). The capture group preserves
+          # the actual prefix so alias names stay consistent with the rest
+          # of the release.
           while IFS= read -r name; do
-            # README expects these exact alias names (matches the buttons in README.md):
-            #   TAMIAS_aarch64.dmg, TAMIAS_x64.dmg
-            #   TAMIAS_x64-setup.exe, TAMIAS_x64_en-US.msi (+ .sig)
-            #   TAMIAS_amd64.AppImage, TAMIAS_amd64.deb (+ .sig)
-            #   TAMIAS_x86_64.rpm (+ .sig)
-            #   TAMIAS_aarch64.app.tar.gz, TAMIAS_x64.app.tar.gz (+ .sig) — already versionless
             case "$name" in
-              # Strip "_<X.Y.Z>" right after "TAMIAS_"
-              TAMIAS_*.dmg | \
-              TAMIAS_*-setup.exe | TAMIAS_*-setup.exe.sig | \
-              TAMIAS_*_en-US.msi | TAMIAS_*_en-US.msi.sig | \
-              TAMIAS_*.AppImage | TAMIAS_*.AppImage.sig | \
-              TAMIAS_*.deb | TAMIAS_*.deb.sig)
-                alias=$(echo "$name" | sed -E 's|^TAMIAS_[0-9]+\.[0-9]+\.[0-9]+_|TAMIAS_|')
+              # `<Prefix>_<X.Y.Z>_<arch>.<ext>` — strip the version segment.
+              *_*.dmg | \
+              *_*-setup.exe | *_*-setup.exe.sig | \
+              *_*_en-US.msi | *_*_en-US.msi.sig | \
+              *_*.AppImage | *_*.AppImage.sig | \
+              *_*.deb | *_*.deb.sig)
+                alias=$(echo "$name" | sed -E 's|^([A-Za-z0-9]+)_[0-9]+\.[0-9]+\.[0-9]+_|\1_|')
                 ;;
-              # RPM uses dash separators + a release number: TAMIAS-0.5.1-1.x86_64.rpm
-              TAMIAS-*-*.x86_64.rpm | TAMIAS-*-*.x86_64.rpm.sig)
-                alias=$(echo "$name" | sed -E 's|^TAMIAS-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+\.x86_64|TAMIAS_x86_64|')
+              # RPM uses dash separators + a release number:
+              #   `<Prefix>-<X.Y.Z>-<release>.x86_64.rpm[.sig]`
+              *-[0-9]*-[0-9]*.x86_64.rpm | *-[0-9]*-[0-9]*.x86_64.rpm.sig)
+                alias=$(echo "$name" | sed -E 's|^([A-Za-z0-9]+)-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+\.x86_64|\1_x86_64|')
                 ;;
               *)
                 alias="$name"
@@ -293,14 +295,39 @@ jobs:
             fi
           }
 
+          # Discover the productName prefix from one of the .sig files we
+          # just downloaded. tauri-action prefixes EVERY artifact with
+          # whatever `productName` is set in tauri.conf.json (TAMIAS, Tamias,
+          # Foo, …). Hardcoding the prefix here is what broke v0.5.6 when
+          # productName was changed from "TAMIAS" to "Tamias" — the alias
+          # mirror + this latest.json reassembly silently no-op'd because
+          # the patterns no longer matched. Derive it from the AppImage
+          # .sig (Linux always builds, has a fully-versioned filename).
+          PREFIX=$(ls /tmp/sigs/ 2>/dev/null \
+            | grep -E "_${VERSION}_amd64\.AppImage\.sig$" \
+            | head -1 \
+            | sed -E "s|_${VERSION}_amd64\.AppImage\.sig||")
+          if [ -z "$PREFIX" ]; then
+            # Fallback — try the macOS .app.tar.gz.sig (versionless).
+            PREFIX=$(ls /tmp/sigs/ 2>/dev/null \
+              | grep -E '_aarch64\.app\.tar\.gz\.sig$' \
+              | head -1 \
+              | sed -E 's|_aarch64\.app\.tar\.gz\.sig$||')
+          fi
+          if [ -z "$PREFIX" ]; then
+            echo "::warning::could not derive productName prefix from .sig files; latest.json will be empty"
+          else
+            echo "  resolved productName prefix: '$PREFIX'"
+          fi
+
           # Tauri v2 platform keys + their updater bundles. .dmg files are NOT
           # the updater target on macOS — .app.tar.gz is. On Linux the AppImage
           # is the canonical updater bundle. On Windows we point at the NSIS
           # installer (matches tauri-action's default).
-          add_platform "darwin-aarch64" "TAMIAS_aarch64.app.tar.gz.sig"     "TAMIAS_aarch64.app.tar.gz"
-          add_platform "darwin-x86_64"  "TAMIAS_x64.app.tar.gz.sig"         "TAMIAS_x64.app.tar.gz"
-          add_platform "linux-x86_64"   "TAMIAS_${VERSION}_amd64.AppImage.sig" "TAMIAS_${VERSION}_amd64.AppImage"
-          add_platform "windows-x86_64" "TAMIAS_${VERSION}_x64-setup.exe.sig"  "TAMIAS_${VERSION}_x64-setup.exe"
+          add_platform "darwin-aarch64" "${PREFIX}_aarch64.app.tar.gz.sig"     "${PREFIX}_aarch64.app.tar.gz"
+          add_platform "darwin-x86_64"  "${PREFIX}_x64.app.tar.gz.sig"         "${PREFIX}_x64.app.tar.gz"
+          add_platform "linux-x86_64"   "${PREFIX}_${VERSION}_amd64.AppImage.sig" "${PREFIX}_${VERSION}_amd64.AppImage"
+          add_platform "windows-x86_64" "${PREFIX}_${VERSION}_x64-setup.exe.sig"  "${PREFIX}_${VERSION}_x64-setup.exe"
 
           jq -n \
             --arg v "$VERSION" \

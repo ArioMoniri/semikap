@@ -20,6 +20,7 @@ import { AboutPanel } from './AboutPanel';
 import { ExamplesPanel } from './ExamplesPanel';
 import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
+import { Microscope, ScanLine } from 'lucide-react';
 import { ExternalLink } from './ExternalLink';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
@@ -47,6 +48,15 @@ export function AppShell() {
   const viewerRef = useRef<ViewerHandle | null>(null);
   const [studyHint, setStudyHint] = useState<string>('');
   const [probe, setProbe] = useState<ProbeReading | null>(null);
+  /**
+   * Modality toggle. Radiology is the only mode that actually does anything
+   * today; Pathology renders a "coming in v0.6.0" placeholder card so
+   * users can see the roadmap without us having to ship a full pathology
+   * viewer in the same release as the toolbar polish. The pathology
+   * implementation (OpenSeadragon + tile-based ONNX inference + WSI
+   * loaders) is tracked in docs/ROADMAP.md.
+   */
+  const [modality, setModality] = useState<'radiology' | 'pathology'>('radiology');
 
   // ── Resizable + collapsible sidebar ─────────────────────────────────────
   // Width persists to localStorage; collapsed state is session-only so the
@@ -198,6 +208,36 @@ export function AppShell() {
           </div>
         </div>
         <div className="flex items-center gap-2 text-xs">
+          {/* Modality segmented control. Pathology is wired up but renders
+              a placeholder for v0.5.7; full implementation in v0.6.0. */}
+          <div className="inline-flex overflow-hidden rounded-md border border-white/15 bg-white/5">
+            <button
+              type="button"
+              onClick={() => setModality('radiology')}
+              aria-pressed={modality === 'radiology'}
+              title="Volumetric DICOM / NIfTI / NRRD viewer"
+              className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] transition ${
+                modality === 'radiology'
+                  ? 'bg-white/15 text-white'
+                  : 'text-white/65 hover:bg-white/10 hover:text-white/85'
+              }`}
+            >
+              <ScanLine className="h-3 w-3" /> Radiology
+            </button>
+            <button
+              type="button"
+              onClick={() => setModality('pathology')}
+              aria-pressed={modality === 'pathology'}
+              title="Whole-slide image viewer — preview, full release in v0.6.0"
+              className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] transition ${
+                modality === 'pathology'
+                  ? 'bg-white/15 text-white'
+                  : 'text-white/65 hover:bg-white/10 hover:text-white/85'
+              }`}
+            >
+              <Microscope className="h-3 w-3" /> Pathology
+            </button>
+          </div>
           <Badge variant="ok" className="gap-1">
             <ShieldCheck className="h-3 w-3" /> No upload
           </Badge>
@@ -219,6 +259,50 @@ export function AppShell() {
       </header>
 
       {/* Main */}
+      {modality === 'pathology' ? (
+        <main className="flex flex-1 min-h-0 items-center justify-center bg-slate-50 p-8 dark:bg-slate-950">
+          <div className="max-w-xl space-y-4 rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="inline-flex items-center justify-center rounded-full bg-tamias-accent/10 p-3 text-tamias-accent">
+              <Microscope className="h-7 w-7" />
+            </div>
+            <h2 className="text-lg font-semibold text-tamias-ink dark:text-slate-100">
+              Pathology mode — arriving in v0.6.0
+            </h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              Whole-slide image viewer with pyramidal tile streaming
+              (OpenSeadragon), OME-TIFF / SVS / NDPI loaders, and
+              tile-based ONNX inference (HoVer-Net, CLAM, custom patch
+              CNNs). Same "bring your own model + manifest, no upload"
+              contract as the Radiology mode.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
+              <ExternalLink
+                href={`${REPO_URL}/blob/main/docs/ROADMAP.md#v060--pathology-mode`}
+                className="inline-flex items-center gap-1 rounded border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                Roadmap <ExternalLinkIcon className="h-3 w-3" />
+              </ExternalLink>
+              <Button
+                variant="ink"
+                size="sm"
+                onClick={() => setModality('radiology')}
+                className="gap-1"
+              >
+                <ScanLine className="h-3.5 w-3.5" /> Back to Radiology
+              </Button>
+            </div>
+            <div className="text-[11px] text-slate-400">
+              Track issue ·{' '}
+              <ExternalLink
+                href={`${REPO_URL}/issues?q=is%3Aissue+pathology`}
+                className="underline hover:text-slate-600"
+              >
+                pathology label
+              </ExternalLink>
+            </div>
+          </div>
+        </main>
+      ) : (
       <main className="flex flex-1 min-h-0">
         <aside
           className={
@@ -394,6 +478,7 @@ export function AppShell() {
           )}
         </section>
       </main>
+      )}
     </div>
   );
 }

@@ -591,6 +591,37 @@ export class NiivueViewer {
   }
 
   /**
+   * Zoom the viewer in or out. NiiVue stores the zoom factor in
+   * `scene.volScaleMultiplier` (1.0 = unzoomed). We clamp to a sane
+   * 0.25..16 range so the user can'\''t zoom themselves into a black
+   * canvas or numerical overflow.
+   */
+  zoomBy(factor: number): void {
+    const nv = this.nv as unknown as { scene?: { volScaleMultiplier?: number } };
+    const cur = nv.scene?.volScaleMultiplier ?? 1;
+    const next = Math.max(0.25, Math.min(16, cur * factor));
+    if (nv.scene) nv.scene.volScaleMultiplier = next;
+    this.nv.drawScene();
+  }
+
+  /**
+   * Capture the current canvas as a PNG blob. Returns a Promise<Blob | null>
+   * — null if the canvas can'\''t be read (no GL context, tainted texture).
+   * Used by the screenshot button to save what'\''s on screen for slides /
+   * reports, with the AI overlay + crosshair + 3D render all composited.
+   */
+  async takeScreenshot(): Promise<Blob | null> {
+    // Force a fresh draw so any pending state (overlay updates, slice change)
+    // is flushed to the canvas before we read pixels back.
+    this.nv.drawScene();
+    const canvas = (this.nv as unknown as { canvas?: HTMLCanvasElement }).canvas;
+    if (!canvas) return null;
+    return new Promise((resolve) => {
+      canvas.toBlob((b) => resolve(b), 'image/png');
+    });
+  }
+
+  /**
    * Replace the AI-mask volume with a 1-voxel-thick boundary version of
    * itself (or restore the filled mask). Lets the user verify segmentation
    * boundaries against the underlying anatomy without the fill obscuring
