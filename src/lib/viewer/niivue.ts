@@ -231,6 +231,26 @@ export class NiivueViewer {
       colormap: colorMap,
       opacity,
     });
+
+    // 3D rendering path: NiiVue computes the volumetric raycaster's transform
+    // from each volume's `matRAS` (4x4 voxel→world). Even when both volumes
+    // declare matching sforms in their NIfTI headers, NiiVue caches matRAS at
+    // load time and the cached values can drift between primary + overlay due
+    // to qform/sform reconciliation order. Copying the primary's matRAS onto
+    // the overlay forces both to share the exact same world transform, which
+    // is what makes the AI mask register with the source vessels in 3D.
+    const primary = this.nv.volumes[this.primaryIndex] as
+      | { matRAS?: Float32Array | number[] }
+      | undefined;
+    const matRAS = primary?.matRAS;
+    if (matRAS) {
+      const ov = overlay as unknown as { matRAS: Float32Array | number[] };
+      ov.matRAS =
+        matRAS instanceof Float32Array
+          ? new Float32Array(matRAS)
+          : Float32Array.from(matRAS);
+    }
+
     this.nv.addVolume(overlay);
     this.maskIndex = this.nv.volumes.length - 1;
     this.nv.updateGLVolume();
@@ -278,8 +298,29 @@ export class NiivueViewer {
   }
 
   // ── Drawing layer ────────────────────────────────────────────────────────
+  /**
+   * Toggle brush/eraser mode. Direct property assignment to
+   * `nv.drawingEnabled` doesn't trigger NiiVue's internal mode-switch
+   * machinery in 0.44.x — left-click stays bound to slice navigation /
+   * 3D rotation and paint events never fire. Calling the public
+   * `setDrawingEnabled()` method does the right thing (rebinds the
+   * pointer handlers, lazy-allocates the bitmap if needed). We fall
+   * back to the property write when the method isn't on the prototype
+   * (older builds) so behaviour degrades gracefully instead of throwing.
+   */
   setDrawingEnabled(on: boolean): void {
-    (this.nv as unknown as NVDriver).drawingEnabled = on;
+    const nv = this.nv as unknown as {
+      setDrawingEnabled?(on: boolean): void;
+      drawingEnabled?: boolean;
+      opts?: { drawingEnabled?: boolean };
+    };
+    if (typeof nv.setDrawingEnabled === 'function') {
+      nv.setDrawingEnabled(on);
+    } else {
+      // Defensive fallback path.
+      nv.drawingEnabled = on;
+      if (nv.opts) nv.opts.drawingEnabled = on;
+    }
   }
 
   /** Set the brush label index. Pass `0` for eraser. */

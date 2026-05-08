@@ -169,10 +169,11 @@ export function ExamplesPanel({ viewerRef }: Props) {
                   key={e.name}
                   className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-500"
                 >
-                  <span className="flex items-center gap-2 truncate">
-                    {ICON_FOR[e.name]} <span className="truncate">{e.name}</span>
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="shrink-0">{ICON_FOR[e.name]}</span>
+                    <span className="truncate">{e.name}</span>
                   </span>
-                  <Badge variant="outline" className="text-[10px]">not cached</Badge>
+                  <Badge variant="outline" className="shrink-0 text-[10px]">not cached</Badge>
                 </li>
               ))
             : files.map((f) => (
@@ -180,13 +181,21 @@ export function ExamplesPanel({ viewerRef }: Props) {
                   key={f.name}
                   className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1"
                 >
-                  <span className="flex items-center gap-2 truncate text-slate-700">
-                    {ICON_FOR[f.name]}
-                    <span className="truncate">{f.name}</span>
-                    <span className="hidden text-[11px] text-slate-400 sm:inline">{f.description}</span>
+                  {/* Filename + description column. min-w-0 lets the
+                      truncate kick in instead of pushing the badge off
+                      the right edge as the sidebar narrows. The
+                      description was previously hidden below the `sm`
+                      breakpoint (screen width); we now show it inline
+                      whenever it fits and let it truncate the same way. */}
+                  <span className="flex min-w-0 flex-1 items-center gap-2 text-slate-700">
+                    <span className="shrink-0">{ICON_FOR[f.name]}</span>
+                    <span className="truncate font-medium">{f.name}</span>
+                    <span className="hidden truncate text-[11px] text-slate-400 lg:inline">
+                      {f.description}
+                    </span>
                   </span>
                   {f.bytes !== null ? (
-                    <span className="flex items-center gap-1.5">
+                    <span className="flex shrink-0 items-center gap-1.5">
                       <Badge variant="ok" className="text-[10px]">
                         {(f.bytes / 1024).toFixed(0)} KB
                       </Badge>
@@ -200,7 +209,7 @@ export function ExamplesPanel({ viewerRef }: Props) {
                       </button>
                     </span>
                   ) : (
-                    <Badge variant="outline" className="text-[10px]">not cached</Badge>
+                    <Badge variant="outline" className="shrink-0 text-[10px]">not cached</Badge>
                   )}
                 </li>
               ))}

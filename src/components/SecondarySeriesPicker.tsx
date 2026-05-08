@@ -115,9 +115,13 @@ export function SecondarySeriesPicker({ viewerRef }: Props) {
             {disabled ? 'Load a primary image first.' : 'No secondary loaded.'}
           </div>
         )}
-        <div className="grid grid-cols-2 gap-2 pt-1">
-          <label className="flex items-center gap-2">
-            <span className="text-slate-500">Opacity</span>
+        {/* Stack Opacity + Color vertically — `grid-cols-2` collapsed the
+            <input type=range> and the <select> into the same horizontal slot
+            once the sidebar got past min width, leaving the labels overlapping
+            the controls. Single-column wraps cleanly at any sidebar width. */}
+        <div className="space-y-2 pt-1">
+          <label className="flex min-w-0 items-center gap-2">
+            <span className="w-14 shrink-0 text-slate-500">Opacity</span>
             <input
               type="range"
               min={0}
@@ -125,17 +129,17 @@ export function SecondarySeriesPicker({ viewerRef }: Props) {
               step={0.05}
               value={opacity}
               onChange={(e) => setOpacity(Number(e.target.value))}
-              className="flex-1 accent-tamias-accent"
+              className="min-w-0 flex-1 accent-tamias-accent"
               disabled={disabled}
               aria-label="Secondary series opacity"
             />
           </label>
-          <label className="flex items-center gap-2">
-            <span className="text-slate-500">Color</span>
+          <label className="flex min-w-0 items-center gap-2">
+            <span className="w-14 shrink-0 text-slate-500">Color</span>
             <select
               value={colormap}
               onChange={(e) => setColormap(e.target.value as OverlayColorMap)}
-              className="flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs disabled:opacity-50"
+              className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs disabled:opacity-50"
               disabled={disabled}
               aria-label="Secondary series colormap"
             >
