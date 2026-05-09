@@ -142,6 +142,10 @@ export function SamPanel({ viewerRef }: Props) {
         setSam({ busy: null });
       }
     },
+    // `runCustomUrlFlow` is intentionally omitted: it's declared below and
+    // also memoised on `[setSam, pushError]`, so adding it would create a
+    // declaration-order forward-reference without any behavioural change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [setSam, pushError]
   );
 

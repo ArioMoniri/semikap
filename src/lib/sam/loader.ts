@@ -9,7 +9,7 @@
 import type { Bytes } from '../../types';
 import { asBytes } from '../../types';
 import { readSamBlob, writeSamBlob } from './cache';
-import type { SamManifest } from './types';
+import type { SamManifest, SamPromptKind } from './types';
 
 export interface SamModelBytes {
   encoderBytes: Bytes;
@@ -172,8 +172,8 @@ export function buildCustomSamManifest(opts: {
   decoderUrl: string;
   family?: 'sam' | 'sam2' | 'sam3' | 'medsam';
   expectsText?: boolean;
-}): import('./types').SamManifest {
-  const supports: import('./types').SamPromptKind[] = ['point', 'box'];
+}): SamManifest {
+  const supports: SamPromptKind[] = ['point', 'box'];
   if (opts.expectsText) supports.push('text');
   return {
     kind: 'sam',
