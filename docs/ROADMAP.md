@@ -82,6 +82,55 @@ A browser-only PWA for running ONNX medical-imaging models on local DICOM/NIfTI/
 - 🩻 ROI rectangle / ellipse / freehand (overlay annotations, exportable) — pending
 - 📐 Angle / Cobb-angle measurement — pending
 
+### v0.5.8 — SAM (Segment Anything) for Radiology AND Pathology
+
+Branch: `feat/sam-radiology`. Phases A, B, B′, C.1, C.2, D, E, E.2, F ✅ shipped on the branch.
+
+**Phase A — Scaffolding** ✅
+- `src/lib/sam/` types + manifest + OPFS cache; `docs/SAM.md` plan + status table.
+
+**Phase B — Runtime ONNX wiring (Radiology)** ✅
+- Encoder + decoder ort sessions; webgpu→webnn→wasm fallback; HuggingFace download with progress + sha256 + OPFS cache.
+- `SamPanel.tsx` + `SamPromptOverlay.tsx` + `niivue.ts` helpers — full point/box/text prompt flow with preview + IoU score + commit through existing `addMaskOverlay`.
+- Three preset backbones: SAM 2 Tiny (~30 MB), SAM 2 Base+ (~80 MB), MedSAM (~360 MB).
+
+**Phase B′ — SAM-on-Pathology** ✅
+- `src/lib/sam/preprocess-rgb.ts` — RGB preprocessing (resize + ImageNet-normalise).
+- `PathologySamPanel.tsx` + `PathologySamOverlay.tsx` — pick ROI on slide → encode 1024² tile from level-0 → prompts in level-0 coords → mask via `setMaskOverlay`.
+- `PathologyViewer` extended with `readLevel0Region` + `canvasToLevel0`; `osd-viewer.ts` exposes `readRegion`.
+- `sam.worker.ts` extended with `inputMode: 'gray' | 'rgb'` discriminator. Decoder unchanged.
+- `store.ts` separate `samPathology` state slice — radiology + pathology SAM are independent.
+
+**Phase C.1 — Smart-brush handoff** ✅ (radiology AnnotationPanel points at the SAM panel).
+
+**Phase C.2 — Single-stroke smart-brush** ✅
+- `AnnotationPanel.tsx` gains a **Smart** mode alongside Brush/Eraser/Undo. Single click on a slice → SAM encode + decode with that one positive point → mask committed straight into the brush layer at the active label.
+- Capture is at the document level (capture phase) so NiiVue's own draw handlers don't fire; drawing is also explicitly disabled while in smart mode.
+- Reuses `addMaskOverlay()` so the mask inherits the v0.5.5 RAS-alignment fix in 2D + 3D.
+- The Smart button is gated on `sam.modelLoaded` and the tip box explains how to unlock it; multi-prompt refinement (point + box + text) still lives in the SAM (assisted) section above.
+
+**Phase D — Cross-slice propagation** ✅
+- SamPanel's preview block gains **±5 slices** and **±15 slices** propagate buttons.
+- `niivue.ts` + `Viewer.tsx` expose `getAxialSliceAt(z)`; `SamPanel` walks ±1, ±2, …, ±N outward, re-encoding each slice and decoding with the prior slice's mask bbox as a box prompt.
+- Bbox is re-tightened from each new mask each iteration (breaks early if a slice produces an empty mask), and the multi-slice volume is committed via a single `addMaskOverlay` call.
+- Intentionally simpler than SAM 2's video tracker — works with any backbone, single decode call per slice.
+
+**Phase E — Auto-save folder for screenshots** ✅
+- `pickDirectory` + `saveBytesToDirectory`; Settings panel folder picker; ToolsPanel writes straight to the chosen folder.
+
+**Phase E.2 — IndexedDB-backed handle persistence** ✅
+- `src/lib/fs/idb-handle.ts` — `readStoredHandle` / `writeStoredHandle` / `deleteStoredHandle` / `requestHandlePermission` over an `idb`-style direct request API (no extra dep). DB `tamias-prefs`, store `handles`, version 1.
+- `SettingsPanel.tsx` writes the handle to IDB on Pick and exposes a **Forget** button that deletes both IDB and in-memory copies.
+- `store.ts` rehydrates the handle on app boot, queries+requests `readwrite` permission, and silently falls back if either step fails (e.g. the user revoked access in browser settings).
+
+**Phase F — SAM 3 placeholder + Custom URL onboarding** ✅
+- New 4th preset entry `sam3-byo` in `loader.ts`; `family: 'sam3'`, supports `['point', 'box', 'text']`, both encoder/decoder URLs `null` (BYO).
+- New `buildCustomSamManifest({ name, encoderUrl, decoderUrl, family?, expectsText? })` synthesises a manifest at runtime.
+- SamPanel onboarding: when the user picks the SAM 3 preset, we route through the same Custom URL flow (prompts for name + encoder URL + decoder URL); a dedicated "Custom URL…" button at the bottom of the onboarding view supports any other ONNX export.
+- This is the bridge for SAM 3 once Meta publishes a stable ONNX export — no app rebuild required.
+
+**Out of scope for v0.5.8**: 3D-native SAM (SAM-Med3D / MedSAM-3D) — deferred to v0.7.x. SAM 2 video tracker (temporal embeddings) — superseded for now by Phase D's bbox-carry-forward propagator.
+
 ### v0.6.0 — Pathology mode
 
 A second viewer track for histopathology whole-slide images. Same architectural commitments as Radiology (no upload, no server, BYOM ONNX, signed updater).

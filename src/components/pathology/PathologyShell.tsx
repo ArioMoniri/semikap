@@ -11,6 +11,7 @@ import { PathologyExamplesPanel } from './PathologyExamplesPanel';
 import { PathologyTools } from './PathologyTools';
 import { PathologyInferencePanel } from './PathologyInferencePanel';
 import { PathologyExportPanel } from './PathologyExportPanel';
+import { PathologySamPanel } from './PathologySamPanel';
 import { PathologyViewer, type PathologyViewerHandle } from './PathologyViewer';
 import type {
   DistanceMeasurement,
@@ -160,6 +161,13 @@ export function PathologyShell({ sidebarWidth, sidebarCollapsed, onToggleSidebar
             model={model}
             roi={null}
             onResult={handleResult}
+          />
+        </CollapsibleSection>
+
+        <CollapsibleSection title="SAM (assisted)" defaultOpen={false} trailing="preview">
+          <PathologySamPanel
+            viewerRef={viewerRef as React.MutableRefObject<PathologyViewerHandle | null>}
+            hasSlide={!!slide}
           />
         </CollapsibleSection>
 

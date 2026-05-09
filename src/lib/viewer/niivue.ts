@@ -116,7 +116,7 @@ export class NiivueViewer {
     };
 
     // Seat a fixed 6-colour brush palette into NiiVue's draw lookup table at
-    // label indices 1..6. Without this the user'\''s brush colour was always
+    // label indices 1..6. Without this the user's brush colour was always
     // whatever the model manifest happened to declare for label 1, which
     // for our example threshold model is just one green entry — so the
     // colour-picker UI had nothing to switch between. With a fixed palette
@@ -126,7 +126,7 @@ export class NiivueViewer {
 
   /**
    * Default brush colour table, indexed by label. label 0 is reserved for
-   * the eraser (transparent). Anything > 6 falls back to NiiVue'\''s default
+   * the eraser (transparent). Anything > 6 falls back to NiiVue's default
    * LUT entries.
    */
   private installBrushPalette(): void {
@@ -433,8 +433,8 @@ export class NiivueViewer {
    * IMPORTANT: this is a no-op when drawing mode is OFF and nothing has been
    * painted. Calling `nv.refreshDrawing(true)` against an empty/never-
    * allocated bitmap caused NiiVue 0.44 to leave the GL context in a state
-   * where mouse-leave (NiiVue'\''s hover-redraw) cleared the canvas to the
-   * background colour and didn'\''t restore the volumes until the cursor
+   * where mouse-leave (NiiVue's hover-redraw) cleared the canvas to the
+   * background colour and didn't restore the volumes until the cursor
    * re-entered a slice — the v0.5.4 "plots disappear when cursor leaves"
    * regression.
    */
@@ -561,7 +561,7 @@ export class NiivueViewer {
    *   - `measurement` = distance ruler (click + drag draws a line, mm reading
    *                     shown at the cursor)
    *   - `none`        = drag does nothing (good when brush mode is on)
-   * NiiVue'\''s underlying enum: NONE=0, CONTRAST=1, MEASUREMENT=2, PAN=3,
+   * NiiVue's underlying enum: NONE=0, CONTRAST=1, MEASUREMENT=2, PAN=3,
    * SLICER3D=4, CALLBACK=5. Identical numeric mapping in 0.44.x.
    */
   setDragMode(mode: 'none' | 'contrast' | 'measurement' | 'pan'): void {
@@ -573,7 +573,7 @@ export class NiivueViewer {
 
   /**
    * Reset the viewport: zoom 1.0, crosshair to volume centre, default
-   * window/level. Equivalent to NiiVue'\''s built-in reset behaviour but
+   * window/level. Equivalent to NiiVue's built-in reset behaviour but
    * exposed so the Tools panel can have an explicit Reset button.
    */
   resetView(): void {
@@ -593,7 +593,7 @@ export class NiivueViewer {
   /**
    * Zoom the viewer in or out. NiiVue stores the zoom factor in
    * `scene.volScaleMultiplier` (1.0 = unzoomed). We clamp to a sane
-   * 0.25..16 range so the user can'\''t zoom themselves into a black
+   * 0.25..16 range so the user can't zoom themselves into a black
    * canvas or numerical overflow.
    */
   zoomBy(factor: number): void {
@@ -606,8 +606,8 @@ export class NiivueViewer {
 
   /**
    * Capture the current canvas as a PNG blob. Returns a Promise<Blob | null>
-   * — null if the canvas can'\''t be read (no GL context, tainted texture).
-   * Used by the screenshot button to save what'\''s on screen for slides /
+   * — null if the canvas can't be read (no GL context, tainted texture).
+   * Used by the screenshot button to save what's on screen for slides /
    * reports, with the AI overlay + crosshair + 3D render all composited.
    */
   async takeScreenshot(): Promise<Blob | null> {
@@ -625,12 +625,101 @@ export class NiivueViewer {
    * Replace the AI-mask volume with a 1-voxel-thick boundary version of
    * itself (or restore the filled mask). Lets the user verify segmentation
    * boundaries against the underlying anatomy without the fill obscuring
-   * what'\''s underneath — the standard "outline" mode in radiology viewers.
+   * what's underneath — the standard "outline" mode in radiology viewers.
    *
    * Implemented client-side: walks each non-zero voxel and keeps it only
    * when at least one of its 6-neighbour voxels is zero. Stashes the original
    * voxel data so the toggle is reversible without re-running inference.
    */
+  /**
+   * Extract the current axial slice (the one the crosshair is sitting on)
+   * as a Float32 array sized [width * height]. SAM consumes this for
+   * encoding. We only support axial today — the SAM panel renders against
+   * the axial multiplanar pane regardless of which plane the user is
+   * currently focused on; coronal / sagittal SAM lands once we settle on
+   * a slicer-aware UX (the prompts in those planes look weird in 3D).
+   */
+  getCurrentAxialSlice(): { pixels: Float32Array; width: number; height: number; index: number } | null {
+    if (this.primaryIndex < 0) return null;
+    const v = this.nv.volumes[this.primaryIndex] as unknown as {
+      img?: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array;
+      hdr?: { dims: number[] };
+    } | undefined;
+    if (!v || !v.img || !v.hdr) return null;
+    const X = v.hdr.dims[1] ?? 1;
+    const Y = v.hdr.dims[2] ?? 1;
+    const Z = v.hdr.dims[3] ?? 1;
+    if (Z <= 0) return null;
+    // Crosshair position — NiiVue exposes scene.crosshairPos in 0..1 frac
+    // along each axis. Fall back to the central slice when not available.
+    const frac =
+      (this.nv as unknown as { scene?: { crosshairPos?: [number, number, number] } }).scene
+        ?.crosshairPos?.[2] ?? 0.5;
+    const z = Math.max(0, Math.min(Z - 1, Math.floor(frac * Z)));
+    const slab = X * Y;
+    const offset = z * slab;
+    const out = new Float32Array(slab);
+    for (let i = 0; i < slab; i++) out[i] = v.img[offset + i] ?? 0;
+    return { pixels: out, width: X, height: Y, index: z };
+  }
+
+  /**
+   * Same as `getCurrentAxialSlice` but for a specific axial index. Used
+   * by SAM Phase D cross-slice propagation: the user generates a mask on
+   * slice N, then we re-encode slices N±1, N±2, … with the prior mask's
+   * bounding box as a box prompt, stitching everything into a multi-slice
+   * mask volume. The crosshair position is left alone.
+   */
+  getAxialSliceAt(
+    z: number
+  ): { pixels: Float32Array; width: number; height: number; index: number } | null {
+    if (this.primaryIndex < 0) return null;
+    const v = this.nv.volumes[this.primaryIndex] as unknown as {
+      img?: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array;
+      hdr?: { dims: number[] };
+    } | undefined;
+    if (!v || !v.img || !v.hdr) return null;
+    const X = v.hdr.dims[1] ?? 1;
+    const Y = v.hdr.dims[2] ?? 1;
+    const Z = v.hdr.dims[3] ?? 1;
+    if (z < 0 || z >= Z) return null;
+    const slab = X * Y;
+    const offset = z * slab;
+    const out = new Float32Array(slab);
+    for (let i = 0; i < slab; i++) out[i] = v.img[offset + i] ?? 0;
+    return { pixels: out, width: X, height: Y, index: z };
+  }
+
+  /**
+   * Map a canvas-space click (e.g. from a pointerdown event) to source-
+   * voxel coords on the current axial slice. Returns null when the click
+   * is outside any slice tile. Used by the SAM prompt overlay to convert
+   * user clicks into prompts.
+   */
+  canvasToAxialVoxel(
+    canvasX: number,
+    canvasY: number
+  ): { x: number; y: number } | null {
+    const nv = this.nv as unknown as {
+      mm2frac?(mm: [number, number, number]): [number, number, number];
+      frac2canvasPos?(frac: [number, number, number]): [number, number];
+      sliceTypeAxial?: number;
+      tileMM?(canvasX: number, canvasY: number): [number, number, number] | null;
+    };
+    // NiiVue 0.44 exposes a private `tileMM` helper that converts canvas
+    // coords to source-mm — use it when available; otherwise fall back to
+    // null so the caller falls back to a centre-click default.
+    const mm = nv.tileMM?.(canvasX, canvasY);
+    if (!mm) return null;
+    const frac = nv.mm2frac?.(mm);
+    if (!frac) return null;
+    if (this.primaryIndex < 0) return null;
+    const v = this.nv.volumes[this.primaryIndex] as unknown as { hdr?: { dims: number[] } };
+    const X = v?.hdr?.dims[1] ?? 1;
+    const Y = v?.hdr?.dims[2] ?? 1;
+    return { x: Math.round(frac[0] * X), y: Math.round(frac[1] * Y) };
+  }
+
   setMaskOutlineOnly(on: boolean): void {
     if (this.maskIndex < 0) return;
     const v = this.nv.volumes[this.maskIndex] as unknown as {

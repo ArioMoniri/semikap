@@ -35,7 +35,7 @@ export interface ViewerHandle {
   setBrushLabel(label: number): void;
   setBrushOpacity(opacity: number): void;
   /** Push current draw bitmap into the 3D mesh + redraw. Call on pointerup
-   *  so the user'\''s brush strokes appear in the volumetric render, not
+   *  so the user's brush strokes appear in the volumetric render, not
    *  just the 2D MPR slices. */
   refreshDrawing(): void;
   undoLastBrushStroke(): void;
@@ -60,6 +60,20 @@ export interface ViewerHandle {
   zoomBy(factor: number): void;
   /** Capture the canvas as a PNG; null when the GL context isn't ready. */
   takeScreenshot(): Promise<Blob | null>;
+  // ── SAM helpers ──
+  /** Pull the current axial slice as Float32 grayscale + dims, for SAM
+   *  encoding. Returns null when no primary volume is loaded. */
+  getCurrentAxialSlice(): { pixels: Float32Array; width: number; height: number; index: number } | null;
+  /** Same as getCurrentAxialSlice() but for a specific axial index. Used
+   *  by SAM Phase D cross-slice propagation. Returns null when z is out
+   *  of bounds or no primary volume is loaded. */
+  getAxialSliceAt(
+    z: number
+  ): { pixels: Float32Array; width: number; height: number; index: number } | null;
+  /** Map a click in canvas coords (relative to the overlay rect, which
+   *  matches the canvas position) to source-axial-slice voxel coords.
+   *  Returns null when the click is outside any slice tile. */
+  canvasToAxialVoxel(canvasX: number, canvasY: number): { x: number; y: number } | null;
 }
 
 export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
@@ -73,7 +87,7 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
     window.addEventListener('resize', onResize);
 
     // Auto-refresh the 3D draw mesh after every brush stroke. NiiVue paints
-    // straight into the 2D MPRs as the user drags but doesn'\''t propagate to
+    // straight into the 2D MPRs as the user drags but doesn't propagate to
     // the volumetric raycaster until refreshDrawing() runs. Tying that to
     // pointerup keeps the 3D view in lockstep without spamming a refresh on
     // every move event (which would tank framerate).
@@ -176,6 +190,15 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       async takeScreenshot() {
         return (await viewerRef.current?.takeScreenshot()) ?? null;
+      },
+      getCurrentAxialSlice() {
+        return viewerRef.current?.getCurrentAxialSlice() ?? null;
+      },
+      getAxialSliceAt(z) {
+        return viewerRef.current?.getAxialSliceAt(z) ?? null;
+      },
+      canvasToAxialVoxel(x, y) {
+        return viewerRef.current?.canvasToAxialVoxel(x, y) ?? null;
       },
     }),
     []

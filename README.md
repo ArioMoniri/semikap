@@ -97,6 +97,8 @@ flowchart LR
 | 💽 OPFS warm cache | 🔒 SHA-256 model verification | ❤️ `/healthz` for K8s probes | 🪪 RUO stamp on every export |
 
 > 🔬 **Pathology mode lands in v0.6.0.** Whole-slide image viewer (OpenSeadragon-based pyramidal viewer · OME-TIFF · Aperio SVS · Hamamatsu NDPI · TIFF · PNG · JPEG), tile-based ONNX inference (segmentation / classification / heatmap / detection), MPP-aware distance ruler, six-colour brush + eraser with per-colour PNG export. Bundled CC0 synthetic H&E sample for end-to-end testing. Full reference: [`docs/PATHOLOGY.md`](docs/PATHOLOGY.md). Roadmap: [`docs/ROADMAP.md#v060--pathology-mode`](docs/ROADMAP.md#v060--pathology-mode).
+>
+> 🪄 **SAM (Segment Anything) — branch `feat/sam-radiology`** — click + box + text prompts → mask, in **both** Radiology and Pathology modes. One-click HuggingFace download (SAM 2 Tiny ~30 MB, MedSAM ~360 MB), encoder runs once per slice / ROI on WebGPU then decoder is sub-100 ms per prompt. **No upload**, weights cached in OPFS. SAM 3 ONNX URL slot ready for when a stable export ships. Full plan + status table: [`docs/SAM.md`](docs/SAM.md).
 
 ---
 

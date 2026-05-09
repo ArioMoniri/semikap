@@ -115,6 +115,61 @@ export async function saveBytes(
 }
 
 /**
+ * Prompt the user to pick a folder, returning a FileSystemDirectoryHandle.
+ * Used for "Auto-save screenshots to folder" — once granted, subsequent
+ * `saveBytesToDirectory()` calls write straight there without another
+ * dialog. Browsers without `showDirectoryPicker` (Safari at the moment)
+ * return null; the caller falls back to the regular saveBytes() prompt.
+ */
+export async function pickDirectory(): Promise<FileSystemDirectoryHandle | null> {
+  if (!FSA_AVAILABLE) return null;
+  const win = window as unknown as {
+    showDirectoryPicker?(opts?: { mode?: 'read' | 'readwrite' }): Promise<FileSystemDirectoryHandle>;
+  };
+  if (!win.showDirectoryPicker) return null;
+  try {
+    return await win.showDirectoryPicker({ mode: 'readwrite' });
+  } catch (err) {
+    if ((err as DOMException).name === 'AbortError') return null;
+    throw err;
+  }
+}
+
+/**
+ * Persist `bytes` into a chosen directory under the given filename. Used by
+ * the screenshot auto-save path. Returns false if write permission is
+ * revoked (the user can clear it via the browser's site-settings dialog,
+ * in which case we fall back to the regular prompt-each-time saveBytes).
+ */
+export async function saveBytesToDirectory(
+  dir: FileSystemDirectoryHandle,
+  bytes: Bytes,
+  filename: string
+): Promise<boolean> {
+  // Re-request permission — required by some browsers between sessions.
+  const dirAny = dir as unknown as {
+    queryPermission?(opts: { mode: 'readwrite' }): Promise<PermissionState>;
+    requestPermission?(opts: { mode: 'readwrite' }): Promise<PermissionState>;
+  };
+  if (dirAny.queryPermission) {
+    let state = await dirAny.queryPermission({ mode: 'readwrite' });
+    if (state !== 'granted' && dirAny.requestPermission) {
+      state = await dirAny.requestPermission({ mode: 'readwrite' });
+    }
+    if (state !== 'granted') return false;
+  }
+  try {
+    const fileHandle = await dir.getFileHandle(filename, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(bytes);
+    await writable.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Drag-and-drop adapter. Returns a callback that, when given a DragEvent,
  * resolves to the dropped file's bytes.
  */

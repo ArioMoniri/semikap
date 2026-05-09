@@ -11,7 +11,7 @@ import {
   ZoomOut,
   Camera,
 } from 'lucide-react';
-import { saveBytes } from '../lib/fs/filesystem';
+import { saveBytes, saveBytesToDirectory } from '../lib/fs/filesystem';
 import { asBytes } from '../types';
 import { appendAudit } from '../lib/fs/audit';
 import { useAppStore } from '../lib/state/store';
@@ -74,18 +74,39 @@ export function ToolsPanel({ viewerRef }: Props) {
 
   /**
    * Capture the current canvas (overlay + crosshair + 3D render composited)
-   * as a PNG and trigger a save dialog. Useful for slides, reports, and
-   * quick visual diff between runs.
+   * as a PNG and save. Honours the user's `screenshotMode` preference
+   * from Settings:
+   *   - 'ask'  → prompt for a save location each time.
+   *   - 'auto' → write straight to the directory the user picked in
+   *              Settings. Falls back to 'ask' if no directory handle
+   *              is currently active (e.g. on first load before re-pick).
    */
   const handleScreenshot = useCallback(async () => {
     const blob = await viewerRef.current?.takeScreenshot();
     if (!blob) return;
     const buf = await blob.arrayBuffer();
+    const bytes = asBytes(new Uint8Array(buf));
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `tamias-screenshot-${ts}.png`;
-    const ok = await saveBytes(asBytes(new Uint8Array(buf)), filename, 'PNG screenshot', '.png');
+    const prefs = useAppStore.getState().prefs;
+    let mode: 'ask' | 'auto' = prefs.screenshotMode;
+    let ok = false;
+    if (mode === 'auto' && prefs.screenshotDirHandle) {
+      ok = await saveBytesToDirectory(prefs.screenshotDirHandle, bytes, filename);
+      if (!ok) {
+        mode = 'ask';
+        ok = await saveBytes(bytes, filename, 'PNG screenshot', '.png');
+      }
+    } else {
+      mode = 'ask';
+      ok = await saveBytes(bytes, filename, 'PNG screenshot', '.png');
+    }
     if (ok) {
-      void appendAudit({ kind: 'export', message: `Screenshot saved: ${filename}` });
+      void appendAudit({
+        kind: 'export',
+        message: `Screenshot saved: ${filename}`,
+        details: { mode },
+      });
     }
   }, [viewerRef]);
 

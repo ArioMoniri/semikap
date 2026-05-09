@@ -91,6 +91,27 @@ export interface OsdViewer {
     level0Width: number;
     level0Height: number;
   };
+  // ── SAM helpers (Phase B′) ──
+  /**
+   * Read a region of the slide at level-0 coordinates, downsampled to
+   * (targetW × targetH). Used by the pathology SAM panel to feed the
+   * encoder a 1024² RGBA tile of the user-picked ROI. Proxies straight
+   * to the underlying TileLoader.readRegion.
+   */
+  readLevel0Region(
+    level0X: number,
+    level0Y: number,
+    level0W: number,
+    level0H: number,
+    targetW: number,
+    targetH: number
+  ): Promise<{ rgba: Uint8ClampedArray; width: number; height: number }>;
+  /**
+   * Convert a viewport-canvas click (in OSD canvas-pixel space) to
+   * level-0 slide pixels. Used by the SAM prompt overlay to map clicks
+   * into the same coordinate frame as ROI / mask overlays.
+   */
+  canvasToLevel0(canvasX: number, canvasY: number): { x: number; y: number } | null;
   destroy(): void;
 }
 
@@ -427,6 +448,36 @@ export function createOsdViewer(opts: OsdViewerOptions): OsdViewer {
         level0Width: meta.width,
         level0Height: meta.height,
       };
+    },
+    async readLevel0Region(level0X, level0Y, level0W, level0H, targetW, targetH) {
+      // Defer straight to the loader so SAM doesn't have to know which
+      // tile-source backend is active (OME-TIFF / single-file / TIFF
+      // fallback). The loader returns a TileBitmap with rgba bytes.
+      const tile = await opts.loader.readRegion(
+        level0X,
+        level0Y,
+        level0W,
+        level0H,
+        targetW,
+        targetH
+      );
+      return { rgba: tile.rgba, width: tile.width, height: tile.height };
+    },
+    canvasToLevel0(canvasX, canvasY) {
+      // OSD's viewport API converts canvas pixels → viewport coords →
+      // image coords. Image coords are normalised 0..1 across the slide
+      // width; multiply by level-0 dims to land in slide pixels.
+      try {
+        const point = new OpenSeadragon.Point(canvasX, canvasY);
+        const viewportPoint = viewer.viewport.pointFromPixel(point);
+        const imgPoint = viewer.viewport.viewportToImageCoordinates(viewportPoint);
+        const x = imgPoint.x;
+        const y = imgPoint.y;
+        if (x < 0 || y < 0 || x > meta.width || y > meta.height) return null;
+        return { x: Math.round(x), y: Math.round(y) };
+      } catch {
+        return null;
+      }
     },
     destroy() {
       window.removeEventListener('resize', onResize);

@@ -9,6 +9,7 @@ import { ModelPicker } from './ModelPicker';
 import { Viewer } from './Viewer';
 import type { ViewerHandle } from './Viewer';
 import { InferencePanel } from './InferencePanel';
+import { SamPanel } from './SamPanel';
 import { ExportPanel } from './ExportPanel';
 import { GpuInfoPanel } from './GpuInfoPanel';
 import { OverlayControls } from './OverlayControls';
@@ -298,6 +299,14 @@ export function AppShell() {
 
           <CollapsibleSection title="Inference" defaultOpen trailing={result ? 'done' : ''}>
             <InferencePanel onResultMask={handleResultMask} />
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="SAM (assisted)"
+            defaultOpen={false}
+            trailing="preview"
+          >
+            <SamPanel viewerRef={viewerRef} />
           </CollapsibleSection>
 
           <CollapsibleSection title="Layout" defaultOpen={false}>

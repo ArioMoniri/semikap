@@ -31,6 +31,20 @@ export interface PathologyViewerHandle {
   onProbe(
     fn: (p: { px: [number, number]; mpp: [number, number] | null } | null) => void
   ): () => void;
+  // ── SAM helpers ──
+  /** Read a slide region at level 0 down-sampled to (targetW × targetH).
+   *  Used by the pathology SAM panel to grab a 1024² ROI tile. */
+  readLevel0Region(
+    level0X: number,
+    level0Y: number,
+    level0W: number,
+    level0H: number,
+    targetW: number,
+    targetH: number
+  ): Promise<{ rgba: Uint8ClampedArray; width: number; height: number }>;
+  /** Map a canvas-space pointer event to slide level-0 pixel coords.
+   *  Returns null when the click is outside the slide. */
+  canvasToLevel0(canvasX: number, canvasY: number): { x: number; y: number } | null;
 }
 
 export const PathologyViewer = forwardRef<PathologyViewerHandle>(function PathologyViewer(
@@ -104,6 +118,22 @@ export const PathologyViewer = forwardRef<PathologyViewerHandle>(function Pathol
       onProbe(fn) {
         if (!viewerRef.current) return () => undefined;
         return viewerRef.current.onProbe(fn);
+      },
+      async readLevel0Region(level0X, level0Y, level0W, level0H, targetW, targetH) {
+        if (!viewerRef.current) {
+          throw new Error('No slide loaded');
+        }
+        return viewerRef.current.readLevel0Region(
+          level0X,
+          level0Y,
+          level0W,
+          level0H,
+          targetW,
+          targetH
+        );
+      },
+      canvasToLevel0(canvasX, canvasY) {
+        return viewerRef.current?.canvasToLevel0(canvasX, canvasY) ?? null;
       },
     })
   );
