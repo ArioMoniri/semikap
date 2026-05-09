@@ -85,8 +85,29 @@ export function UpdatePrompt() {
                 <Download className="h-3.5 w-3.5" /> Update {desktopUpdate.version} available
               </div>
               {desktopUpdate.notes && (
-                <p className="line-clamp-3 whitespace-pre-wrap text-slate-600 dark:text-slate-300">
-                  {desktopUpdate.notes}
+                <p
+                  className="line-clamp-3 text-slate-600 dark:text-slate-300"
+                  title={desktopUpdate.notes}
+                >
+                  {/* The release notes come straight from latest.json as
+                      raw markdown — `## 🐿️ TAMIAS vX.Y.Z` then a body.
+                      Rendering with `whitespace-pre-wrap` made the `##`
+                      heading + table syntax leak into the banner verbatim.
+                      Strip headings, table rows, and bullets so the user
+                      sees a clean one-paragraph teaser, then truncate to
+                      three lines. The full markdown is on the title
+                      tooltip + the release page. */}
+                  {desktopUpdate.notes
+                    .split(/\r?\n/)
+                    .filter((line) => line.trim().length > 0)
+                    .filter((line) => !/^\s*#{1,6}\s/.test(line))   // ## headings
+                    .filter((line) => !/^\s*\|/.test(line))         // | table | rows
+                    .filter((line) => !/^\s*[-*+]\s/.test(line))     // bullet lines
+                    .filter((line) => !/^\s*<\/?\w/.test(line))      // raw HTML lines
+                    .join(' · ')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .slice(0, 280)}
                 </p>
               )}
               <p className="text-slate-600 dark:text-slate-400">
