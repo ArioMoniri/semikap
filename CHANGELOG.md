@@ -6,6 +6,112 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.6.0] — Pathology mode (Phase A + B + C)
+
+### Added — Pathology mode replaces the v0.5.7 placeholder
+- 🔬 **OpenSeadragon-based whole-slide viewer** with a custom in-memory
+  tile bridge. Tiles never touch the network — the bridge intercepts
+  OSD's `downloadTileStart` and serves canvases painted from the loaded
+  tile loader's RGBA bytes. Ships a 2-D navigator inset (bottom-right),
+  pan / zoom / fit / 1:1 controls, and a screenshot composer that
+  combines the OSD draw canvas with our overlay canvas.
+- 🧬 **OME-TIFF loader** (`geotiff.js`). Walks the IFD list, identifies
+  the pyramid chain by monotonic-decreasing area, parses OME-XML
+  `PhysicalSizeX/Y` for MPP (with µm / nm / mm / cm unit handling), and
+  exposes `readTile` + `readRegion` — the latter automatically picks the
+  closest pyramid level for the requested downsample, then resamples to
+  target size via canvas bilinear.
+- 🧬 **Aperio SVS + Hamamatsu NDPI direct loading** through the same
+  pyramidal-TIFF path. Vendor MPP is recovered from:
+  - the Aperio `MPP = 0.25` token in `ImageDescription` for SVS, and
+  - TIFF `XResolution` / `YResolution` + `ResolutionUnit` for NDPI
+    (and any other plain pyramidal TIFF that exposes resolution tags).
+  Slides that hit a vendor extension `geotiff.js` can't decode (NDPI
+  > 4 GB with `NDP_OFFSET_HIGH`, JPEG2000-encoded SVS) fall through to
+  a clear error dialog with the `bioformats2raw + raw2ometiff` recipe
+  pre-filled. No OpenSlide-WASM binary is shipped — every byte is
+  decoded by a pure-JS / WASM TIFF reader so there's no native binary
+  to sign or audit.
+- 🧬 **Single-file fallback** (PNG / JPEG / non-pyramidal TIFF). Decodes
+  once into an `OffscreenCanvas` (or `HTMLCanvasElement` on older
+  browsers), then services tile reads via `getImageData`. Capped by
+  the browser's canvas size limit (~16 384 px / axis).
+- 📏 **Distance ruler in microns**. Switches OSD into a non-panning
+  mode, draws an amber ruler with end caps, and labels the mid-line in
+  µm (or mm, when the measurement is ≥ 1 mm). Falls back to pixels when
+  the slide has no MPP metadata.
+- 🛠️ **Pathology Tools panel** (Pan / Distance / Zoom +/− / Fit / 1:1 /
+  Reset / Screenshot). Same idiom as the radiology toolbar.
+- 🧠 **Tile-based ONNX inference worker** with strict pathology
+  manifest validation. Walks the ROI in `patch × stride` steps, requests
+  patches at the manifest's MPP via `readRegion`, runs ONNX, and stitches
+  results by output kind:
+  - `segmentation` → per-pixel argmax into a label map (last-write-wins
+    in overlap regions; Gaussian soft-blending tracked as follow-up).
+  - `classification` → one (label, score) per patch + label-painted
+    heatmap so the overlay renders consistently across output kinds.
+  - `heatmap` → per-pixel score (×255) accumulated and averaged across
+    overlapping patches.
+  - `detection` → list of (x, y, label, score) records per patch.
+- 📋 **Pathology manifest schema** (`mpp`, `patch`, `stride`,
+  `channelOrder`, `normalization`, `output.type`, `output.labels`,
+  `output.colors`, `preferredEP`, `sha256`). Validated strictly with the
+  same idiom as the radiology manifest parser; the first malformed
+  field fails loudly.
+- 📤 **Result PNG + sidecar JSON export**. PNG renders the result
+  buffer through the manifest's colour table (matching the on-screen
+  overlay). JSON sidecar records slide name, model name + SHA-256, MPP,
+  ROI, output kind, ONNX provider, attempted providers, and wall-clock
+  duration. Carries the standard "Research Use Only" stamp.
+- 📜 **OPFS audit log entry per pathology run** (`kind: 'inference'`)
+  with the same fields the radiology side already records.
+
+### Added — Modality toggle is now functional
+- 🔬 The header **Pathology** toggle now mounts the full pathology
+  shell (sidebar + viewer) instead of the v0.5.7 placeholder card.
+  Switching modes preserves the sidebar's collapsed state and width.
+
+### Added — Examples + docs
+- 🧪 `examples/pathology/README.md` — pointers to public-domain WSIs
+  (CAMELYON16, PANDA, TCGA, HuBMAP) with conversion recipes for SVS /
+  NDPI via `bioformats2raw + raw2ometiff` or QuPath.
+- 📋 `examples/pathology/tissue_mask.json` — reference manifest
+  exercising every schema field.
+- 📚 `docs/PATHOLOGY.md` — full pathology mode documentation
+  (capabilities, limits, manifest reference, inference pipeline).
+
+### Added — Slide brush + eraser (Phase B)
+- 🎚️ **Six-colour brush + eraser** on the slide overlay, mirroring the
+  radiology brush palette (red / green / blue / yellow / cyan / magenta).
+  Strokes paint into a per-slide buffer capped at 4 096 × 4 096 (the
+  slide's bounding rectangle, mapped 1:1 to that resolution) so paint
+  stays memory-bounded even on 100 k × 100 k slides.
+- ↶ **Per-stroke undo** (16-deep stack) and **Clear all**.
+- 🎨 **Brush radius slider** (1 – 256 slide-level-0 pixels).
+- 📤 **"Save brush colours" export** writes one transparent-background
+  PNG per painted colour (`__brush_red.png`, `__brush_green.png`, …)
+  via the same File System Access API path as the rest of the
+  pathology export panel.
+
+### Added — Phase C polish
+- 🧪 **Bundled synthetic H&E sample** (`examples/pathology/synthetic_he_512.png`,
+  ~ 212 KiB). Procedurally generated by `scripts/build-pathology-sample.mjs`
+  (CC0, no real patient data) so users can exercise the viewer + brush
+  + tile inference pipeline end-to-end without downloading a real WSI
+  first. Sidecar `synthetic_he_512.json` declares 0.5 µm/px (20× scan
+  equivalent) for the distance ruler.
+- 🩻 **Hero banner refresh** covers both modalities — the strapline now
+  mentions OME-TIFF / SVS / NDPI alongside DICOM / NIfTI / NRRD, and a
+  green PATHOLOGY pill joins the badge row.
+
+### Deferred to a follow-up release
+- 🌡️ Gaussian soft-blending of overlapping segmentation patches
+  (currently last-write-wins).
+
+### Dependencies
+- ➕ `openseadragon` 6.x for the pyramidal viewer.
+- ➕ `geotiff` 3.x for OME-TIFF / TIFF decoding.
+
 ## [0.5.7] — Radiology polish · Modality toggle · v0.6.0 groundwork
 
 ### Added — Radiology toolbar polish

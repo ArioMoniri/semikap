@@ -1,0 +1,25 @@
+{
+  "name": "Tissue mask (reference manifest)",
+  "version": "0.0.1",
+  "license": "Apache-2.0",
+  "mpp": 1.0,
+  "patch": [256, 256],
+  "stride": [256, 256],
+  "channelOrder": "rgb",
+  "normalization": {
+    "type": "imagenet",
+    "mean": [0.485, 0.456, 0.406],
+    "std": [0.229, 0.224, 0.225]
+  },
+  "output": {
+    "type": "segmentation",
+    "labels": {
+      "0": "background",
+      "1": "tissue"
+    },
+    "colors": {
+      "1": "#22c55e"
+    }
+  },
+  "preferredEP": "auto"
+}
