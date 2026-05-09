@@ -125,7 +125,74 @@ export const PRESET_SAM_MODELS: Array<{
       size: { input: [1024, 1024], preprocessing: 'imagenet' },
     },
   },
+  {
+    // Phase F — SAM 3 placeholder. Meta has announced SAM 3 with text-
+    // promptable masks and broader concept coverage; a stable ONNX export
+    // hasn'\''t shipped on HuggingFace at the time of writing. This entry
+    // is wired so the moment a community-maintained ONNX export appears
+    // we plug the URLs in here and the panel picks it up automatically
+    // (the manifest schema, prompt types, and worker dispatch already
+    // accept `family: 'sam3'`). Until then the entry is shown as
+    // "BYO URL" — clicking it opens the Custom URL onboarding flow.
+    id: 'sam3-byo',
+    approxBytesEncoder: 0,
+    approxBytesDecoder: 0,
+    manifest: {
+      kind: 'sam',
+      name: 'SAM 3 (bring-your-own URL)',
+      version: '3.0.0',
+      license: 'Apache-2.0',
+      family: 'sam3',
+      modality: 'Multi',
+      encoder: {
+        url: null,
+        inputShape: [1, 3, 1024, 1024],
+        embeddingShape: [1, 256, 64, 64],
+      },
+      decoder: { url: null, outputs: ['masks', 'iou_predictions'] },
+      // SAM 3 honours text prompts in addition to the point + box modes.
+      prompts: { supports: ['point', 'box', 'text'], expectsNegativePoints: true },
+      preferredEP: 'webgpu',
+      size: { input: [1024, 1024], preprocessing: 'imagenet' },
+    },
+  },
 ];
+
+/**
+ * Build a SamManifest from a user-supplied HuggingFace URL pair (encoder +
+ * decoder). Used by the SamPanel "Custom URL" onboarding flow so users can
+ * point at any HuggingFace ONNX export — community SAM 3 mirrors,
+ * domain-specific fine-tunes, lab-internal builds — without us hardcoding
+ * the URL list. The user supplies a friendly name and the two URLs; we
+ * synthesise a manifest with the same defaults as the presets above.
+ */
+export function buildCustomSamManifest(opts: {
+  name: string;
+  encoderUrl: string;
+  decoderUrl: string;
+  family?: 'sam' | 'sam2' | 'sam3' | 'medsam';
+  expectsText?: boolean;
+}): import('./types').SamManifest {
+  const supports: import('./types').SamPromptKind[] = ['point', 'box'];
+  if (opts.expectsText) supports.push('text');
+  return {
+    kind: 'sam',
+    name: opts.name,
+    version: 'custom',
+    license: 'unknown — verify with the source repo',
+    family: opts.family ?? 'sam',
+    modality: 'Multi',
+    encoder: {
+      url: opts.encoderUrl,
+      inputShape: [1, 3, 1024, 1024],
+      embeddingShape: [1, 256, 64, 64],
+    },
+    decoder: { url: opts.decoderUrl, outputs: ['masks', 'iou_predictions'] },
+    prompts: { supports, expectsNegativePoints: true },
+    preferredEP: 'webgpu',
+    size: { input: [1024, 1024], preprocessing: 'imagenet' },
+  };
+}
 
 /**
  * Fetch a single ONNX file with streaming progress.

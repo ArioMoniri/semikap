@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Settings, FileDown, Trash2, Camera, FolderOpen } from 'lucide-react';
 import { clearAuditLog, exportAuditLog, readAuditLog, type AuditEntry } from '../lib/fs/audit';
 import { saveBytes, pickDirectory } from '../lib/fs/filesystem';
+import { writeStoredHandle, deleteStoredHandle, SCREENSHOT_DIR_KEY } from '../lib/fs/idb-handle';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { useAppStore } from '../lib/state/store';
@@ -88,6 +89,13 @@ export function SettingsPanel() {
                     onClick={async () => {
                       const handle = await pickDirectory();
                       if (handle) {
+                        // Persist the handle to IDB (Phase E.2). FSA
+                        // handles are structured-cloneable but not JSON-
+                        // serialisable, so localStorage isn'\''t an option.
+                        // The browser still re-prompts for permission on
+                        // first use after a reload, but the handle itself
+                        // persists.
+                        void writeStoredHandle(SCREENSHOT_DIR_KEY, handle);
                         setPrefs({
                           screenshotDirHandle: handle,
                           screenshotDirName: handle.name,
@@ -97,6 +105,20 @@ export function SettingsPanel() {
                   >
                     <FolderOpen className="h-3.5 w-3.5" /> Pick folder
                   </Button>
+                  {prefs.screenshotDirHandle && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1 text-red-700 hover:bg-red-50"
+                      onClick={() => {
+                        void deleteStoredHandle(SCREENSHOT_DIR_KEY);
+                        setPrefs({ screenshotDirHandle: null, screenshotDirName: null });
+                      }}
+                      title="Forget the saved folder"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Forget
+                    </Button>
+                  )}
                   <span className="text-[11px] text-slate-500">
                     {prefs.screenshotDirHandle
                       ? `Active: ${prefs.screenshotDirName ?? '(unnamed)'}`

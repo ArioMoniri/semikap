@@ -64,6 +64,12 @@ export interface ViewerHandle {
   /** Pull the current axial slice as Float32 grayscale + dims, for SAM
    *  encoding. Returns null when no primary volume is loaded. */
   getCurrentAxialSlice(): { pixels: Float32Array; width: number; height: number; index: number } | null;
+  /** Same as getCurrentAxialSlice() but for a specific axial index. Used
+   *  by SAM Phase D cross-slice propagation. Returns null when z is out
+   *  of bounds or no primary volume is loaded. */
+  getAxialSliceAt(
+    z: number
+  ): { pixels: Float32Array; width: number; height: number; index: number } | null;
   /** Map a click in canvas coords (relative to the overlay rect, which
    *  matches the canvas position) to source-axial-slice voxel coords.
    *  Returns null when the click is outside any slice tile. */
@@ -187,6 +193,9 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       getCurrentAxialSlice() {
         return viewerRef.current?.getCurrentAxialSlice() ?? null;
+      },
+      getAxialSliceAt(z) {
+        return viewerRef.current?.getAxialSliceAt(z) ?? null;
       },
       canvasToAxialVoxel(x, y) {
         return viewerRef.current?.canvasToAxialVoxel(x, y) ?? null;

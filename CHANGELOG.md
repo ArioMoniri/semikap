@@ -32,15 +32,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 **Phase C.1 — Smart brush handoff** (radiology):
 - 🪄 `AnnotationPanel.tsx` points users at the SAM panel for click-to-mask assisted segmentation.
 
+**Phase C.2 — Single-stroke smart-brush** (radiology):
+- 🪄 New **Smart** mode in `AnnotationPanel.tsx` alongside Brush/Eraser. One click on a 2D slice → SAM encode + decode with that single positive point → mask committed straight into the brush layer at the active label, no Encode/Generate/Commit buttons.
+- 🪛 Capture happens at the document level in capture-phase so NiiVue's own draw handlers don't fire; drawing is also explicitly disabled while in smart mode to prevent stray voxel-paints during slow encodes.
+- 🔒 The Smart button is disabled until a SAM model is loaded; tip box adapts copy depending on whether SAM is offline.
+- 🎯 Reuses `addMaskOverlay()` so the mask inherits the v0.5.5 RAS-alignment fix in 2D + 3D.
+
+**Phase D — Cross-slice mask propagation** (radiology):
+- 🧭 SamPanel preview block gains **±5 slices** and **±15 slices** propagate buttons that walk neighbour slices (interleaved ±1, ±2, …, ±N), re-encode each, and decode using the previous slice's mask bbox as a box prompt.
+- 🛠️ `src/lib/viewer/niivue.ts` + `src/components/Viewer.tsx` expose `getAxialSliceAt(z)` so the propagator can pull arbitrary slices without scrolling the user's crosshair.
+- 🩹 Bbox is re-tightened from each new mask each iteration; propagation stops early when a slice produces an empty mask. Multi-slice mask is committed via a single `addMaskOverlay` call.
+- ⚖️ Intentionally simpler than SAM 2's video tracker — works with any backbone, single decode call per slice.
+
 **Phase E — Auto-save folder for screenshots**:
 - 📸 `pickDirectory` + `saveBytesToDirectory` in `src/lib/fs/filesystem.ts`. Settings panel folder picker. ToolsPanel writes straight there when `prefs.screenshotMode === 'auto'`.
+
+**Phase E.2 — IndexedDB-backed handle persistence**:
+- 💾 New `src/lib/fs/idb-handle.ts` — `readStoredHandle` / `writeStoredHandle` / `deleteStoredHandle` / `requestHandlePermission` over a small `idb`-style direct-request API (no extra dep). DB `tamias-prefs`, store `handles`, version 1.
+- ⚙️ `SettingsPanel.tsx` writes the handle on Pick and exposes a **Forget** button that deletes both IDB and in-memory copies.
+- 🚀 `store.ts` rehydrates the handle on app boot, queries+requests `readwrite` permission, silently falls back if either step fails (e.g. user revoked access in browser settings).
+
+**Phase F — SAM 3 placeholder + Custom URL onboarding**:
+- 🪪 New 4th preset entry `sam3-byo` in `loader.ts`; `family: 'sam3'`, supports `['point', 'box', 'text']`, both encoder/decoder URLs `null` (BYO).
+- 🧪 New `buildCustomSamManifest({ name, encoderUrl, decoderUrl, family?, expectsText? })` synthesises a manifest at runtime.
+- 🪄 SamPanel onboarding routes the SAM 3 preset through a Custom URL flow (prompts for name + encoder URL + decoder URL); a dedicated **Custom URL…** button at the bottom of the onboarding view supports any other ONNX export.
+- 🌉 Bridge for SAM 3 once Meta publishes a stable ONNX export — no app rebuild required.
 
 ### Changed — CSP for opt-in SAM weight download
 - 🔌 `connect-src` adds `huggingface.co` + `*.huggingface.co` + `cdn-lfs.huggingface.co`. **Always user-triggered**; nothing fetches automatically.
 
 ### Notes
 - Branch `feat/sam-radiology`; **not** merged to `main`. Promotes on user approval.
-- Pending: Phase C.2 (single-stroke smart-brush), Phase D (cross-slice / cross-tile propagation via SAM 2 video tracker), Phase E.2 (IDB-persisted folder handle), Phase F (SAM 3 ONNX export plug-in once Meta publishes one).
+- All planned phases (A, B, B′, C.1, C.2, D, E, E.2, F) shipped on the branch. Out of scope for v0.5.8: 3D-native SAM (SAM-Med3D / MedSAM-3D) — deferred to v0.7.x; SAM 2 video-tracker temporal embeddings — superseded for now by Phase D's bbox-carry-forward propagator.
 
 ## [0.6.0] — Pathology mode (Phase A + B + C)
 

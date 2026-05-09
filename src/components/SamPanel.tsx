@@ -25,7 +25,12 @@ import type {
 } from '../lib/sam/types';
 import type { SamApi } from '../workers/sam.worker';
 import { ExternalLink } from './ExternalLink';
-import { PRESET_SAM_MODELS, loadSamModel, type SamLoadProgress } from '../lib/sam/loader';
+import {
+  PRESET_SAM_MODELS,
+  loadSamModel,
+  buildCustomSamManifest,
+  type SamLoadProgress,
+} from '../lib/sam/loader';
 import { pickFile } from '../lib/fs/filesystem';
 import { appendAudit } from '../lib/fs/audit';
 import type { ViewerHandle } from './Viewer';
@@ -72,6 +77,15 @@ export function SamPanel({ viewerRef }: Props) {
     async (presetId: string) => {
       const preset = PRESET_SAM_MODELS.find((p) => p.id === presetId);
       if (!preset) return;
+      // Phase F — the "SAM 3 (bring-your-own URL)" preset has null URLs;
+      // route it to the Custom URL flow so the user pastes their own
+      // HuggingFace links. Once a stable SAM 3 ONNX export ships we can
+      // populate the preset URLs in loader.ts and this branch becomes
+      // dead code (which is fine — it stays as the BYO escape hatch).
+      if (preset.manifest.encoder.url === null) {
+        await runCustomUrlFlow(preset.manifest.family);
+        return;
+      }
       const sizeMB = (
         (preset.approxBytesEncoder + preset.approxBytesDecoder) /
         (1024 * 1024)
@@ -125,6 +139,85 @@ export function SamPanel({ viewerRef }: Props) {
       } catch (e) {
         const err = e as Error;
         pushError(`SAM download failed: ${err.message}`, err.stack ? { stack: err.stack } : undefined);
+        setSam({ busy: null });
+      }
+    },
+    [setSam, pushError]
+  );
+
+  /**
+   * Phase F — Custom URL onboarding. Prompts the user for a friendly
+   * name + encoder URL + decoder URL, then runs the same load pipeline
+   * as a preset. Used by the "SAM 3 (bring-your-own URL)" entry and the
+   * standalone "Custom URL" button so any HuggingFace ONNX export can
+   * be loaded without code changes.
+   */
+  const runCustomUrlFlow = useCallback(
+    async (family?: 'sam' | 'sam2' | 'sam3' | 'medsam') => {
+      const name = prompt('Friendly name for this SAM model:', 'My SAM');
+      if (!name) return;
+      const encoderUrl = prompt(
+        'Encoder ONNX URL (e.g. HuggingFace resolve link):',
+        'https://huggingface.co/.../encoder.onnx'
+      );
+      if (!encoderUrl) return;
+      const decoderUrl = prompt(
+        'Decoder ONNX URL:',
+        'https://huggingface.co/.../decoder.onnx'
+      );
+      if (!decoderUrl) return;
+      const manifest = buildCustomSamManifest({
+        name,
+        encoderUrl,
+        decoderUrl,
+        ...(family ? { family } : {}),
+        expectsText: family === 'sam3',
+      });
+      try {
+        setSam({
+          busy: { stage: 'fetching', label: 'Downloading encoder…', bytesLoaded: 0 },
+        });
+        const bytes = await loadSamModel(manifest, (p: SamLoadProgress) => {
+          setSam({
+            busy: {
+              stage: 'fetching',
+              label:
+                p.stage === 'encoder'
+                  ? 'Downloading encoder…'
+                  : p.stage === 'decoder'
+                  ? 'Downloading decoder…'
+                  : p.stage === 'verify'
+                  ? 'Verifying…'
+                  : p.stage === 'cache'
+                  ? 'Caching to OPFS…'
+                  : 'Done',
+              bytesLoaded: p.bytesLoaded,
+              ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
+            },
+          });
+        });
+        setSam({
+          modelLoaded: true,
+          modelName: name,
+          manifest,
+          encoderBytes: bytes.encoderBytes,
+          decoderBytes: bytes.decoderBytes,
+          embedding: null,
+          preview: null,
+          prompts: [],
+          busy: null,
+        });
+        void appendAudit({
+          kind: 'export',
+          message: `SAM model loaded (custom URL): ${name}`,
+          details: { family: manifest.family },
+        });
+      } catch (e) {
+        const err = e as Error;
+        pushError(
+          `SAM custom-URL load failed: ${err.message}`,
+          err.stack ? { stack: err.stack } : undefined
+        );
         setSam({ busy: null });
       }
     },
@@ -300,6 +393,133 @@ export function SamPanel({ viewerRef }: Props) {
     void appendAudit({ kind: 'export', message: 'SAM mask committed to viewer' });
   }, [sam, viewerRef, setSam, pushError]);
 
+  /**
+   * Phase D — cross-slice propagation. Given the user has a committed
+   * mask on slice N, we propagate to slices N±1..N±N_RADIUS by:
+   *   1. Compute the bounding box of the current preview mask.
+   *   2. For each neighbour slice z (alternating ±, growing outward):
+   *        a. Pull the slice via getAxialSliceAt(z).
+   *        b. Run encoder + decoder with the prior mask'\''s bbox as a
+   *           single box prompt.
+   *        c. Stash the resulting mask into a multi-slice volume.
+   *        d. Re-tighten the box for the next iteration so the prompt
+   *           tracks the object as it moves slice-to-slice.
+   *   3. Commit the multi-slice volume through addMaskOverlay.
+   *
+   * This is "best-effort" 2.5D propagation, not full SAM 2 video
+   * tracking — there'\''s no memory_attention. But for the common
+   * radiology case (organ segmentation across ~20 slices) it produces a
+   * usable multi-slice mask in seconds.
+   */
+  const handlePropagate = useCallback(
+    async (radius: number) => {
+      if (!sam.modelLoaded || !sam.manifest || !sam.encoderBytes || !sam.decoderBytes) {
+        pushError('Load a SAM model first.');
+        return;
+      }
+      if (!sam.preview || !sam.embedding) {
+        pushError('Generate + commit a mask on the current slice first.');
+        return;
+      }
+      const startZ = sam.preview.sliceIndex;
+      const volume = useAppStore.getState().volume;
+      if (!volume || !viewerRef.current) return;
+      const [X, Y, Z] = volume.meta.dims;
+      // 1) Initial bbox from the preview mask.
+      const initialBox = bboxOfMask(sam.preview.mask, sam.preview.width, sam.preview.height);
+      if (!initialBox) {
+        pushError('Preview mask is empty — nothing to propagate.');
+        return;
+      }
+      // 2) Build the multi-slice mask volume. Start with the existing
+      //    preview slice copied in.
+      const multi = new Uint8Array(X * Y * Z);
+      const slab = X * Y;
+      for (let i = 0; i < slab; i++) multi[startZ * slab + i] = sam.preview.mask[i] ?? 0;
+
+      // Walk outwards: 1, -1, 2, -2, ... up to radius.
+      const sliceOrder: number[] = [];
+      for (let r = 1; r <= radius; r++) {
+        if (startZ + r < Z) sliceOrder.push(startZ + r);
+        if (startZ - r >= 0) sliceOrder.push(startZ - r);
+      }
+
+      const worker = new Worker(new URL('../workers/sam.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+      const api = Comlink.wrap<SamApi>(worker);
+
+      let prevBox = initialBox;
+      try {
+        for (let i = 0; i < sliceOrder.length; i++) {
+          const z = sliceOrder[i]!;
+          setSam({
+            busy: { stage: 'encoding', label: `Propagating ${i + 1}/${sliceOrder.length} (z=${z})…` },
+          });
+          const slice = viewerRef.current.getAxialSliceAt(z);
+          if (!slice) continue;
+          // Re-encode + decode with the prior bbox as a box prompt. Each
+          // iteration spawns its own session inside the (cached) worker
+          // — module-scope caching keeps cost amortised.
+          const enc = await api.encode({
+            kind: 'encode',
+            manifest: sam.manifest,
+            encoderBytes: sam.encoderBytes,
+            pixels: slice.pixels,
+            inputMode: 'gray',
+            width: slice.width,
+            height: slice.height,
+          });
+          const dec = await api.decode({
+            kind: 'decode',
+            manifest: sam.manifest,
+            decoderBytes: sam.decoderBytes,
+            embedding: enc.embedding,
+            prompts: [
+              { kind: 'box', xyxy: [prevBox.x0, prevBox.y0, prevBox.x1, prevBox.y1] },
+            ],
+            width: slice.width,
+            height: slice.height,
+          });
+          // Stitch into the multi-slice volume.
+          for (let j = 0; j < slab; j++) multi[z * slab + j] = dec.mask[j] ?? 0;
+          // Re-tighten the box from the new mask. If the mask is empty
+          // the object'\''s gone (we'\''ve walked past the boundary) — stop
+          // propagating in this direction.
+          const nextBox = bboxOfMask(dec.mask, dec.width, dec.height);
+          if (!nextBox) break;
+          prevBox = nextBox;
+        }
+      } catch (e) {
+        pushError(`Propagation failed: ${(e as Error).message}`);
+      } finally {
+        worker.terminate();
+      }
+
+      // 3) Commit the full multi-slice mask volume.
+      await viewerRef.current.addMaskOverlay(
+        'sam-propagated',
+        multi,
+        [X, Y, Z],
+        volume.meta.spacing,
+        'green',
+        0.55,
+        {
+          ...(volume.meta.srowX ? { srowX: volume.meta.srowX } : {}),
+          ...(volume.meta.srowY ? { srowY: volume.meta.srowY } : {}),
+          ...(volume.meta.srowZ ? { srowZ: volume.meta.srowZ } : {}),
+          origin: volume.meta.origin,
+        }
+      );
+      setSam({ preview: null, busy: null });
+      void appendAudit({
+        kind: 'export',
+        message: `SAM propagated mask across ${sliceOrder.length + 1} slices (z=${startZ} ±${radius})`,
+      });
+    },
+    [sam, viewerRef, setSam, pushError]
+  );
+
   const handleForget = useCallback(() => {
     setSam({
       modelLoaded: false,
@@ -337,7 +557,11 @@ export function SamPanel({ viewerRef }: Props) {
           {sam.busy && <BusyView busy={sam.busy} />}
 
           {!sam.modelLoaded && !sam.busy && (
-            <OnboardingView onPickLocal={handlePickLocal} onDownload={handleDownloadPreset} />
+            <OnboardingView
+              onPickLocal={handlePickLocal}
+              onDownload={handleDownloadPreset}
+              onCustomUrl={() => void runCustomUrlFlow()}
+            />
           )}
 
           {sam.modelLoaded && !sam.busy && (
@@ -359,6 +583,7 @@ export function SamPanel({ viewerRef }: Props) {
               previewScore={sam.preview?.score ?? null}
               onCommit={handleCommit}
               onCancelPreview={() => setSam({ preview: null })}
+              onPropagate={handlePropagate}
             />
           )}
 
@@ -405,9 +630,11 @@ function BusyView({ busy }: { busy: NonNullable<ReturnType<typeof useAppStore.ge
 function OnboardingView({
   onPickLocal,
   onDownload,
+  onCustomUrl,
 }: {
   onPickLocal: () => void;
   onDownload: (id: string) => void;
+  onCustomUrl: () => void;
 }) {
   return (
     <div className="space-y-2">
@@ -430,6 +657,7 @@ function OnboardingView({
             (preset.approxBytesEncoder + preset.approxBytesDecoder) /
             (1024 * 1024)
           ).toFixed(0);
+          const isPlaceholder = preset.manifest.encoder.url === null;
           return (
             <Button
               key={preset.id}
@@ -437,21 +665,38 @@ function OnboardingView({
               size="sm"
               className="justify-between gap-1.5"
               onClick={() => onDownload(preset.id)}
+              title={
+                isPlaceholder
+                  ? 'No bundled URL yet — opens the Custom URL flow.'
+                  : `Stream ~${sizeMB} MB from HuggingFace into OPFS.`
+              }
             >
               <span className="flex items-center gap-1.5">
                 <Download className="h-3.5 w-3.5" /> {preset.manifest.name}
               </span>
               <span className="text-[10px] text-slate-500">
-                ~{sizeMB} MB · {preset.manifest.license}
+                {isPlaceholder
+                  ? 'BYO URL · ' + preset.manifest.license
+                  : `~${sizeMB} MB · ${preset.manifest.license}`}
               </span>
             </Button>
           );
         })}
+        <Button
+          variant="outline"
+          size="sm"
+          className="justify-start gap-1.5"
+          onClick={onCustomUrl}
+          title="Paste your own HuggingFace encoder + decoder URLs"
+        >
+          <FolderOpen className="h-3.5 w-3.5" /> Custom URL…
+        </Button>
       </div>
       <div className="text-[11px] text-slate-500">
         Recommended starter: <strong>SAM 2 Tiny</strong> (~30 MB, runs on phones)
         or <strong>MedSAM</strong> (~360 MB, fine-tuned on medical imaging).
-        SAM 3 ONNX export pending — drop it in here when it ships.
+        SAM 3 placeholder lives in the list — paste a public ONNX URL when one
+        ships and the panel will treat it as a first-class preset.
       </div>
     </div>
   );
@@ -475,6 +720,8 @@ function ReadyView(props: {
   previewScore: number | null;
   onCommit: () => void;
   onCancelPreview: () => void;
+  /** Phase D — runs cross-slice propagation for ±radius slices. */
+  onPropagate: (radius: number) => void;
 }) {
   const {
     activeMode,
@@ -494,6 +741,7 @@ function ReadyView(props: {
     previewScore,
     onCommit,
     onCancelPreview,
+    onPropagate,
   } = props;
 
   return (
@@ -651,12 +899,69 @@ function ReadyView(props: {
                   <XIcon className="h-3.5 w-3.5" /> Cancel
                 </Button>
               </div>
+              {/* Phase D — cross-slice propagation. Two presets: ±5 for
+                  a quick check, ±15 for a typical organ run. The loop
+                  shows progress in the busy bar. */}
+              <div className="space-y-1 border-t border-emerald-200 pt-1.5 dark:border-emerald-800/50">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-emerald-900/70 dark:text-emerald-300/80">
+                  Propagate (Phase D)
+                </div>
+                <div className="flex gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onPropagate(5)}
+                    className="flex-1 gap-1.5"
+                    title="Encode ±5 neighbour slices and use the prior mask's bbox as a box prompt"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" /> ±5 slices
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onPropagate(15)}
+                    className="flex-1 gap-1.5"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" /> ±15 slices
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </>
       )}
     </div>
   );
+}
+
+/**
+ * Compute the tight bounding box of a binary mask. Returns null when
+ * the mask is empty (no foreground pixels). Used by the Phase D
+ * propagation loop to feed the prior-slice mask into the next slice'\''s
+ * decoder as a box prompt.
+ */
+function bboxOfMask(
+  mask: Uint8Array,
+  width: number,
+  height: number
+): { x0: number; y0: number; x1: number; y1: number } | null {
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      if (mask[row + x] !== 0) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return null;
+  return { x0: minX, y0: minY, x1: maxX, y1: maxY };
 }
 
 function summarisePrompt(p: SamPrompt): string {

@@ -664,6 +664,33 @@ export class NiivueViewer {
   }
 
   /**
+   * Same as `getCurrentAxialSlice` but for a specific axial index. Used
+   * by SAM Phase D cross-slice propagation: the user generates a mask on
+   * slice N, then we re-encode slices N±1, N±2, … with the prior mask'\''s
+   * bounding box as a box prompt, stitching everything into a multi-slice
+   * mask volume. The crosshair position is left alone.
+   */
+  getAxialSliceAt(
+    z: number
+  ): { pixels: Float32Array; width: number; height: number; index: number } | null {
+    if (this.primaryIndex < 0) return null;
+    const v = this.nv.volumes[this.primaryIndex] as unknown as {
+      img?: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array;
+      hdr?: { dims: number[] };
+    } | undefined;
+    if (!v || !v.img || !v.hdr) return null;
+    const X = v.hdr.dims[1] ?? 1;
+    const Y = v.hdr.dims[2] ?? 1;
+    const Z = v.hdr.dims[3] ?? 1;
+    if (z < 0 || z >= Z) return null;
+    const slab = X * Y;
+    const offset = z * slab;
+    const out = new Float32Array(slab);
+    for (let i = 0; i < slab; i++) out[i] = v.img[offset + i] ?? 0;
+    return { pixels: out, width: X, height: Y, index: z };
+  }
+
+  /**
    * Map a canvas-space click (e.g. from a pointerdown event) to source-
    * voxel coords on the current axial slice. Returns null when the click
    * is outside any slice tile. Used by the SAM prompt overlay to convert

@@ -295,6 +295,30 @@ export const useAppStore = create<AppState>((set) => ({
 
 const PREFS_KEY = 'tamias.userPrefs.v1';
 
+// Phase E.2 — rehydrate the screenshot directory handle from IDB once the
+// store is set up. The store creator can'\''t await IDB synchronously so
+// we do this as a fire-and-forget IIFE that calls setPrefs when the
+// stored handle resolves. If IDB is unavailable (Safari private mode,
+// SSR) the handle stays null and the user re-picks via Settings.
+(async () => {
+  if (typeof window === 'undefined' || typeof indexedDB === 'undefined') return;
+  try {
+    const { readStoredHandle, requestHandlePermission, SCREENSHOT_DIR_KEY } =
+      await import('../fs/idb-handle');
+    const handle = await readStoredHandle(SCREENSHOT_DIR_KEY);
+    if (!handle) return;
+    // Probe permission silently — don'\''t prompt the user yet. The first
+    // screenshot capture will request permission if needed.
+    const ok = await requestHandlePermission(handle).catch(() => false);
+    if (!ok) return;
+    useAppStore.setState((s) => ({
+      prefs: { ...s.prefs, screenshotDirHandle: handle, screenshotDirName: handle.name },
+    }));
+  } catch {
+    /* IDB read failed — falls back to user re-pick */
+  }
+})();
+
 function loadPrefs(): UserPrefs {
   if (typeof window === 'undefined') return defaultPrefs();
   try {

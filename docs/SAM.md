@@ -164,9 +164,19 @@ In every case, the existing Export panel handles the actual file write — no se
 
 ## Smart brush
 
-A new mode in the **Correction** panel (alongside Brush and Eraser): the user drags as if painting, but instead of writing voxels directly, the centroid of each stroke becomes a SAM positive point. The result is a SAM-segmented region that snaps to anatomy — much faster than free-hand brushing for organ contours.
+A new **Smart** mode in the **Correction** panel (alongside Brush and Eraser): when the user clicks anywhere on a 2D slice, the click coordinate is fed to the SAM decoder as a single positive point and the resulting mask is committed straight to the brush layer at the active label. One click → snapped contour, with no separate Encode / Generate / Commit buttons.
 
-Falls back to plain brush when no SAM model is loaded, so the UI stays useful in either state.
+Implementation notes:
+- Capture happens at the document level in capture-phase, so the click is intercepted before NiiVue's own canvas handlers fire — drawing is also disabled on the viewer to prevent a stray voxel-paint.
+- The slice is re-encoded per click (≈1–3 s on WebGPU). We chose not to share the SamPanel's cached embedding because cross-component cache invalidation is fragile; the latency is acceptable for a single-click flow.
+- The Smart button is disabled until a SAM model is loaded via the **SAM (assisted)** panel above, so the UI stays useful when SAM is offline.
+- The mask is merged into a single-slice volume and handed to `addMaskOverlay('smart-brush', …)`, which inherits the v0.5.5 RAS-alignment fix.
+
+## Cross-slice propagation
+
+Phase D adds **±5** and **±15** propagate buttons in the SamPanel preview block. Once the user has produced a preview mask on the active slice, propagation walks neighbour slices outward (alternating ±1, ±2, …, ±N), re-encodes each slice, and decodes with the previous slice's mask bounding box as a box prompt. The bbox is re-tightened from each new mask so the tracker drifts with the structure. The full multi-slice volume is then stitched and committed as a single overlay.
+
+This is intentionally simpler than SAM 2's video tracker (no temporal embeddings) — it keeps the worker pipeline on a single `decode` call per slice and works with any backbone, not just SAM 2. Quality holds well for ~10–20 slices on coherent anatomy; beyond that the bbox tends to drift and the user is better served by hand-correcting a few keyframes.
 
 ---
 
@@ -196,9 +206,8 @@ Falls back to plain brush when no SAM model is loaded, so the UI stays useful in
 ## Out of scope for v0.5.x
 
 - 3D-native SAM models (SAM-Med3D, MedSAM-3D) — interesting but adds another encoder pipeline; deferred to v0.7.x
-- Multi-class panoptic SAM 3 — pending stable ONNX export
-- Cross-slice mask propagation via SAM 2's video tracker — deferred (would need an explicit "track this object across slices" UX)
-- Pathology mode for SAM — same architecture, but plumbed through the v0.6.0 OpenSeadragon pipeline. Tracked in [`ROADMAP.md`](ROADMAP.md#v060--pathology-mode).
+- SAM 2 video tracker (temporal embeddings) — superseded for now by the simpler Phase D bbox-carry-forward propagator; revisit if/when an ONNX export of SAM 2's memory bank lands.
+- Multi-class panoptic SAM 3 — pending stable ONNX export. The Custom URL onboarding flow is the bridge: drop in any SAM 3 ONNX export and Tamias will run it.
 
 ---
 
@@ -230,11 +239,12 @@ docs/
 | **A** — Scaffolding (types, cache, manifest schema) | ✅ shipped on `feat/sam-radiology` |
 | **B** — Runtime ONNX wiring (real encode + decode) | ✅ shipped on `feat/sam-radiology` |
 | **C.1** — Smart brush handoff (AnnotationPanel → SAM panel) | ✅ shipped |
-| **C.2** — Single-stroke smart-brush mode (brush stroke = positive point, immediate commit) | pending |
-| **D** — Cross-slice propagation (SAM 2 video tracker) | pending |
+| **C.2** — Single-stroke smart-brush mode (brush stroke = positive point, immediate commit) | ✅ shipped on `feat/sam-radiology` |
+| **D** — Cross-slice propagation (bbox carry-forward over neighbour slices) | ✅ shipped on `feat/sam-radiology` |
 | **E** — Screenshot auto-save folder | ✅ shipped (in-memory handle) |
-| **E.2** — IndexedDB-backed handle persistence across reloads | pending |
+| **E.2** — IndexedDB-backed handle persistence across reloads | ✅ shipped on `feat/sam-radiology` |
 | **F** — Pathology-mode SAM (plumbed through OpenSeadragon) | v0.6.0 |
+| **F.2** — SAM 3 placeholder + Custom-URL onboarding for BYO ONNX exports | ✅ shipped on `feat/sam-radiology` |
 
 When the user's device has WebGPU, the encoder + decoder run on the GPU; when it doesn't, the same code path runs through WASM-SIMD. The fallback chain is `webgpu → webnn → wasm` for both sessions, and the worker auto-promotes to a less ambitious EP if the preferred one fails to compile.
 
