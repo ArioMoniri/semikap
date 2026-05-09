@@ -48,7 +48,7 @@ export function AnnotationPanel({ viewerRef }: Props) {
   useEffect(() => {
     if (!viewerRef.current) return;
     if (mode === 'off' || mode === 'smart') {
-      // Smart mode handles painting itself via SAM — disable NiiVue'\''s
+      // Smart mode handles painting itself via SAM — disable NiiVue's
       // own drawing handlers so a click goes to our overlay path instead
       // of writing a single voxel.
       viewerRef.current.setDrawingEnabled(false);

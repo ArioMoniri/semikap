@@ -16,7 +16,7 @@
 //   5. Transpose HWC → CHW into the output tensor (shape [1, 3, H, W]).
 //
 // The output is `Float32Array(1 * 3 * 1024 * 1024)` ≈ 12 MB. That's the
-// same memory footprint as one render frame at 4K, so it'\''s fine to
+// same memory footprint as one render frame at 4K, so it's fine to
 // allocate per encode call.
 
 const SAM_INPUT_HW = 1024;

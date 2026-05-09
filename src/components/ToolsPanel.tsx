@@ -74,7 +74,7 @@ export function ToolsPanel({ viewerRef }: Props) {
 
   /**
    * Capture the current canvas (overlay + crosshair + 3D render composited)
-   * as a PNG and save. Honours the user'\''s `screenshotMode` preference
+   * as a PNG and save. Honours the user's `screenshotMode` preference
    * from Settings:
    *   - 'ask'  → prompt for a save location each time.
    *   - 'auto' → write straight to the directory the user picked in

@@ -289,14 +289,14 @@ export const useAppStore = create<AppState>((set) => ({
 // ── Local-storage backed preferences ────────────────────────────────────
 //
 // Keep the prefs simple — current schema is just the screenshot-save mode.
-// We persist to localStorage so the user'\''s choice survives reload + the
+// We persist to localStorage so the user's choice survives reload + the
 // auto-update self-restart, but each pref is optional so missing keys
 // degrade to safe defaults.
 
 const PREFS_KEY = 'tamias.userPrefs.v1';
 
 // Phase E.2 — rehydrate the screenshot directory handle from IDB once the
-// store is set up. The store creator can'\''t await IDB synchronously so
+// store is set up. The store creator can't await IDB synchronously so
 // we do this as a fire-and-forget IIFE that calls setPrefs when the
 // stored handle resolves. If IDB is unavailable (Safari private mode,
 // SSR) the handle stays null and the user re-picks via Settings.
@@ -307,7 +307,7 @@ const PREFS_KEY = 'tamias.userPrefs.v1';
       await import('../fs/idb-handle');
     const handle = await readStoredHandle(SCREENSHOT_DIR_KEY);
     if (!handle) return;
-    // Probe permission silently — don'\''t prompt the user yet. The first
+    // Probe permission silently — don't prompt the user yet. The first
     // screenshot capture will request permission if needed.
     const ok = await requestHandlePermission(handle).catch(() => false);
     if (!ok) return;

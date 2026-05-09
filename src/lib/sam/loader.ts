@@ -126,14 +126,14 @@ export const PRESET_SAM_MODELS: Array<{
     },
   },
   {
-    // Phase F — SAM 3 placeholder. Meta has announced SAM 3 with text-
-    // promptable masks and broader concept coverage; a stable ONNX export
-    // hasn'\''t shipped on HuggingFace at the time of writing. This entry
-    // is wired so the moment a community-maintained ONNX export appears
-    // we plug the URLs in here and the panel picks it up automatically
-    // (the manifest schema, prompt types, and worker dispatch already
-    // accept `family: 'sam3'`). Until then the entry is shown as
-    // "BYO URL" — clicking it opens the Custom URL onboarding flow.
+    // SAM 3 (bring-your-own URL). Meta announced SAM 3 with text-promptable
+    // masks and broader concept coverage; community ONNX mirrors typically
+    // land on HuggingFace ahead of an official one. This entry intentionally
+    // has no bundled URL — clicking it opens the Custom URL onboarding flow
+    // so the user pastes the encoder + decoder links they trust. The
+    // manifest schema, prompt types, and worker dispatch already accept
+    // `family: 'sam3'`, so once an export is loaded it runs identically to
+    // the bundled presets, with text prompts enabled.
     id: 'sam3-byo',
     approxBytesEncoder: 0,
     approxBytesDecoder: 0,

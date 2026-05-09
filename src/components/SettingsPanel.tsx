@@ -91,7 +91,7 @@ export function SettingsPanel() {
                       if (handle) {
                         // Persist the handle to IDB (Phase E.2). FSA
                         // handles are structured-cloneable but not JSON-
-                        // serialisable, so localStorage isn'\''t an option.
+                        // serialisable, so localStorage isn't an option.
                         // The browser still re-prompts for permission on
                         // first use after a reload, but the handle itself
                         // persists.
@@ -128,7 +128,7 @@ export function SettingsPanel() {
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-500">
-                  The folder choice is per session — the browser doesn'\''t let
+                  The folder choice is per session — the browser doesn't let
                   us hold onto the directory handle across reloads in this
                   build. Persistence via IndexedDB lands in the next iteration.
                 </div>

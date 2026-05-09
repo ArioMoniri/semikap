@@ -149,7 +149,7 @@ export interface SamEncodeRequest {
   encoderBytes: Bytes;
   /**
    * Source pixels. Width/height describe the SOURCE-image dims (the
-   * worker'\''s preprocessor handles bilinear-resize to the encoder'\''s
+   * worker's preprocessor handles bilinear-resize to the encoder's
    * 1024² input).
    *
    *  - `inputMode: 'gray'` — single-channel slice. ANY of:
@@ -157,7 +157,7 @@ export interface SamEncodeRequest {
    *      * Uint8ClampedArray — same
    *      * Float32Array      — keeps full dynamic range. Recommended for
    *                            CT (Hounsfield −1024..3072), MR (anything),
-   *                            PT, MRA — the auto-window step doesn'\''t
+   *                            PT, MRA — the auto-window step doesn't
    *                            need a normalised input.
    *      * Int16Array        — typical raw NIfTI int16 (HU)
    *      * Uint16Array       — typical raw NIfTI uint16 (some MRs)

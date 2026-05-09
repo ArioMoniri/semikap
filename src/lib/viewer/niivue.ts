@@ -116,7 +116,7 @@ export class NiivueViewer {
     };
 
     // Seat a fixed 6-colour brush palette into NiiVue's draw lookup table at
-    // label indices 1..6. Without this the user'\''s brush colour was always
+    // label indices 1..6. Without this the user's brush colour was always
     // whatever the model manifest happened to declare for label 1, which
     // for our example threshold model is just one green entry — so the
     // colour-picker UI had nothing to switch between. With a fixed palette
@@ -126,7 +126,7 @@ export class NiivueViewer {
 
   /**
    * Default brush colour table, indexed by label. label 0 is reserved for
-   * the eraser (transparent). Anything > 6 falls back to NiiVue'\''s default
+   * the eraser (transparent). Anything > 6 falls back to NiiVue's default
    * LUT entries.
    */
   private installBrushPalette(): void {
@@ -433,8 +433,8 @@ export class NiivueViewer {
    * IMPORTANT: this is a no-op when drawing mode is OFF and nothing has been
    * painted. Calling `nv.refreshDrawing(true)` against an empty/never-
    * allocated bitmap caused NiiVue 0.44 to leave the GL context in a state
-   * where mouse-leave (NiiVue'\''s hover-redraw) cleared the canvas to the
-   * background colour and didn'\''t restore the volumes until the cursor
+   * where mouse-leave (NiiVue's hover-redraw) cleared the canvas to the
+   * background colour and didn't restore the volumes until the cursor
    * re-entered a slice — the v0.5.4 "plots disappear when cursor leaves"
    * regression.
    */
@@ -561,7 +561,7 @@ export class NiivueViewer {
    *   - `measurement` = distance ruler (click + drag draws a line, mm reading
    *                     shown at the cursor)
    *   - `none`        = drag does nothing (good when brush mode is on)
-   * NiiVue'\''s underlying enum: NONE=0, CONTRAST=1, MEASUREMENT=2, PAN=3,
+   * NiiVue's underlying enum: NONE=0, CONTRAST=1, MEASUREMENT=2, PAN=3,
    * SLICER3D=4, CALLBACK=5. Identical numeric mapping in 0.44.x.
    */
   setDragMode(mode: 'none' | 'contrast' | 'measurement' | 'pan'): void {
@@ -573,7 +573,7 @@ export class NiivueViewer {
 
   /**
    * Reset the viewport: zoom 1.0, crosshair to volume centre, default
-   * window/level. Equivalent to NiiVue'\''s built-in reset behaviour but
+   * window/level. Equivalent to NiiVue's built-in reset behaviour but
    * exposed so the Tools panel can have an explicit Reset button.
    */
   resetView(): void {
@@ -593,7 +593,7 @@ export class NiivueViewer {
   /**
    * Zoom the viewer in or out. NiiVue stores the zoom factor in
    * `scene.volScaleMultiplier` (1.0 = unzoomed). We clamp to a sane
-   * 0.25..16 range so the user can'\''t zoom themselves into a black
+   * 0.25..16 range so the user can't zoom themselves into a black
    * canvas or numerical overflow.
    */
   zoomBy(factor: number): void {
@@ -606,8 +606,8 @@ export class NiivueViewer {
 
   /**
    * Capture the current canvas as a PNG blob. Returns a Promise<Blob | null>
-   * — null if the canvas can'\''t be read (no GL context, tainted texture).
-   * Used by the screenshot button to save what'\''s on screen for slides /
+   * — null if the canvas can't be read (no GL context, tainted texture).
+   * Used by the screenshot button to save what's on screen for slides /
    * reports, with the AI overlay + crosshair + 3D render all composited.
    */
   async takeScreenshot(): Promise<Blob | null> {
@@ -625,7 +625,7 @@ export class NiivueViewer {
    * Replace the AI-mask volume with a 1-voxel-thick boundary version of
    * itself (or restore the filled mask). Lets the user verify segmentation
    * boundaries against the underlying anatomy without the fill obscuring
-   * what'\''s underneath — the standard "outline" mode in radiology viewers.
+   * what's underneath — the standard "outline" mode in radiology viewers.
    *
    * Implemented client-side: walks each non-zero voxel and keeps it only
    * when at least one of its 6-neighbour voxels is zero. Stashes the original
@@ -666,7 +666,7 @@ export class NiivueViewer {
   /**
    * Same as `getCurrentAxialSlice` but for a specific axial index. Used
    * by SAM Phase D cross-slice propagation: the user generates a mask on
-   * slice N, then we re-encode slices N±1, N±2, … with the prior mask'\''s
+   * slice N, then we re-encode slices N±1, N±2, … with the prior mask's
    * bounding box as a box prompt, stitching everything into a multi-slice
    * mask volume. The crosshair position is left alone.
    */

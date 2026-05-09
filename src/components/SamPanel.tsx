@@ -77,11 +77,11 @@ export function SamPanel({ viewerRef }: Props) {
     async (presetId: string) => {
       const preset = PRESET_SAM_MODELS.find((p) => p.id === presetId);
       if (!preset) return;
-      // Phase F — the "SAM 3 (bring-your-own URL)" preset has null URLs;
-      // route it to the Custom URL flow so the user pastes their own
-      // HuggingFace links. Once a stable SAM 3 ONNX export ships we can
-      // populate the preset URLs in loader.ts and this branch becomes
-      // dead code (which is fine — it stays as the BYO escape hatch).
+      // The "SAM 3 (bring-your-own URL)" preset has null URLs by design;
+      // route it to the Custom URL onboarding flow so the user pastes their
+      // own HuggingFace links. The BYO entry stays as a permanent escape
+      // hatch even after community SAM 3 mirrors land — it lets users
+      // point Tamias at any compatible ONNX export without an app rebuild.
       if (preset.manifest.encoder.url === null) {
         await runCustomUrlFlow(preset.manifest.family);
         return;
@@ -285,7 +285,7 @@ export function SamPanel({ viewerRef }: Props) {
       const api = Comlink.wrap<SamApi>(worker);
       // Pass the raw Float32Array straight through — keeps full dynamic
       // range for CT (Hounsfield −1024..3072), MR, PT, MRA, etc. The
-      // worker'\''s preprocessSliceForSam auto-windows on 1st/99th
+      // worker's preprocessSliceForSam auto-windows on 1st/99th
       // percentile internally, so any signed/unsigned int or float
       // typed array works as long as ArrayLike<number> is satisfied.
       // Quantising to uint8 here was destroying the dynamic range on
@@ -403,7 +403,7 @@ export function SamPanel({ viewerRef }: Props) {
    *   1. Compute the bounding box of the current preview mask.
    *   2. For each neighbour slice z (alternating ±, growing outward):
    *        a. Pull the slice via getAxialSliceAt(z).
-   *        b. Run encoder + decoder with the prior mask'\''s bbox as a
+   *        b. Run encoder + decoder with the prior mask's bbox as a
    *           single box prompt.
    *        c. Stash the resulting mask into a multi-slice volume.
    *        d. Re-tighten the box for the next iteration so the prompt
@@ -411,7 +411,7 @@ export function SamPanel({ viewerRef }: Props) {
    *   3. Commit the multi-slice volume through addMaskOverlay.
    *
    * This is "best-effort" 2.5D propagation, not full SAM 2 video
-   * tracking — there'\''s no memory_attention. But for the common
+   * tracking — there's no memory_attention. But for the common
    * radiology case (organ segmentation across ~20 slices) it produces a
    * usable multi-slice mask in seconds.
    */
@@ -488,7 +488,7 @@ export function SamPanel({ viewerRef }: Props) {
           // Stitch into the multi-slice volume.
           for (let j = 0; j < slab; j++) multi[z * slab + j] = dec.mask[j] ?? 0;
           // Re-tighten the box from the new mask. If the mask is empty
-          // the object'\''s gone (we'\''ve walked past the boundary) — stop
+          // the object's gone (we've walked past the boundary) — stop
           // propagating in this direction.
           const nextBox = bboxOfMask(dec.mask, dec.width, dec.height);
           if (!nextBox) break;
@@ -661,7 +661,7 @@ function OnboardingView({
             (preset.approxBytesEncoder + preset.approxBytesDecoder) /
             (1024 * 1024)
           ).toFixed(0);
-          const isPlaceholder = preset.manifest.encoder.url === null;
+          const isBYO = preset.manifest.encoder.url === null;
           return (
             <Button
               key={preset.id}
@@ -670,7 +670,7 @@ function OnboardingView({
               className="justify-between gap-1.5"
               onClick={() => onDownload(preset.id)}
               title={
-                isPlaceholder
+                isBYO
                   ? 'No bundled URL yet — opens the Custom URL flow.'
                   : `Stream ~${sizeMB} MB from HuggingFace into OPFS.`
               }
@@ -679,7 +679,7 @@ function OnboardingView({
                 <Download className="h-3.5 w-3.5" /> {preset.manifest.name}
               </span>
               <span className="text-[10px] text-slate-500">
-                {isPlaceholder
+                {isBYO
                   ? 'BYO URL · ' + preset.manifest.license
                   : `~${sizeMB} MB · ${preset.manifest.license}`}
               </span>
@@ -699,8 +699,9 @@ function OnboardingView({
       <div className="text-[11px] text-slate-500">
         Recommended starter: <strong>SAM 2 Tiny</strong> (~30 MB, runs on phones)
         or <strong>MedSAM</strong> (~360 MB, fine-tuned on medical imaging).
-        SAM 3 placeholder lives in the list — paste a public ONNX URL when one
-        ships and the panel will treat it as a first-class preset.
+        For SAM 3 or any other compatible ONNX export, use the
+        <strong> SAM 3 (bring-your-own URL)</strong> entry or the
+        <strong> Custom URL…</strong> button to paste encoder + decoder links.
       </div>
     </div>
   );
@@ -941,7 +942,7 @@ function ReadyView(props: {
 /**
  * Compute the tight bounding box of a binary mask. Returns null when
  * the mask is empty (no foreground pixels). Used by the Phase D
- * propagation loop to feed the prior-slice mask into the next slice'\''s
+ * propagation loop to feed the prior-slice mask into the next slice's
  * decoder as a box prompt.
  */
 function bboxOfMask(
