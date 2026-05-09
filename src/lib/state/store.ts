@@ -90,6 +90,16 @@ interface AppState {
   removeSamPrompt(idx: number): void;
   clearSamPrompts(): void;
 
+  /** SAM state for Pathology mode. Independent from `sam` so loading SAM
+   *  in radiology doesn't auto-load it in pathology (users may want
+   *  different backbones — e.g. MedSAM on radiology, SAM 2 Tiny on
+   *  pathology — or no SAM at all on one side). */
+  samPathology: SamPathologyState;
+  setSamPathology(patch: Partial<SamPathologyState>): void;
+  addSamPathologyPrompt(p: SamPrompt): void;
+  removeSamPathologyPrompt(idx: number): void;
+  clearSamPathologyPrompts(): void;
+
   /** User-level UI preferences that persist across sessions. */
   prefs: UserPrefs;
   setPrefs(patch: Partial<UserPrefs>): void;
@@ -125,6 +135,34 @@ export type SamBusy =
   | { stage: 'fetching'; label: string; bytesLoaded: number; bytesTotal?: number }
   | { stage: 'encoding'; label: string }
   | { stage: 'decoding'; label: string };
+
+export interface SamPathologyState {
+  modelLoaded: boolean;
+  modelName: string | null;
+  prompts: SamPrompt[];
+  manifest: SamManifest | null;
+  encoderBytes: Bytes | null;
+  decoderBytes: Bytes | null;
+  /** Cache of the most recently encoded ROI tile, keyed by ROI rect. */
+  embedding:
+    | { axis: 'axial' | 'coronal' | 'sagittal'; index: number; bytes: Bytes }
+    | null;
+  /** Decoder preview, in 1024² space (the encoded patch dims). */
+  preview:
+    | {
+        mask: Uint8Array;
+        width: number;
+        height: number;
+        score: number;
+        sliceIndex: number;
+      }
+    | null;
+  /** User-picked level-0 region of interest. The encoder runs on a 1024²
+   *  downsample of this region; prompts are mapped from level-0 →
+   *  ROI-local → 1024² inside the panel + worker. */
+  roi: { x: number; y: number; width: number; height: number } | null;
+  busy: SamBusy | null;
+}
 
 export interface UserPrefs {
   /**
@@ -210,6 +248,34 @@ export const useAppStore = create<AppState>((set) => ({
       sam: { ...s.sam, prompts: s.sam.prompts.filter((_, i) => i !== idx) },
     })),
   clearSamPrompts: () => set((s) => ({ sam: { ...s.sam, prompts: [] } })),
+
+  samPathology: {
+    modelLoaded: false,
+    modelName: null,
+    prompts: [],
+    manifest: null,
+    encoderBytes: null,
+    decoderBytes: null,
+    embedding: null,
+    preview: null,
+    roi: null,
+    busy: null,
+  },
+  setSamPathology: (patch) =>
+    set((s) => ({ samPathology: { ...s.samPathology, ...patch } })),
+  addSamPathologyPrompt: (p) =>
+    set((s) => ({
+      samPathology: { ...s.samPathology, prompts: [...s.samPathology.prompts, p] },
+    })),
+  removeSamPathologyPrompt: (idx) =>
+    set((s) => ({
+      samPathology: {
+        ...s.samPathology,
+        prompts: s.samPathology.prompts.filter((_, i) => i !== idx),
+      },
+    })),
+  clearSamPathologyPrompts: () =>
+    set((s) => ({ samPathology: { ...s.samPathology, prompts: [] } })),
 
   prefs: loadPrefs(),
   setPrefs: (patch) =>

@@ -1,0 +1,8 @@
+{
+  "description": "Procedurally-generated synthetic H&E patch (CC0). Nuclei are 2D discs; no real patient data. MPP is declared at 0.5 µm/px (20× scan equivalent) for the ruler.",
+  "mpp": 0.5,
+  "width": 512,
+  "height": 512,
+  "generator": "scripts/build-pathology-sample.mjs",
+  "license": "CC0-1.0"
+}

@@ -91,13 +91,14 @@ flowchart LR
 | 🚀 WebGPU + WebNN + WASM | 🌫️ Gaussian-blended tiling | 🧱 3D sliding-window inference | 🎚️ WW/WL CT presets |
 | 🛠️ Radiology toolbar (W-L · Pan · Distance) | 🩻 Outline mode for masks | 🔍 Zoom in / out · 📸 PNG screenshot | 🖼️ Layout: MPR / single-plane / 3D / grid |
 | 🎨 6-colour brush + per-colour mask export | 🖌️ Brush strokes visible in 3D | 🩻 Multi-series overlay | 🔬 Cursor probe (vox · mm · value) |
-| 🩻 Sidebar volume preview (mid-axial thumb) | 🔎 Cached-models search | 🌗 Light / Dark / System theme | 🪪 Modality toggle (Radiology · Pathology preview) |
+| 🩻 Sidebar volume preview (mid-axial thumb) | 🔎 Cached-models search | 🌗 Light / Dark / System theme | 🪪 Modality toggle (Radiology · Pathology) |
+| 🔬 Pathology mode (OpenSeadragon + OME-TIFF) | 🧠 Tile-based ONNX inference | 📏 Distance ruler in microns | 📤 Result PNG + sidecar JSON |
 | 💾 NIfTI mask export | 🩻 DICOM-SEG export (PACS) | 🧾 Reproducibility bundle | 📒 Local audit log (NDJSON) |
 | 💽 OPFS warm cache | 🔒 SHA-256 model verification | ❤️ `/healthz` for K8s probes | 🪪 RUO stamp on every export |
 
-> 🔬 **Pathology mode arriving in v0.6.0** — whole-slide image viewer (OpenSeadragon + OME-TIFF / SVS / NDPI), tile-based ONNX inference, public-domain WSI examples. Tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md#v060--pathology-mode); the modality switcher in the header is already live so the entry-point is discoverable.
+> 🔬 **Pathology mode lands in v0.6.0.** Whole-slide image viewer (OpenSeadragon-based pyramidal viewer · OME-TIFF · Aperio SVS · Hamamatsu NDPI · TIFF · PNG · JPEG), tile-based ONNX inference (segmentation / classification / heatmap / detection), MPP-aware distance ruler, six-colour brush + eraser with per-colour PNG export. Bundled CC0 synthetic H&E sample for end-to-end testing. Full reference: [`docs/PATHOLOGY.md`](docs/PATHOLOGY.md). Roadmap: [`docs/ROADMAP.md#v060--pathology-mode`](docs/ROADMAP.md#v060--pathology-mode).
 >
-> 🪄 **SAM (Segment Anything) — branch `feat/sam-radiology`** — click + box + text prompts → mask, one-click HuggingFace download (SAM 2 Tiny ~30 MB, MedSAM ~360 MB), encoder runs once per slice on WebGPU then decoder is sub-100 ms per prompt. **No upload**, weights cached in OPFS. SAM 3 ONNX URL slot ready for when a stable export ships. See [`docs/SAM.md`](docs/SAM.md) for the full plan + status table.
+> 🪄 **SAM (Segment Anything) — branch `feat/sam-radiology`** — click + box + text prompts → mask, in **both** Radiology and Pathology modes. One-click HuggingFace download (SAM 2 Tiny ~30 MB, MedSAM ~360 MB), encoder runs once per slice / ROI on WebGPU then decoder is sub-100 ms per prompt. **No upload**, weights cached in OPFS. SAM 3 ONNX URL slot ready for when a stable export ships. Full plan + status table: [`docs/SAM.md`](docs/SAM.md).
 
 ---
 

@@ -147,8 +147,20 @@ export interface SamEncodeRequest {
   kind: 'encode';
   manifest: SamManifest;
   encoderBytes: Bytes;
-  /** Source-slice pixels (uint8 grayscale). Worker resizes + normalises. */
-  pixels: Uint8Array;
+  /**
+   * Source pixels.
+   *  - `inputMode: 'gray'` — grayscale uint8, one byte per pixel
+   *    (length === width*height). The worker auto-windows to [0,1] then
+   *    replicates to 3 channels. Used by the radiology slice path.
+   *  - `inputMode: 'rgb'`  — RGBA uint8, four bytes per pixel
+   *    (length === width*height*4). The worker drops alpha then
+   *    ImageNet-normalises per channel. Used by the pathology ROI path
+   *    where the slide is already RGB and contrast windowing would
+   *    corrupt stain colours.
+   */
+  pixels: Uint8Array | Uint8ClampedArray;
+  /** Defaults to 'gray' for back-compat with the radiology path. */
+  inputMode?: 'gray' | 'rgb';
   width: number;
   height: number;
 }

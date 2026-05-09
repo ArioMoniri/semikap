@@ -20,6 +20,7 @@ import type {
 import type { Provider } from '../lib/inference/ort';
 import { asBytes } from '../types';
 import { preprocessSliceForSam, sourceToSamCoords } from '../lib/sam/preprocess';
+import { preprocessRgbPatchForSam } from '../lib/sam/preprocess-rgb';
 import { upsampleSamMask, pickBestSamMask } from '../lib/sam/postprocess';
 import {
   createSamEncoderSession,
@@ -71,9 +72,16 @@ const api: SamApi = {
       encoderBytesId = newId;
     }
 
-    const pre = preprocessSliceForSam(req.pixels, req.width, req.height);
+    // Branch on input mode — radiology slices come in as grayscale uint8
+    // (auto-window + replicate to 3 channels); pathology ROI tiles come in
+    // as RGBA uint8 (drop alpha + ImageNet-normalise, no contrast windowing
+    // since stain colour IS the signal). The decoder doesn't care which.
+    const preData =
+      req.inputMode === 'rgb'
+        ? preprocessRgbPatchForSam(req.pixels, req.width, req.height).data
+        : preprocessSliceForSam(req.pixels, req.width, req.height).data;
     const [inputH, inputW] = req.manifest.size.input;
-    const tensor = new ort.Tensor('float32', pre.data, [1, 3, inputH, inputW]);
+    const tensor = new ort.Tensor('float32', preData, [1, 3, inputH, inputW]);
     const out = await encoderSession.session.run({ [encoderSession.inputName]: tensor });
     const embTensor = out[encoderSession.outputName]!;
     const embF32 = embTensor.data as Float32Array;

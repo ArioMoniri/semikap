@@ -2,6 +2,12 @@
 
 This document describes how SAM is integrated into Tamias as an in-browser, no-upload assisted-annotation tool. The same architecture applies to MedSAM (medical-imaging fine-tune of SAM), SAM 2 (video / multi-mask propagation), and SAM 3 (text-promptable, broader concepts) — every prompt-based interactive segmentation backbone fits the same pipeline.
 
+**Tamias ships SAM in BOTH viewer modes:**
+- **Radiology** — SAM operates on the active axial slice (256² .. 512² typical). Prompts are voxel coords. Mask commits through the existing `addMaskOverlay` so it inherits the v0.5.5 RAS-alignment fix.
+- **Pathology** — SAM operates on a user-picked level-0 ROI (configurable 1024..8192 px square). Prompts are level-0 slide coords. Mask commits through OSD's `setMaskOverlay` so it composites correctly across pyramid levels.
+
+Both modes share the same `src/lib/sam/` infrastructure (manifest, loader, OPFS cache, session wrappers) and the same `src/workers/sam.worker.ts`. The worker branches on `inputMode: 'gray' | 'rgb'` to pick the radiology (auto-window grayscale) vs pathology (RGB) preprocessor.
+
 ---
 
 ## Goals

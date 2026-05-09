@@ -9,12 +9,12 @@ import { ModelPicker } from './ModelPicker';
 import { Viewer } from './Viewer';
 import type { ViewerHandle } from './Viewer';
 import { InferencePanel } from './InferencePanel';
+import { SamPanel } from './SamPanel';
 import { ExportPanel } from './ExportPanel';
 import { GpuInfoPanel } from './GpuInfoPanel';
 import { OverlayControls } from './OverlayControls';
 import { LayoutPanel } from './LayoutPanel';
 import { ToolsPanel } from './ToolsPanel';
-import { SamPanel } from './SamPanel';
 import { AnnotationPanel } from './AnnotationPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { AboutPanel } from './AboutPanel';
@@ -22,6 +22,7 @@ import { ExamplesPanel } from './ExamplesPanel';
 import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
 import { Microscope, ScanLine } from 'lucide-react';
+import { PathologyShell } from './pathology/PathologyShell';
 import { ExternalLink } from './ExternalLink';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
@@ -261,48 +262,11 @@ export function AppShell() {
 
       {/* Main */}
       {modality === 'pathology' ? (
-        <main className="flex flex-1 min-h-0 items-center justify-center bg-slate-50 p-8 dark:bg-slate-950">
-          <div className="max-w-xl space-y-4 rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <div className="inline-flex items-center justify-center rounded-full bg-tamias-accent/10 p-3 text-tamias-accent">
-              <Microscope className="h-7 w-7" />
-            </div>
-            <h2 className="text-lg font-semibold text-tamias-ink dark:text-slate-100">
-              Pathology mode — arriving in v0.6.0
-            </h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              Whole-slide image viewer with pyramidal tile streaming
-              (OpenSeadragon), OME-TIFF / SVS / NDPI loaders, and
-              tile-based ONNX inference (HoVer-Net, CLAM, custom patch
-              CNNs). Same "bring your own model + manifest, no upload"
-              contract as the Radiology mode.
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
-              <ExternalLink
-                href={`${REPO_URL}/blob/main/docs/ROADMAP.md#v060--pathology-mode`}
-                className="inline-flex items-center gap-1 rounded border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-              >
-                Roadmap <ExternalLinkIcon className="h-3 w-3" />
-              </ExternalLink>
-              <Button
-                variant="ink"
-                size="sm"
-                onClick={() => setModality('radiology')}
-                className="gap-1"
-              >
-                <ScanLine className="h-3.5 w-3.5" /> Back to Radiology
-              </Button>
-            </div>
-            <div className="text-[11px] text-slate-400">
-              Track issue ·{' '}
-              <ExternalLink
-                href={`${REPO_URL}/issues?q=is%3Aissue+pathology`}
-                className="underline hover:text-slate-600"
-              >
-                pathology label
-              </ExternalLink>
-            </div>
-          </div>
-        </main>
+        <PathologyShell
+          sidebarWidth={sidebarWidth}
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebar={toggleSidebar}
+        />
       ) : (
       <main className="flex flex-1 min-h-0">
         <aside
