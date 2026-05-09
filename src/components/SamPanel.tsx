@@ -134,9 +134,7 @@ export function SamPanel({ viewerRef }: Props) {
   const handlePickLocal = useCallback(async () => {
     try {
       // 1) manifest.json
-      const manifestFile = await pickFile({
-        types: [{ description: 'SAM manifest', accept: { 'application/json': ['.json'] } }],
-      });
+      const manifestFile = await pickFile({ 'application/json': ['.json'] });
       if (!manifestFile) return;
       const text = new TextDecoder().decode(manifestFile.bytes);
       const parsed = JSON.parse(text);
@@ -149,14 +147,10 @@ export function SamPanel({ viewerRef }: Props) {
       const manifest = parsed as SamManifest;
 
       // 2) encoder.onnx
-      const enc = await pickFile({
-        types: [{ description: 'SAM encoder ONNX', accept: { 'application/octet-stream': ['.onnx'] } }],
-      });
+      const enc = await pickFile({ 'application/octet-stream': ['.onnx'] });
       if (!enc) return;
       // 3) decoder.onnx
-      const dec = await pickFile({
-        types: [{ description: 'SAM decoder ONNX', accept: { 'application/octet-stream': ['.onnx'] } }],
-      });
+      const dec = await pickFile({ 'application/octet-stream': ['.onnx'] });
       if (!dec) return;
 
       setSam({

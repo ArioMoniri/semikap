@@ -155,21 +155,15 @@ export function PathologySamPanel({ viewerRef, hasSlide }: Props) {
 
   const handlePickLocal = useCallback(async () => {
     try {
-      const manifestFile = await pickFile({
-        types: [{ description: 'SAM manifest', accept: { 'application/json': ['.json'] } }],
-      });
+      const manifestFile = await pickFile({ 'application/json': ['.json'] });
       if (!manifestFile) return;
       const text = new TextDecoder().decode(manifestFile.bytes);
       const parsed = JSON.parse(text);
       if (parsed.kind !== 'sam') throw new Error('Not a SAM manifest (kind != "sam").');
       const manifest = parsed as SamManifest;
-      const enc = await pickFile({
-        types: [{ description: 'SAM encoder ONNX', accept: { 'application/octet-stream': ['.onnx'] } }],
-      });
+      const enc = await pickFile({ 'application/octet-stream': ['.onnx'] });
       if (!enc) return;
-      const dec = await pickFile({
-        types: [{ description: 'SAM decoder ONNX', accept: { 'application/octet-stream': ['.onnx'] } }],
-      });
+      const dec = await pickFile({ 'application/octet-stream': ['.onnx'] });
       if (!dec) return;
       setSam({
         modelLoaded: true,

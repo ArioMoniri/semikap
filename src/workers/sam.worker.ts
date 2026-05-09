@@ -76,9 +76,20 @@ const api: SamApi = {
     // (auto-window + replicate to 3 channels); pathology ROI tiles come in
     // as RGBA uint8 (drop alpha + ImageNet-normalise, no contrast windowing
     // since stain colour IS the signal). The decoder doesn't care which.
+    //
+    // Type narrowing note: the `pixels` union admits Float32Array et al.
+    // for the gray path but the rgb preprocessor only accepts
+    // Uint8(Clamped)Array. TS can't narrow on `inputMode === 'rgb'`
+    // because the discriminator and the pixel type aren't tied together.
+    // The cast is safe — PathologySamPanel always passes a
+    // Uint8ClampedArray RGBA tile when inputMode is 'rgb'.
     const preData =
       req.inputMode === 'rgb'
-        ? preprocessRgbPatchForSam(req.pixels, req.width, req.height).data
+        ? preprocessRgbPatchForSam(
+            req.pixels as Uint8Array | Uint8ClampedArray,
+            req.width,
+            req.height
+          ).data
         : preprocessSliceForSam(req.pixels, req.width, req.height).data;
     const [inputH, inputW] = req.manifest.size.input;
     const tensor = new ort.Tensor('float32', preData, [1, 3, inputH, inputW]);
