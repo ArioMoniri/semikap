@@ -7,6 +7,7 @@ import {
   PathologyModelPicker,
   type PathologyModelRecord,
 } from './PathologyModelPicker';
+import { PathologyExamplesPanel } from './PathologyExamplesPanel';
 import { PathologyTools } from './PathologyTools';
 import { PathologyInferencePanel } from './PathologyInferencePanel';
 import { PathologyExportPanel } from './PathologyExportPanel';
@@ -134,6 +135,18 @@ export function PathologyShell({ sidebarWidth, sidebarCollapsed, onToggleSidebar
       >
         <CollapsibleSection title="Slide" defaultOpen trailing={slide ? 'loaded' : 'pick'}>
           <PathologySlidePicker onPicked={handleSlide} current={slide} />
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title="Examples"
+          defaultOpen={!slide}
+          trailing={slide ? '' : 'try one'}
+        >
+          <PathologyExamplesPanel
+            onSlide={handleSlide}
+            onModel={setModel}
+            onError={setError}
+          />
         </CollapsibleSection>
 
         <CollapsibleSection title="Model" defaultOpen trailing={model ? 'ready' : 'pick'}>
