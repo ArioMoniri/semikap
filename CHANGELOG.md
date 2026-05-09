@@ -4,7 +4,11 @@ All notable changes to TAMIAS are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — branch `feat/sam-radiology` (not merged)
+## [Unreleased]
+
+## [0.7.0] — SAM (Segment Anything) for Radiology AND Pathology
+
+> First release with click + box + text prompted segmentation, in **both** Radiology and Pathology modes. Architecture is identical across modes: one shared `src/lib/sam/` infrastructure (manifest, loader, OPFS cache, session wrappers) plus one shared `src/workers/sam.worker.ts` that branches on `inputMode: 'gray' | 'rgb'` to pick the radiology (auto-window grayscale) vs pathology (RGB) preprocessor. No upload, weights cached in OPFS, SAM 3 ONNX URL slot ready for when a stable export ships. **CSP widened to allow `huggingface.co` + `*.huggingface.co` + `cdn-lfs.huggingface.co`** for opt-in weight download — every fetch is user-triggered, nothing fires automatically.
 
 ### Added — SAM (Segment Anything) for Radiology AND Pathology
 
@@ -62,8 +66,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - 🔌 `connect-src` adds `huggingface.co` + `*.huggingface.co` + `cdn-lfs.huggingface.co`. **Always user-triggered**; nothing fetches automatically.
 
 ### Notes
-- Branch `feat/sam-radiology`; **not** merged to `main`. Promotes on user approval.
-- All planned phases (A, B, B′, C.1, C.2, D, E, E.2, F) shipped on the branch. Out of scope for v0.5.8: 3D-native SAM (SAM-Med3D / MedSAM-3D) — deferred to v0.7.x; SAM 2 video-tracker temporal embeddings — superseded for now by Phase D's bbox-carry-forward propagator.
+- Branch `feat/sam-radiology` merged to `main` via PR #3 (commit `2b011088`). Branch retained for history.
+- All planned phases (A, B, B′, C.1, C.2, D, E, E.2, F) shipped. Out of scope for v0.7.0: 3D-native SAM (SAM-Med3D / MedSAM-3D) — deferred to a later v0.7.x patch; SAM 2 video-tracker temporal embeddings — superseded for now by Phase D's bbox-carry-forward propagator.
+- Model licensing: TAMIAS does not bundle SAM weights. Users either bring their own ONNX export or trigger the one-click HuggingFace download. **Meta's SAM 2 weights are released under Apache 2.0; MedSAM weights are released under Apache 2.0**; see `docs/SAM.md` for the full HuggingFace export table and per-checkpoint license confirmation.
+
+## [0.6.1] — One-click pathology examples + bundled tissue-mask ONNX
+
+### Added
+- 🧪 New `Examples` section in the Pathology sidebar (between Slide and Model). One-click **Download** + **Load into app** mirrors the radiology example kit — no file picker, no manual download.
+- 🧠 `examples/pathology/tissue_mask.onnx` (448 B, hand-built, opset 17, validated by `onnx.checker`). Architecture: `image[1,3,h,w] → ReduceMean → Sub → Mul → Concat → seg[1,2,h,w]` — argmax across class dim returns 1 for pixels darker than the imagenet mean (= H&E-stained tissue). CC0.
+- 🧰 `src/lib/fs/pathology-examples.ts` — OPFS-backed loader mirroring `src/lib/fs/examples.ts`, dedicated OPFS root (`tamias-pathology-examples`).
+- 🧰 `src/components/pathology/PathologyExamplesPanel.tsx` — Download / Cached / Load-into-app / Remove-all buttons.
 
 ## [0.6.0] — Pathology mode (Phase A + B + C)
 

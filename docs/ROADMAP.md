@@ -82,9 +82,9 @@ A browser-only PWA for running ONNX medical-imaging models on local DICOM/NIfTI/
 - 🩻 ROI rectangle / ellipse / freehand (overlay annotations, exportable) — pending
 - 📐 Angle / Cobb-angle measurement — pending
 
-### v0.5.8 — SAM (Segment Anything) for Radiology AND Pathology
+### v0.7.0 — SAM (Segment Anything) for Radiology AND Pathology — ✅ shipped
 
-Branch: `feat/sam-radiology`. Phases A, B, B′, C.1, C.2, D, E, E.2, F ✅ shipped on the branch.
+Branch `feat/sam-radiology` merged via PR #3 (commit `2b011088`). All planned phases (A, B, B′, C.1, C.2, D, E, E.2, F) shipped to `main`. Branch retained for history.
 
 **Phase A — Scaffolding** ✅
 - `src/lib/sam/` types + manifest + OPFS cache; `docs/SAM.md` plan + status table.
@@ -129,7 +129,7 @@ Branch: `feat/sam-radiology`. Phases A, B, B′, C.1, C.2, D, E, E.2, F ✅ ship
 - SamPanel onboarding: when the user picks the SAM 3 preset, we route through the same Custom URL flow (prompts for name + encoder URL + decoder URL); a dedicated "Custom URL…" button at the bottom of the onboarding view supports any other ONNX export.
 - This is the bridge for SAM 3 once Meta publishes a stable ONNX export — no app rebuild required.
 
-**Out of scope for v0.5.8**: 3D-native SAM (SAM-Med3D / MedSAM-3D) — deferred to v0.7.x. SAM 2 video tracker (temporal embeddings) — superseded for now by Phase D's bbox-carry-forward propagator.
+**Out of scope for v0.7.0**: 3D-native SAM (SAM-Med3D / MedSAM-3D) — deferred to a later v0.7.x patch. SAM 2 video tracker (temporal embeddings) — superseded for now by Phase D's bbox-carry-forward propagator.
 
 ### v0.6.0 — Pathology mode
 

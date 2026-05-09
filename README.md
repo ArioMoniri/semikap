@@ -93,12 +93,13 @@ flowchart LR
 | 🎨 6-colour brush + per-colour mask export | 🖌️ Brush strokes visible in 3D | 🩻 Multi-series overlay | 🔬 Cursor probe (vox · mm · value) |
 | 🩻 Sidebar volume preview (mid-axial thumb) | 🔎 Cached-models search | 🌗 Light / Dark / System theme | 🪪 Modality toggle (Radiology · Pathology) |
 | 🔬 Pathology mode (OpenSeadragon + OME-TIFF) | 🧠 Tile-based ONNX inference | 📏 Distance ruler in microns | 📤 Result PNG + sidecar JSON |
+| 🪄 SAM (Radiology + Pathology) | 🧠 Smart-brush single-click mask | 🧭 Cross-slice propagation (±5 / ±15) | 💾 Auto-save folder (IDB-persisted) |
 | 💾 NIfTI mask export | 🩻 DICOM-SEG export (PACS) | 🧾 Reproducibility bundle | 📒 Local audit log (NDJSON) |
 | 💽 OPFS warm cache | 🔒 SHA-256 model verification | ❤️ `/healthz` for K8s probes | 🪪 RUO stamp on every export |
 
 > 🔬 **Pathology mode lands in v0.6.0.** Whole-slide image viewer (OpenSeadragon-based pyramidal viewer · OME-TIFF · Aperio SVS · Hamamatsu NDPI · TIFF · PNG · JPEG), tile-based ONNX inference (segmentation / classification / heatmap / detection), MPP-aware distance ruler, six-colour brush + eraser with per-colour PNG export. Bundled CC0 synthetic H&E sample for end-to-end testing. Full reference: [`docs/PATHOLOGY.md`](docs/PATHOLOGY.md). Roadmap: [`docs/ROADMAP.md#v060--pathology-mode`](docs/ROADMAP.md#v060--pathology-mode).
 >
-> 🪄 **SAM (Segment Anything) — branch `feat/sam-radiology`** — click + box + text prompts → mask, in **both** Radiology and Pathology modes. One-click HuggingFace download (SAM 2 Tiny ~30 MB, MedSAM ~360 MB), encoder runs once per slice / ROI on WebGPU then decoder is sub-100 ms per prompt. **No upload**, weights cached in OPFS. SAM 3 ONNX URL slot ready for when a stable export ships. Full plan + status table: [`docs/SAM.md`](docs/SAM.md).
+> 🪄 **SAM (Segment Anything) ships in v0.7.0** — click + box + text prompts → mask, in **both** Radiology and Pathology modes. One-click HuggingFace download (SAM 2 Tiny ~30 MB, SAM 2 Base+ ~80 MB, MedSAM ~360 MB) or bring your own ONNX export. Encoder runs once per slice / ROI on WebGPU; decoder is sub-100 ms per prompt revision so refinement is interactive. **Smart-brush** in the radiology Annotation panel (single click → mask straight into the brush layer, no Encode/Generate/Commit roundtrip). **Cross-slice propagation** (±5 / ±15 slices) walks neighbours using each previous mask's bbox as a prompt. **Auto-save folder** for screenshots persisted across sessions via IndexedDB. **No upload**, weights cached in OPFS, SAM 3 BYO URL slot ready for when a stable export ships. Full plan + status table: [`docs/SAM.md`](docs/SAM.md).
 
 ---
 
