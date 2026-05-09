@@ -19,6 +19,18 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import type { ViewerHandle } from './Viewer';
 
+// Hoisted module-scope constant so the per-colour brush export's
+// useCallback can list it as stable (the lint rule was flagging the
+// previous in-component definition as a missing dep on every render).
+const BRUSH_COLOUR_NAMES: Record<number, string> = {
+  1: 'red',
+  2: 'green',
+  3: 'blue',
+  4: 'yellow',
+  5: 'cyan',
+  6: 'magenta',
+};
+
 const KNOWN_EXT = /\.(nii\.gz|nii|nrrd|nhdr|mha|mhd|mgz|mgh|dcm|dicom)$/i;
 
 interface Props {
@@ -113,14 +125,6 @@ export function ExportPanel({ viewerRef }: Props) {
    * mask in downstream tools (training labels, ITK-SNAP overlays, etc).
    * Names match the v0.5.4 brush palette.
    */
-  const BRUSH_COLOUR_NAMES: Record<number, string> = {
-    1: 'red',
-    2: 'green',
-    3: 'blue',
-    4: 'yellow',
-    5: 'cyan',
-    6: 'magenta',
-  };
   const handleExportBrushPerColour = useCallback(async () => {
     if (!result) return;
     const drawn = viewerRef.current?.getDrawnLayer();

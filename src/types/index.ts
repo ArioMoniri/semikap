@@ -148,3 +148,20 @@ export interface RunResult {
   /** Wall-clock time in ms. */
   elapsedMs: number;
 }
+
+// Pathology types live in their own file so the radiology bundle never
+// imports geotiff/openseadragon transitively.
+export type {
+  Mpp,
+  PathologyFormat,
+  PathologyManifest,
+  PathologyNormalization,
+  PathologyOutputKind,
+  PathologyROI,
+  PathologyRunOutput,
+  PickedSlide,
+  SlideMetadata,
+  TileBitmap,
+  TileLoader,
+} from './pathology';
+export { detectPathologyFormat } from './pathology';
