@@ -230,7 +230,7 @@ export function AppShell() {
               type="button"
               onClick={() => setModality('pathology')}
               aria-pressed={modality === 'pathology'}
-              title="Whole-slide image viewer — preview, full release in v0.6.0"
+              title="Whole-slide image viewer — OpenSeadragon + OME-TIFF / SVS / NDPI + tile-based ONNX inference"
               className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] transition ${
                 modality === 'pathology'
                   ? 'bg-white/15 text-white'

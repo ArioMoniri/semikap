@@ -13,10 +13,20 @@ export const buttonVariants = cva(
     variants: {
       variant: {
         default: 'bg-tamias-accent text-white hover:bg-blue-700',
-        ghost: 'bg-transparent text-tamias-ink hover:bg-slate-100',
-        outline: 'border border-slate-300 bg-white text-tamias-ink hover:bg-slate-50',
+        // Dark-mode overrides matter most for `ghost` + `outline`: in dark
+        // panels the v0.5.x outline used hard-coded `bg-white text-ink`,
+        // which read as "barely-visible white card" in the Tools / Layout
+        // sidebars (user feedback on v0.7.0 builds). Pin a slate-800
+        // background and slate-100 text in dark mode so unselected buttons
+        // stay legible at every contrast level.
+        ghost:
+          'bg-transparent text-tamias-ink hover:bg-slate-100 ' +
+          'dark:text-slate-100 dark:hover:bg-slate-800',
+        outline:
+          'border border-slate-300 bg-white text-tamias-ink hover:bg-slate-50 ' +
+          'dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700',
         danger: 'bg-red-600 text-white hover:bg-red-700',
-        ink: 'bg-tamias-ink text-white hover:bg-slate-700',
+        ink: 'bg-tamias-ink text-white hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600',
       },
       size: {
         default: 'h-9 px-4 py-2',

@@ -407,6 +407,15 @@ export class NiivueViewer {
     return this.drawingActive;
   }
 
+  /**
+   * Unconditional re-paint. Used by the Viewer effect's defensive recovery
+   * paths (`webglcontextrestored`, `pointerleave`) so the canvas can repaint
+   * even when the brush isn't active and `refreshDrawing()` would no-op.
+   */
+  redraw(): void {
+    this.nv.drawScene();
+  }
+
   /** Set the brush label index. Pass `0` for eraser. */
   setBrushLabel(label: number): void {
     (this.nv as unknown as NVDriver).setPenValue(label, true);

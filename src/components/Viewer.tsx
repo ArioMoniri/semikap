@@ -38,6 +38,10 @@ export interface ViewerHandle {
    *  so the user's brush strokes appear in the volumetric render, not
    *  just the 2D MPR slices. */
   refreshDrawing(): void;
+  /** Unconditional re-paint (no draw-mesh update). Used by the recovery
+   *  handlers in this component so the canvas can repaint after WebGL
+   *  context loss / cursor-leave even when the brush isn't active. */
+  redraw(): void;
   undoLastBrushStroke(): void;
   /** Returns the AI mask merged with any user brush corrections, or null
    *  when no corrections have been drawn. */
@@ -95,9 +99,44 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
     const onPointerUp = () => viewerRef.current?.refreshDrawing();
     canvas.addEventListener('pointerup', onPointerUp);
 
+    // Defensive recovery for v0.7.0 user reports of "viewer blanks when I use
+    // a tool or right-click". On macOS WKWebView (Tauri) the WebGL context
+    // can be evicted under memory pressure (large CT + 3D render + concurrent
+    // SAM encoder); without explicit handling the canvas just stays at
+    // backColor until the user reloads. Catching `webglcontextlost` lets us
+    // suppress the default "permanent loss" behaviour, then `restored` calls
+    // `drawScene()` so the volumes re-upload textures and the canvas repaints.
+    const onContextLost = (e: Event) => {
+      e.preventDefault(); // tells the browser the context is recoverable
+      // eslint-disable-next-line no-console
+      console.warn('[TAMIAS] WebGL context lost — will restore on next event');
+    };
+    const onContextRestored = () => {
+      // eslint-disable-next-line no-console
+      console.info('[TAMIAS] WebGL context restored — repainting');
+      viewerRef.current?.redraw();
+    };
+    canvas.addEventListener('webglcontextlost', onContextLost, false);
+    canvas.addEventListener('webglcontextrestored', onContextRestored, false);
+
+    // Belt-and-suspenders: on `pointerleave` we trigger a no-op redraw
+    // pass. NiiVue 0.44.x sometimes leaves the GL state in a configuration
+    // where the next hover-redraw clears the canvas to backColor (the
+    // v0.5.4 cursor-leave-blanks bug). Re-issuing drawScene() on leave
+    // forces a fresh paint so the volumes stay visible until the user
+    // re-enters the canvas.
+    const onPointerLeave = () => {
+      // Defer one frame so any in-flight pointer handler completes first.
+      requestAnimationFrame(() => viewerRef.current?.redraw());
+    };
+    canvas.addEventListener('pointerleave', onPointerLeave);
+
     return () => {
       window.removeEventListener('resize', onResize);
       canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('webglcontextlost', onContextLost, false);
+      canvas.removeEventListener('webglcontextrestored', onContextRestored, false);
+      canvas.removeEventListener('pointerleave', onPointerLeave);
       viewerRef.current?.destroy();
       viewerRef.current = null;
     };
@@ -144,6 +183,9 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       refreshDrawing() {
         viewerRef.current?.refreshDrawing();
+      },
+      redraw() {
+        viewerRef.current?.redraw();
       },
       undoLastBrushStroke() {
         viewerRef.current?.undoLastBrushStroke();
