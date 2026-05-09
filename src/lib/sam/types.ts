@@ -148,17 +148,34 @@ export interface SamEncodeRequest {
   manifest: SamManifest;
   encoderBytes: Bytes;
   /**
-   * Source pixels.
-   *  - `inputMode: 'gray'` — grayscale uint8, one byte per pixel
-   *    (length === width*height). The worker auto-windows to [0,1] then
-   *    replicates to 3 channels. Used by the radiology slice path.
+   * Source pixels. Width/height describe the SOURCE-image dims (the
+   * worker'\''s preprocessor handles bilinear-resize to the encoder'\''s
+   * 1024² input).
+   *
+   *  - `inputMode: 'gray'` — single-channel slice. ANY of:
+   *      * Uint8Array        — 1 byte / px (e.g. 8-bit CT)
+   *      * Uint8ClampedArray — same
+   *      * Float32Array      — keeps full dynamic range. Recommended for
+   *                            CT (Hounsfield −1024..3072), MR (anything),
+   *                            PT, MRA — the auto-window step doesn'\''t
+   *                            need a normalised input.
+   *      * Int16Array        — typical raw NIfTI int16 (HU)
+   *      * Uint16Array       — typical raw NIfTI uint16 (some MRs)
+   *    Length === width*height. Worker replicates to 3 channels after
+   *    auto-windowing on 1st/99th percentile.
+   *
    *  - `inputMode: 'rgb'`  — RGBA uint8, four bytes per pixel
-   *    (length === width*height*4). The worker drops alpha then
-   *    ImageNet-normalises per channel. Used by the pathology ROI path
-   *    where the slide is already RGB and contrast windowing would
-   *    corrupt stain colours.
+   *    (length === width*height*4). The worker drops alpha and
+   *    ImageNet-normalises per channel without windowing — used by the
+   *    pathology ROI path where stain colour IS the signal.
    */
-  pixels: Uint8Array | Uint8ClampedArray;
+  pixels:
+    | Uint8Array
+    | Uint8ClampedArray
+    | Int16Array
+    | Uint16Array
+    | Int32Array
+    | Float32Array;
   /** Defaults to 'gray' for back-compat with the radiology path. */
   inputMode?: 'gray' | 'rgb';
   width: number;

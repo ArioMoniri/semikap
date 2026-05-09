@@ -192,18 +192,20 @@ export function SamPanel({ viewerRef }: Props) {
         type: 'module',
       });
       const api = Comlink.wrap<SamApi>(worker);
-      // Convert Float32Array → Uint8Array byte-view (preprocess does its
-      // own typed read, we just need ArrayLike<number>).
-      const pixels = new Uint8Array(slice.width * slice.height);
-      for (let i = 0; i < pixels.length; i++) {
-        // Quantise to 8-bit for the worker — preprocess re-windows internally.
-        pixels[i] = Math.max(0, Math.min(255, slice.pixels[i] ?? 0));
-      }
+      // Pass the raw Float32Array straight through — keeps full dynamic
+      // range for CT (Hounsfield −1024..3072), MR, PT, MRA, etc. The
+      // worker'\''s preprocessSliceForSam auto-windows on 1st/99th
+      // percentile internally, so any signed/unsigned int or float
+      // typed array works as long as ArrayLike<number> is satisfied.
+      // Quantising to uint8 here was destroying the dynamic range on
+      // every CT (positives clipped at 255, negatives clipped at 0)
+      // and producing degenerate masks.
       const res = (await api.encode({
         kind: 'encode',
         manifest: sam.manifest,
         encoderBytes: sam.encoderBytes,
-        pixels,
+        pixels: slice.pixels,
+        inputMode: 'gray',
         width: slice.width,
         height: slice.height,
       })) as SamSliceEmbedding;
