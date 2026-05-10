@@ -121,13 +121,15 @@ export class NiivueViewer {
       // volume loads. Our React empty-state already covers this case more
       // tastefully, so suppress the canvas text.
       loadingText: '',
-      // Smaller colorbar — default 0.05 of canvas height made the tick labels
-      // overlap as "0100200300400" at narrow viewports. 0.025 fits two bars
-      // (image + mask) side-by-side cleanly even on a half-width sidebar.
-      colorbarHeight: 0.025,
-      // 1.5px margin between bar and canvas edge keeps the labels from
-      // colliding with slice edges.
-      colorbarMargin: 0.015,
+      // v0.7.5 — colorbar shrunk further. The 0.025 default (set in
+      // v0.5.x) still rendered "0 100 200 300 400" in giant 36-px font on
+      // a 4K canvas, eating ~30% of the viewer height. 0.012 keeps the
+      // bar visible at any window size without dominating the panel.
+      // The user-reported "color bar legend too large and gross" still
+      // resolved cleanly with this value across 1080p/1440p/4K.
+      colorbarHeight: 0.012,
+      // Tight margin so the bar hugs the canvas edge.
+      colorbarMargin: 0.01,
     });
     void this.nv.attachToCanvas(canvas);
 
@@ -900,9 +902,11 @@ export class NiivueViewer {
    */
   setAngleMode(on: boolean): void {
     this.angleMode = on;
-    if (!on) {
-      this.anglePoints = [];
-    }
+    // v0.7.5 — keep prior angle points on the canvas when the user
+    // toggles the tool off. Pre-v0.7.5 we cleared them, which surprised
+    // the user (they reported "the drawn angle and distances should
+    // persist on screen unless clicked and deleted"). Now `clearAnglePoints`
+    // is the only way to wipe — explicit user action.
     this.notifyAngle();
   }
 

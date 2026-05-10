@@ -6,29 +6,28 @@
 // + multi-threaded WASM) on hosts that don't natively send those
 // headers.
 //
-// v0.7.2 had a hard "skip on tauri://" guard because we believed
-// `navigator.serviceWorker.register()` always throws on the custom
-// protocol. Result: macOS WKWebView fell back to single-threaded WASM
-// even when the user expected multi-threaded inference, because Safari
-// 17.x doesn't honour `Cross-Origin-Embedder-Policy: credentialless`
-// (only `require-corp`) and our app.security.headers therefore failed
-// to flip `crossOriginIsolated` on.
+// v0.7.3 tried registering on the tauri:// custom protocol too, hoping
+// the SW could add CORP to HuggingFace responses for the desktop
+// build. Reality: WKWebView blocks `navigator.serviceWorker.register()`
+// against any URL whose protocol is not http(s), so the registration
+// throws "TypeError: serviceWorker.register() must be called with a
+// script URL whose protocol is either HTTP or HTTPS" and floods the
+// console.
 //
-// v0.7.3: try SW registration on every protocol. coi-serviceworker
-// already wraps register() in its own try/catch, so a tauri:// failure
-// is silent — the worst case is the same single-threaded WASM fallback
-// we already had in v0.7.2. The best case (and the typical case on
-// recent WKWebView builds) is that registration succeeds, the SW
-// rewrites HF + Tauri-asset responses to include CORP, and we end up
-// `crossOriginIsolated === true` for the first time on macOS desktop.
+// v0.7.5 — back to skipping registration on tauri://. We accept the
+// macOS Tauri single-threaded WASM fallback (WebGPU still works) until
+// WKWebView either honours `Cross-Origin-Embedder-Policy:
+// credentialless` or the Tauri runtime gains a way to inject CORP
+// headers from Rust.
 //
-// We also force `coi.coepCredentialless = false` so the SW falls back
-// to `require-corp`, which is the only COEP value all current WebKit
-// builds reliably understand.
+// Externalised from index.html because our strict CSP forbids inline
+// scripts (`script-src 'self'` with no `'unsafe-inline'`).
 window.coi = {
   shouldRegister: function () {
-    return true;
+    return location.protocol === 'http:' || location.protocol === 'https:';
   },
+  // Keep coep mode at "require-corp" — when the SW does register (on
+  // the PWA) the response-rewriter agrees with the document COEP.
   coepCredentialless: function () {
     return false;
   },

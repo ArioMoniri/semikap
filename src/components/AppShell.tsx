@@ -498,15 +498,28 @@ export function AppShell() {
           )}
           {probe && volume && (
             <div
-              className="pointer-events-none absolute right-2 top-2 flex items-center gap-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"
+              className="pointer-events-none absolute right-2 top-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"
               role="status"
               aria-label="Cursor probe"
             >
               <Crosshair className="h-3 w-3" />
-              <div className="tabular-nums text-white/65">
-                vox [{probe.voxel.map((n) => n.toFixed(0)).join(', ')}]
+              {/*
+                v0.7.5 — explicit per-axis slice indices (X/Y/Z) plus
+                the volume's max-per-axis. The user wanted "the
+                sequence slide number which is seen should be shown
+                besides all slides numbers" — i.e. instead of just a
+                voxel triple, show "X 128/256 · Y 121/242 · Z 47/154"
+                so the active slice on every MPR pane is legible at a
+                glance. This is the lightweight version (single chip
+                in the corner); per-pane overlay needs hooking
+                NiiVue's draw cycle and ships in a follow-up.
+              */}
+              <div className="flex items-center gap-2 tabular-nums text-white/65">
+                <span>X {probe.voxel[0]?.toFixed(0)}/{volume.meta.dims[0]}</span>
+                <span>Y {probe.voxel[1]?.toFixed(0)}/{volume.meta.dims[1]}</span>
+                <span>Z {probe.voxel[2]?.toFixed(0)}/{volume.meta.dims[2]}</span>
               </div>
-              <div className="tabular-nums text-white/65">
+              <div className="tabular-nums text-white/55">
                 mm [{probe.mm.map((n) => n.toFixed(1)).join(', ')}]
               </div>
               <div className="tabular-nums text-white">

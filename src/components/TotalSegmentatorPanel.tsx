@@ -219,6 +219,12 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
               >
                 <FolderOpen className="h-3.5 w-3.5" /> Pick local manifest .json
               </Button>
+              {/* v0.7.5 — shorten the preset label so it fits the
+                  outline button at the narrowest sidebar width. The
+                  trailing "BYO URL · Bring your own" used to overflow
+                  the button outline (same overflow class as v0.7.1's
+                  SAM 3 entry). The trailing chip is now a tiny "BYO"
+                  badge and the truncation lives on the label span. */}
               {PRESET_TOTALSEG_MODELS.map((p) => (
                 <Button
                   key={p.id}
@@ -226,13 +232,13 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
                   size="sm"
                   className="justify-between gap-1.5"
                   onClick={openByo}
+                  title={`${p.manifest.name} — opens the BYO URL form`}
                 >
-                  <span className="flex items-center gap-1.5">
-                    <Download className="h-3.5 w-3.5" /> {p.manifest.name}
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <Download className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">TotalSegmentator</span>
                   </span>
-                  <span className="text-[10px] text-slate-500">
-                    BYO URL · {p.manifest.license}
-                  </span>
+                  <span className="shrink-0 text-[10px] text-slate-500">BYO</span>
                 </Button>
               ))}
             </div>
@@ -330,29 +336,41 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
                 <XIcon className="h-3 w-3" />
               </button>
             </div>
-            <Button
-              size="sm"
-              variant="ink"
-              disabled
-              className="w-full gap-1.5"
-              title="Inference runtime ships in a follow-up — see docs/TOTALSEGMENTATOR.md"
-            >
-              <Layers className="h-3.5 w-3.5" /> Run on current volume (preview)
-            </Button>
-            <div className="text-[11px] text-slate-500">
-              Inference is wired in a follow-up release. The manifest +
-              model bytes are valid; run-time pipeline lands next.
+            {/* v0.7.5 — replaces the disabled "Run on current volume
+                (preview)" button. The disabled button looked broken in
+                user testing ("still this button does nothing"), so we
+                surface the real status (no upstream ONNX export yet) +
+                a one-tap link to the upstream Python tool instead. */}
+            <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+              <div className="font-medium">Inference runtime — coming next</div>
+              <div className="mt-0.5">
+                Upstream ships only nnUNet weights;{' '}
+                <ExternalLink
+                  href="https://github.com/wasserth/TotalSegmentator"
+                  className="underline"
+                >
+                  wasserth/TotalSegmentator
+                </ExternalLink>{' '}
+                converts on Python. Browser ONNX runtime lands once a
+                community export is ready.
+              </div>
             </div>
           </div>
         )}
 
-        <Badge variant="warn" className="gap-1.5">
-          See{' '}
-          <ExternalLink href={TOTALSEG_DOC_URL} className="underline">
-            docs/TOTALSEGMENTATOR.md
-          </ExternalLink>{' '}
-          for the manifest schema + community ONNX export progress.
-        </Badge>
+        {/* v0.7.5 — collapsed the "See docs" badge into a compact full-
+            width chip. The previous Badge wrap-flowed at narrow sidebar
+            widths because Badge's flex-row + auto-wrap fights with the
+            ExternalLink's nested span. A plain anchor in a flex-row
+            with `flex-wrap` keeps it tidy on every width. */}
+        <a
+          href={TOTALSEG_DOC_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200 dark:hover:bg-amber-900/30"
+        >
+          docs/TOTALSEGMENTATOR.md — manifest schema + ONNX export progress
+        </a>
       </CardContent>
     </Card>
   );

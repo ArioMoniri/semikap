@@ -167,9 +167,35 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
     };
     canvas.addEventListener('pointerleave', onPointerLeave);
 
+    /**
+     * v0.7.5 — wheel + pinch zoom on every viewport (2D MPR + 3D
+     * render). Pre-v0.7.5 the user had to click the toolbar "Zoom in /
+     * out" buttons, and even then NiiVue's `volScaleMultiplier` only
+     * really felt active in the 3D pane. Trackpad pinch on macOS sends
+     * `wheel` events with `ctrlKey: true`; mouse wheels send `wheel`
+     * with no modifier. We treat both the same — multiply the existing
+     * scale by `1 + 0.0015 * deltaY` (negative deltaY = scroll-up =
+     * zoom in). The `passive: false` registration lets us
+     * `preventDefault()` so the page doesn't also scroll.
+     */
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      // Larger deltas (factor 0.003) for trackpad pinch (which fires
+      // smaller events at a higher rate); smaller (0.0015) for mouse
+      // wheel. ctrlKey flag is the standard "this came from a pinch
+      // gesture" hint browsers set on synthesized wheel events.
+      const factor = e.ctrlKey ? 0.003 : 0.0015;
+      const ratio = Math.exp(-e.deltaY * factor);
+      // Clamp so a single fast pinch can't blow up the scale.
+      const clamped = Math.max(0.5, Math.min(2, ratio));
+      viewerRef.current?.zoomBy(clamped);
+    };
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+
     return () => {
       window.removeEventListener('resize', onResize);
       canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('wheel', onWheel);
       probeUnsub?.();
       canvas.removeEventListener('webglcontextlost', onContextLost, false);
       canvas.removeEventListener('webglcontextrestored', onContextRestored, false);

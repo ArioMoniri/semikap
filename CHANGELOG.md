@@ -6,6 +6,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.7.5] — SAM portal fix · wheel/pinch zoom · slice indicator · CSP/SW polish
+
+### Fixed — Critical regressions
+
+- 🎯 **SAM Box / Point modes wouldn't activate** in v0.7.4. Root cause: `SamPromptOverlay` was rendered as a sibling of the SAM `<Card>` *inside* the sidebar `<aside>`, so its `absolute inset-0 z-10` walked up the DOM looking for a positioned ancestor and ended up covering the entire viewport — blocking clicks on the SAM mode buttons in the sidebar AND landing in the wrong place when the user dragged a box in the viewer pane. Now mounted via `ReactDOM.createPortal` into `#viewer` (the `position: relative` `<section>` wrapping the `<Viewer>` canvas), so the overlay sits exactly where the user expects.
+- 🎨 **SAM Text mode dropped prompts silently.** `sam.worker.ts` explicitly filtered `kind: 'text'` out of the decoder input, so the user typed text → status flipped to "encoded" → no mask appeared. Disabled the Text mode button with a tooltip explaining the missing text encoder, until a CLIP-style text encoder lands in a follow-up.
+- 🛡️ **Tauri IPC plugin CSP block.** v0.7.4 saw `Refused to connect to ipc://localhost/plugin%3Aupdater%7Ccheck` on the auto-update poll because the CSP `connect-src` only listed the older `ipc:` + `ipc://localhost` + `http://ipc.localhost` triples. Added `https://tauri.localhost`, `http://tauri.localhost`, and `tauri:` to both `default-src` and `connect-src` to cover every Tauri 2.x IPC URL form.
+- 🔇 **`coi-serviceworker` registration noise on macOS Tauri.** v0.7.3 removed the protocol guard hoping the SW could register on `tauri://` and proxy CORP onto HuggingFace responses. WKWebView blocks any non-http(s) `serviceWorker.register()` call, so the user got `TypeError: ... must be called with a script URL whose protocol is either HTTP or HTTPS` on every launch. Restored the `tauri://` skip in `public/coi-config.js` — the macOS desktop build stays single-threaded WASM until WKWebView honours `Cross-Origin-Embedder-Policy: credentialless`, but the console is silent again.
+
+### Changed — UX polish
+
+- 🔍 **Wheel + trackpad pinch zoom** on every viewport (2D MPR + 3D render). Pre-v0.7.5 the user had to click the toolbar Zoom +/− buttons. New `wheel` listener on the canvas multiplies the existing scale by `exp(-deltaY × factor)`; trackpad pinch (which fires `wheel` with `ctrlKey: true`) gets a 2× multiplier so a single pinch travels noticeably. Clamped to ½..2× per event so a single fast pinch can't blow up the scale.
+- 📊 **Per-axis slice indices** (`X 128/256 · Y 121/242 · Z 47/154`) replace the cramped `vox [128, 121, 47]` display in the floating crosshair pill. Per-pane labels (one chip per MPR viewport) ship in a follow-up — they need hooking NiiVue's draw cycle.
+- 📐 **Persistent angle measurements.** Pre-v0.7.5 toggling Angle off cleared the prior points; now they survive until the user explicitly clicks the existing `Reset` button. Distance measurements already persisted via NiiVue's draw history.
+- 🎨 **Smaller colorbar.** `colorbarHeight` shrunk from 0.025 → 0.012 (and `colorbarMargin` 0.015 → 0.01). Was eating ~30% of the viewer height at 4K with 36-px tick labels; now visible without dominating.
+- 🖌️ **SAM mask color selector.** Pre-v0.7.5 the SAM commit + propagation pipeline always used green. New dropdown in the SAM panel ReadyView (red / green / blue / multi-label LUT). Choice flows through both `handleCommit` and `handlePropagate`.
+
+### Fixed — TotalSegmentator panel cosmetics
+
+- 🪪 **`TotalSegmentator (BYO URL) · Bring your own` overflowed the outline button.** Same shape as v0.7.1's SAM 3 fix: shortened the label to `TotalSegmentator` + `BYO` chip, with `truncate` + `min-w-0` on the inner spans.
+- 🪟 **Yellow "See docs" badge wrapped weirdly** at narrow sidebar widths — the nested ExternalLink fought Badge's flex-row layout and tore at ~280px. Replaced with a plain `<a>` chip that reflows cleanly at every width.
+- ❌ **The disabled "Run on current volume (preview)" button looked broken** ("still this button does nothing" in user testing). Replaced with an amber-tinted explainer card that's honest about the missing browser ONNX export + links to the upstream Python tool.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 10/10 vitest pass.
+- `npm run build` — production bundle ships in 19s (5448 KiB precache).
+
 ## [0.7.4] — Drag-drop everywhere · Multi-DICOM · On-Prem AI tab + TotalSegmentator preview · Vitest
 
 ### Added — Inputs

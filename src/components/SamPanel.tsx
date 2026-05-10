@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import * as Comlink from 'comlink';
 import {
   Sparkles,
@@ -66,6 +67,15 @@ export function SamPanel({ viewerRef }: Props) {
 
   const [activeMode, setActiveMode] = useState<'point' | 'box' | 'text' | 'off'>('off');
   const [textValue, setTextValue] = useState('');
+  /**
+   * v0.7.5 — user-selectable mask colormap. Defaults to green (the prior
+   * hard-coded value) so existing committed masks keep their colour.
+   * Honoured by handleCommit + handlePropagate when adding the overlay
+   * via addMaskOverlay.
+   */
+  const [maskColor, setMaskColor] = useState<'red' | 'green' | 'blue' | 'roi_i256'>(
+    'green'
+  );
   /**
    * Inline BYO/Custom URL panel state. The previous v0.7.1 flow used three
    * synchronous `window.prompt()` calls — Tauri WKWebView (macOS) silently
@@ -386,6 +396,9 @@ export function SamPanel({ viewerRef }: Props) {
     }
   }, [sam, viewerRef, setSam, pushError]);
 
+  // handleCommit + handlePropagate read maskColor from closure; the
+  // useCallback deps include `maskColor` so a colour switch immediately
+  // affects the next mask commit / propagation without a re-mount.
   const handleCommit = useCallback(async () => {
     if (!sam.preview) return;
     const volume = useAppStore.getState().volume;
@@ -406,7 +419,7 @@ export function SamPanel({ viewerRef }: Props) {
       full,
       [X, Y, Z],
       volume.meta.spacing,
-      'green',
+      maskColor,
       0.5,
       {
         ...(volume.meta.srowX ? { srowX: volume.meta.srowX } : {}),
@@ -417,7 +430,7 @@ export function SamPanel({ viewerRef }: Props) {
     );
     setSam({ preview: null });
     void appendAudit({ kind: 'export', message: 'SAM mask committed to viewer' });
-  }, [sam, viewerRef, setSam, pushError]);
+  }, [sam, viewerRef, setSam, pushError, maskColor]);
 
   /**
    * Phase D — cross-slice propagation. Given the user has a committed
@@ -528,7 +541,7 @@ export function SamPanel({ viewerRef }: Props) {
         multi,
         [X, Y, Z],
         volume.meta.spacing,
-        'green',
+        maskColor,
         0.55,
         {
           ...(volume.meta.srowX ? { srowX: volume.meta.srowX } : {}),
@@ -543,7 +556,7 @@ export function SamPanel({ viewerRef }: Props) {
         message: `SAM propagated mask across ${sliceOrder.length + 1} slices (z=${startZ} ±${radius})`,
       });
     },
-    [sam, viewerRef, setSam, pushError]
+    [sam, viewerRef, setSam, pushError, maskColor]
   );
 
   const handleForget = useCallback(() => {
@@ -560,13 +573,35 @@ export function SamPanel({ viewerRef }: Props) {
     });
   }, [setSam]);
 
+  /**
+   * v0.7.5 — portal target. The SAM overlay was previously rendered as
+   * a sibling of `<Card>` inside the SamPanel — which lives in the
+   * sidebar `<aside>`. `absolute inset-0` then walked up the DOM
+   * looking for a positioned ancestor and ended up covering the
+   * viewport, which (a) blocked clicks on the SAM mode buttons in the
+   * sidebar (the user-reported "Box/Point won't activate" regression)
+   * and (b) put the click-capture box in the wrong place so even when
+   * Box mode did activate, drags in the viewer never landed on the
+   * overlay. Mounting the overlay into `#viewer` (the relative-
+   * positioned <section> wrapping the <Viewer> canvas) puts the
+   * overlay exactly where the user expects it.
+   */
+  const [viewerEl, setViewerEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    setViewerEl(document.getElementById('viewer'));
+  }, []);
+
   return (
     <>
       {/* Click-capture overlay over the viewer. Only fires when the user
           is actively in a point/box prompt mode. */}
-      {sam.modelLoaded && (
-        <SamPromptOverlay viewerRef={viewerRef} mode={activeMode} />
-      )}
+      {sam.modelLoaded &&
+        viewerEl &&
+        createPortal(
+          <SamPromptOverlay viewerRef={viewerRef} mode={activeMode} />,
+          viewerEl
+        )}
 
       <Card>
         <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
@@ -624,6 +659,8 @@ export function SamPanel({ viewerRef }: Props) {
               onCommit={handleCommit}
               onCancelPreview={() => setSam({ preview: null })}
               onPropagate={handlePropagate}
+              maskColor={maskColor}
+              setMaskColor={setMaskColor}
             />
           )}
 
@@ -763,6 +800,9 @@ function ReadyView(props: {
   onCancelPreview: () => void;
   /** Phase D — runs cross-slice propagation for ±radius slices. */
   onPropagate: (radius: number) => void;
+  /** v0.7.5 — user-selectable mask colormap (matches NiiVue overlay names). */
+  maskColor: 'red' | 'green' | 'blue' | 'roi_i256';
+  setMaskColor: (c: 'red' | 'green' | 'blue' | 'roi_i256') => void;
 }) {
   const {
     activeMode,
@@ -783,6 +823,8 @@ function ReadyView(props: {
     onCommit,
     onCancelPreview,
     onPropagate,
+    maskColor,
+    setMaskColor,
   } = props;
 
   return (
@@ -839,13 +881,51 @@ function ReadyView(props: {
                 active={activeMode === 'box'}
                 onClick={() => setActiveMode('box')}
               />
+              {/* v0.7.5 — Text mode is **temporarily disabled**. The
+                  worker explicitly filters out `kind: 'text'` prompts
+                  before packing them into the decoder (sam.worker.ts),
+                  so user-typed text was being silently dropped — the
+                  user reported "after putting text input it says encoded
+                  but mask doesn't generate". Until the text encoder
+                  lands we render the button visually-distinct +
+                  disabled with a tooltip explaining why. */}
               <ModeBtn
                 label="Text"
                 icon={<TypeIcon className="h-3.5 w-3.5" />}
-                active={activeMode === 'text'}
-                onClick={() => setActiveMode('text')}
+                active={false}
+                disabled
+                onClick={() => {
+                  /* no-op while text encoder is missing */
+                }}
+                title="Text prompts need a CLIP-style text encoder; coming in a follow-up."
               />
             </div>
+          </div>
+
+          {/* v0.7.5 — mask colormap picker. Was a hard-coded green
+              before; the user wanted to choose. The `roi_i256` entry
+              is the multi-label LUT used by Phase D propagation runs
+              that label different anatomy with different IDs. */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] text-slate-500" htmlFor="sam-mask-color">
+              Mask color
+            </label>
+            <select
+              id="sam-mask-color"
+              value={maskColor}
+              onChange={(e) =>
+                setMaskColor(
+                  e.target.value as 'red' | 'green' | 'blue' | 'roi_i256'
+                )
+              }
+              className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] dark:border-slate-700 dark:bg-slate-900"
+              aria-label="SAM mask color"
+            >
+              <option value="green">green</option>
+              <option value="red">red</option>
+              <option value="blue">blue</option>
+              <option value="roi_i256">multi-label LUT</option>
+            </select>
           </div>
 
           {activeMode === 'text' && (
@@ -1100,17 +1180,25 @@ function ModeBtn({
   icon,
   active,
   onClick,
+  disabled,
+  title,
 }: {
   label: string;
   icon: React.ReactNode;
   active: boolean;
   onClick: () => void;
+  /** v0.7.5 — disabled state for prompt modes that aren't wired yet
+   *  (currently: text mode, until the text encoder lands). */
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <Button
       size="sm"
       variant={active ? 'ink' : 'outline'}
       onClick={onClick}
+      disabled={disabled}
+      title={title}
       className={`h-auto justify-center gap-1 px-1 py-1.5 text-[11px] ${
         active ? '' : 'text-slate-700 dark:text-slate-200'
       }`}
