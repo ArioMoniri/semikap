@@ -80,6 +80,40 @@ export function AppShell() {
     window.localStorage.setItem('tamias.sidebarWidth', String(sidebarWidth));
   }, [sidebarWidth]);
 
+  /**
+   * Global Cmd-Z / Ctrl-Z handler — pops the most recent entry off the
+   * shared undo stack (slider releases, layout/tool mode switches, etc.)
+   * and runs its closure-captured `revert()`. Brush strokes are NOT in
+   * this stack — AnnotationPanel has its own keyboard handler that calls
+   * NiiVue's draw-history undo (drawUndo), which is the right behaviour
+   * because brush strokes have their own per-stroke history maintained
+   * inside NiiVue. The two handlers don't collide because the brush one
+   * only attaches when brush/eraser/smart mode is active.
+   */
+  const popUndo = useAppStore((s) => s.popUndo);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isUndo =
+        (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z';
+      if (!isUndo) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) {
+        return;
+      }
+      const entry = popUndo();
+      if (entry) {
+        e.preventDefault();
+        try {
+          entry.revert();
+        } catch {
+          /* swallow — failed reverts shouldn't block the next undo */
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [popUndo]);
+
   const handleResizeStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     draggingRef.current = true;

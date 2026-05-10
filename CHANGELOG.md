@@ -6,7 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-## [0.7.0] — SAM (Segment Anything) for Radiology AND Pathology
+## [0.7.1] — Global undo stack + Angle measurement tool
+
+### Added — Centralised undo for tools + settings
+- ⌨️ **Global Cmd-Z / Ctrl-Z** now undoes any reversible UI mutation (slider releases, mode switches), not just brush strokes. Cross-OS via `e.metaKey || e.ctrlKey`. Brush undo stays separate (NiiVue's draw-history `drawUndo()`); the two handlers don't collide because the brush handler only attaches when brush/eraser/smart mode is active.
+- 🧰 New `undoStack: UndoEntry[]` slice on the zustand store with `pushUndo({label, revert})` + `popUndo()`. `revert()` is closure-captured at push time — no inverse-delta bookkeeping needed for coarse-grained UI mutations. Cap at 50 entries; oldest dropped silently.
+- 🪪 Producers wired in v0.7.1: **mask opacity slider** (one undo per pointer-down → pointer-up drag, gated so per-mousemove ticks don't pollute the stack) and **mask colormap selector**. More producers (W/L sliders, layout mode switches, drag-mode changes, distance ruler clear) follow in subsequent v0.7.x patches as the same pattern is applied to each panel.
+
+### Added — Angle measurement tool (3-click, mm-space)
+- 📐 New **Angle** button in the radiology Tools panel. Click vertex → first arm endpoint → second arm endpoint. Status pill walks through each click (`Click on a 2D slice to set the vertex.` → `Click to set the first arm endpoint.` → `Angle: 67.3° · vertex (12.4, 34.7, 56.0) mm`).
+- 🧮 NiivueViewer wrapper gains `setAngleMode(on)`, `addAnglePoint(mm)`, `clearAnglePoints()`, `onAngleUpdate(cb)` and `AngleState` type. Vectors computed in mm-space (physical real-world coords, not voxel grid) so the angle is independent of slice spacing or anisotropy. Formula: `acos((a₁·a₂) / (|a₁|·|a₂|))` clamped to `[-1, 1]` to avoid floating-point NaNs at colinear points.
+- 🖱️ Click capture piggybacks on the existing pointerup listener in Viewer.tsx + a probe-stream cache of the latest mm coordinate. Drag mode auto-flips to `'none'` while in angle mode so click+drag doesn't also pan/contrast.
+- 🧹 Reset clears captured points but stays in angle mode. Toggling Angle off clears state entirely.
+
+
 
 ### Fixed — v0.7.0 polish (caught during pre-publish smoke-test)
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Eye, Sliders } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import type { ViewerHandle } from './Viewer';
@@ -56,6 +56,31 @@ export function OverlayControls({ viewerRef }: Props) {
     }
   }, [viewer.level, viewer.width, viewerRef]);
 
+  const pushUndo = useAppStore((s) => s.pushUndo);
+
+  /**
+   * Per-mutation undo for the mask opacity slider. We push ONE entry per
+   * pointer-down → pointer-up "drag" by capturing the value the slider
+   * had at drag-start in onPointerDown, and only pushing the entry on
+   * onPointerUp. Without this gating, every mousemove during a drag
+   * would push a new entry and Cmd-Z would walk the user back through
+   * pixel-by-pixel slider movements.
+   */
+  const opacityDragStartRef = useRef<number | null>(null);
+  const handleOpacityDown = useCallback(() => {
+    opacityDragStartRef.current = useAppStore.getState().overlay.opacity;
+  }, []);
+  const handleOpacityUp = useCallback(() => {
+    const prev = opacityDragStartRef.current;
+    opacityDragStartRef.current = null;
+    if (prev === null) return;
+    const cur = useAppStore.getState().overlay.opacity;
+    if (Math.abs(cur - prev) < 0.001) return; // ignore no-op clicks
+    pushUndo({
+      label: `Mask opacity ${(cur * 100).toFixed(0)}% → ${(prev * 100).toFixed(0)}%`,
+      revert: () => useAppStore.getState().setOverlay({ opacity: prev }),
+    });
+  }, [pushUndo]);
   const handleOpacity = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setOverlay({ opacity: Number(e.target.value) });
@@ -65,9 +90,16 @@ export function OverlayControls({ viewerRef }: Props) {
 
   const handleColormap = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
-      setOverlay({ colormap: e.target.value as OverlayColorMap });
+      const prev = useAppStore.getState().overlay.colormap;
+      const next = e.target.value as OverlayColorMap;
+      if (next === prev) return;
+      setOverlay({ colormap: next });
+      pushUndo({
+        label: `Colormap ${prev} → ${next}`,
+        revert: () => useAppStore.getState().setOverlay({ colormap: prev }),
+      });
     },
-    [setOverlay]
+    [setOverlay, pushUndo]
   );
 
   const disabled = !volume;
@@ -159,6 +191,13 @@ export function OverlayControls({ viewerRef }: Props) {
             step={0.05}
             value={overlay.opacity}
             onChange={handleOpacity}
+            onPointerDown={handleOpacityDown}
+            onPointerUp={handleOpacityUp}
+            // Keyboard navigation (arrow keys) doesn't fire pointer events;
+            // capture begin/end via focus/blur as a fallback so keyboard
+            // users get an undo entry per focused-edit-session.
+            onFocus={handleOpacityDown}
+            onBlur={handleOpacityUp}
             disabled={!result}
             className="flex-1 accent-tamias-accent"
             aria-label="Mask overlay opacity"

@@ -1,5 +1,5 @@
 import { useEffect, useImperativeHandle, useRef, forwardRef } from 'react';
-import { NiivueViewer, type OverlayColorMap, type ProbeReading } from '../lib/viewer/niivue';
+import { NiivueViewer, type OverlayColorMap, type ProbeReading, type AngleState } from '../lib/viewer/niivue';
 import type { Bytes, VolumeMetadata } from '../types';
 
 export type { ProbeReading };
@@ -68,6 +68,12 @@ export interface ViewerHandle {
   zoomBy(factor: number): void;
   /** Capture the canvas as a PNG; null when the GL context isn't ready. */
   takeScreenshot(): Promise<Blob | null>;
+  // ── Angle measurement (3-click) ──
+  setAngleMode(on: boolean): void;
+  isAngleMode(): boolean;
+  addAnglePoint(mm: [number, number, number]): void;
+  clearAnglePoints(): void;
+  onAngleUpdate(cb: (state: AngleState) => void): () => void;
   // ── SAM helpers ──
   /** Pull the current axial slice as Float32 grayscale + dims, for SAM
    *  encoding. Returns null when no primary volume is loaded. */
@@ -100,7 +106,22 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
     // pointerup keeps the 3D view in lockstep without spamming a refresh on
     // every move event (which would tank framerate).
     const canvas = canvasRef.current;
-    const onPointerUp = () => viewerRef.current?.refreshDrawing();
+
+    // Cache the most recent probe reading so the angle tool can capture
+    // mm coordinates on pointerup without re-reading NiiVue's scene state.
+    let lastMm: [number, number, number] | null = null;
+    const probeUnsub = viewerRef.current?.onProbe((reading) => {
+      lastMm = reading ? reading.mm : null;
+    });
+
+    const onPointerUp = () => {
+      // Brush propagation to 3D mesh.
+      viewerRef.current?.refreshDrawing();
+      // Angle measurement: if mode is active, snapshot the latest mm point.
+      if (viewerRef.current?.isAngleMode() && lastMm) {
+        viewerRef.current.addAnglePoint(lastMm);
+      }
+    };
     canvas.addEventListener('pointerup', onPointerUp);
 
     // Defensive recovery for v0.7.0 user reports of "viewer blanks when I use
@@ -138,6 +159,7 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
     return () => {
       window.removeEventListener('resize', onResize);
       canvas.removeEventListener('pointerup', onPointerUp);
+      probeUnsub?.();
       canvas.removeEventListener('webglcontextlost', onContextLost, false);
       canvas.removeEventListener('webglcontextrestored', onContextRestored, false);
       canvas.removeEventListener('pointerleave', onPointerLeave);
@@ -242,6 +264,22 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       async takeScreenshot() {
         return (await viewerRef.current?.takeScreenshot()) ?? null;
+      },
+      setAngleMode(on) {
+        viewerRef.current?.setAngleMode(on);
+      },
+      isAngleMode() {
+        return viewerRef.current?.isAngleMode() ?? false;
+      },
+      addAnglePoint(mm) {
+        viewerRef.current?.addAnglePoint(mm);
+      },
+      clearAnglePoints() {
+        viewerRef.current?.clearAnglePoints();
+      },
+      onAngleUpdate(cb) {
+        if (!viewerRef.current) return () => undefined;
+        return viewerRef.current.onAngleUpdate(cb);
       },
       getCurrentAxialSlice() {
         return viewerRef.current?.getCurrentAxialSlice() ?? null;

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Wrench,
   MousePointer2,
@@ -10,7 +10,9 @@ import {
   ZoomIn,
   ZoomOut,
   Camera,
+  Triangle,
 } from 'lucide-react';
+import type { AngleState } from '../lib/viewer/niivue';
 import { saveBytes, saveBytesToDirectory } from '../lib/fs/filesystem';
 import { asBytes } from '../types';
 import { appendAudit } from '../lib/fs/audit';
@@ -47,6 +49,39 @@ export function ToolsPanel({ viewerRef }: Props) {
   const result = useAppStore((s) => s.result);
   const [drag, setDrag] = useState<DragMode>('none');
   const [outline, setOutline] = useState(false);
+  /**
+   * Angle measurement state mirror — the source of truth lives in
+   * NiivueViewer (so multiple subscribers see the same points). We
+   * subscribe via `viewerRef.current.onAngleUpdate()` and re-render
+   * whenever the user clicks another point. `null` means "not in angle
+   * mode"; a populated `AngleState` (even with 0 points) means active.
+   */
+  const [angle, setAngle] = useState<AngleState | null>(null);
+  useEffect(() => {
+    const v = viewerRef.current;
+    if (!v) return;
+    const unsub = v.onAngleUpdate((s) => {
+      setAngle(v.isAngleMode() ? s : null);
+    });
+    return unsub;
+  }, [viewerRef]);
+
+  const toggleAngle = useCallback(() => {
+    const v = viewerRef.current;
+    if (!v) return;
+    const next = !v.isAngleMode();
+    v.setAngleMode(next);
+    // Drag mode goes to "none" while measuring so click+drag doesn't
+    // also pan/contrast — the click is reserved for the angle capture.
+    if (next) {
+      v.setDragMode('none');
+      setDrag('none');
+    }
+  }, [viewerRef]);
+
+  const resetAngle = useCallback(() => {
+    viewerRef.current?.clearAnglePoints();
+  }, [viewerRef]);
 
   const apply = useCallback(
     (mode: DragMode) => {
@@ -184,6 +219,43 @@ export function ToolsPanel({ viewerRef }: Props) {
               hint="Save canvas screenshot"
             />
           </div>
+        </div>
+
+        {/* Angle measurement (3-click, mm-space). Vertex first, then the
+            two arm endpoints. The status pill walks the user through each
+            click and shows the angle in degrees once all three are set. */}
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            Angle measurement
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <ToolBtn
+              label="Angle"
+              icon={<Triangle className="h-3.5 w-3.5" />}
+              active={angle !== null}
+              onClick={toggleAngle}
+              hint="3-click angle (vertex → arm 1 → arm 2)"
+            />
+            <ToolBtn
+              label="Reset pts"
+              icon={<Undo2 className="h-3.5 w-3.5" />}
+              active={false}
+              onClick={resetAngle}
+              hint="Clear captured points; stay in angle mode"
+              disabled={angle === null}
+            />
+          </div>
+          {angle !== null && (
+            <div className="rounded border border-tamias-accent/30 bg-blue-50 px-2 py-1.5 text-[11px] text-tamias-ink dark:bg-blue-950 dark:text-slate-200">
+              {angle.points.length === 0
+                ? 'Click on a 2D slice to set the vertex.'
+                : angle.points.length === 1
+                  ? 'Click to set the first arm endpoint.'
+                  : angle.points.length === 2
+                    ? 'Click to set the second arm endpoint.'
+                    : `Angle: ${angle.degrees!.toFixed(1)}° · vertex (${angle.points[0]!.map((n) => n.toFixed(1)).join(', ')}) mm`}
+            </div>
+          )}
         </div>
 
         <div className="space-y-1.5">

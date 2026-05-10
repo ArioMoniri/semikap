@@ -83,6 +83,18 @@ interface AppState {
   pushError(message: string, opts?: { stack?: string }): void;
   clearErrors(): void;
 
+  /**
+   * Global undo stack — every reversible UI mutation worth undoing pushes
+   * an entry here so a single Cmd-Z / Ctrl-Z handler can pop and revert.
+   * Brush strokes are NOT in this stack — they go through NiiVue's own
+   * draw history via `drawUndo()`. Capped at 50 entries (oldest dropped
+   * silently) so a long session doesn't grow unbounded.
+   */
+  undoStack: UndoEntry[];
+  pushUndo(entry: { label: string; revert: () => void }): void;
+  popUndo(): UndoEntry | null;
+  clearUndoStack(): void;
+
   /** SAM (Segment Anything) interactive-annotation state — see docs/SAM.md. */
   sam: SamState;
   setSam(patch: Partial<SamState>): void;
@@ -193,6 +205,19 @@ export interface AppError {
   stack?: string;
 }
 
+/**
+ * One entry in the global undo stack. `revert()` is closure-captured at
+ * push time so the producer can reverse its mutation without storing an
+ * inverse delta — simpler than a command pattern and good enough for the
+ * coarse-grained UI mutations we care about (slider releases, mode
+ * switches). `label` is shown in tooltips / debug logs.
+ */
+export interface UndoEntry {
+  label: string;
+  revert: () => void;
+  ts: number;
+}
+
 export const useAppStore = create<AppState>((set) => ({
   backend: null,
   setBackend: (b) => set({ backend: b }),
@@ -228,6 +253,25 @@ export const useAppStore = create<AppState>((set) => ({
       ],
     })),
   clearErrors: () => set({ errors: [] }),
+
+  undoStack: [],
+  pushUndo: (entry) =>
+    set((s) => ({
+      // Cap at 50 entries — older mutations drop silently. The user's
+      // working memory is shorter than that anyway, and an unbounded
+      // closure-holding stack would leak references to old store snapshots.
+      undoStack: [...s.undoStack.slice(-49), { ...entry, ts: Date.now() }],
+    })),
+  popUndo: () => {
+    let popped: UndoEntry | null = null;
+    set((s) => {
+      if (s.undoStack.length === 0) return {};
+      popped = s.undoStack[s.undoStack.length - 1] ?? null;
+      return { undoStack: s.undoStack.slice(0, -1) };
+    });
+    return popped;
+  },
+  clearUndoStack: () => set({ undoStack: [] }),
 
   sam: {
     modelLoaded: false,

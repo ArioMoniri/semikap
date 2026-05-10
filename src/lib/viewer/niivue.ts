@@ -57,6 +57,16 @@ export interface ProbeReading {
 
 type ProbeListener = (reading: ProbeReading | null) => void;
 
+/**
+ * Angle-measurement snapshot. `points` is 0..3 mm-space points in click
+ * order: [vertex, arm1, arm2]. `degrees` is the unsigned angle between
+ * the two arms (0..180), or null until the user has clicked all three.
+ */
+export interface AngleState {
+  points: Array<[number, number, number]>;
+  degrees: number | null;
+}
+
 interface NVDriver {
   drawingEnabled: boolean;
   setPenValue(label: number, isFilledPen?: boolean): void;
@@ -94,6 +104,11 @@ export class NiivueViewer {
    *  toggle outline mode reversibly without re-running inference. */
   private maskFilledVoxels: Uint8Array | null = null;
   private probeListeners = new Set<ProbeListener>();
+  /** Angle-measurement state — captured in mm so we can compute the angle
+   *  in physical (real-world) space rather than voxel-grid space. */
+  private angleMode = false;
+  private anglePoints: Array<[number, number, number]> = [];
+  private angleListeners = new Set<(state: AngleState) => void>();
 
   constructor(canvas: HTMLCanvasElement) {
     this.nv = new Niivue({
@@ -819,6 +834,71 @@ export class NiivueViewer {
       this.maskFilledVoxels = null;
     }
     this.nv.updateGLVolume();
+  }
+
+  // ── Angle measurement ─────────────────────────────────────────────────────
+  /**
+   * Toggle the 3-click angle measurement mode. While on, the next three
+   * canvas pointerups (handled in Viewer.tsx) are routed through
+   * `addAnglePoint()` instead of NiiVue's own click handlers. Subscribers
+   * registered via `onAngleUpdate()` are notified each time the state
+   * changes (point added, mode reset, mode disabled).
+   */
+  setAngleMode(on: boolean): void {
+    this.angleMode = on;
+    if (!on) {
+      this.anglePoints = [];
+    }
+    this.notifyAngle();
+  }
+
+  isAngleMode(): boolean {
+    return this.angleMode;
+  }
+
+  /** Append a mm-space point to the angle measurement. No-op when off
+   *  or when 3 points are already captured. */
+  addAnglePoint(mm: [number, number, number]): void {
+    if (!this.angleMode || this.anglePoints.length >= 3) return;
+    this.anglePoints = [...this.anglePoints, mm];
+    this.notifyAngle();
+  }
+
+  clearAnglePoints(): void {
+    this.anglePoints = [];
+    this.notifyAngle();
+  }
+
+  /** Subscribe to angle-state updates. Returns an unsubscribe fn. */
+  onAngleUpdate(cb: (state: AngleState) => void): () => void {
+    this.angleListeners.add(cb);
+    // Fire once immediately so the new subscriber sees current state.
+    cb(this.snapshotAngle());
+    return () => this.angleListeners.delete(cb);
+  }
+
+  private snapshotAngle(): AngleState {
+    const pts = this.anglePoints;
+    if (pts.length < 3) {
+      return { points: pts.slice(), degrees: null };
+    }
+    // Vector from vertex (pts[0]) to each arm endpoint.
+    const v = pts[0]!;
+    const a1: [number, number, number] = [pts[1]![0] - v[0], pts[1]![1] - v[1], pts[1]![2] - v[2]];
+    const a2: [number, number, number] = [pts[2]![0] - v[0], pts[2]![1] - v[1], pts[2]![2] - v[2]];
+    const dot = a1[0] * a2[0] + a1[1] * a2[1] + a1[2] * a2[2];
+    const m1 = Math.hypot(a1[0], a1[1], a1[2]);
+    const m2 = Math.hypot(a2[0], a2[1], a2[2]);
+    if (m1 < 1e-6 || m2 < 1e-6) {
+      return { points: pts.slice(), degrees: null };
+    }
+    const cos = Math.max(-1, Math.min(1, dot / (m1 * m2)));
+    return { points: pts.slice(), degrees: (Math.acos(cos) * 180) / Math.PI };
+  }
+
+  private notifyAngle(): void {
+    const snap = this.snapshotAngle();
+    this.angleListeners.forEach((fn) => fn(snap));
   }
 
   resize(): void {
