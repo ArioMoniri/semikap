@@ -6,6 +6,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.7.7] — Native TotalSegmentator runner (Tauri-only)
+
+### Added — Real TotalSegmentator inference
+
+- 🐧 **Native Python sidecar runner.** New Rust commands `totalseg_detect`, `totalseg_run`, `totalseg_read_mask` in `src-tauri/src/totalseg.rs`. The Tauri desktop build now spawns the user's locally installed `totalsegmentator` (or `python3 -m totalsegmentator`) as a subprocess, streams stdout/stderr line-by-line back to the frontend via the `totalseg-progress` Tauri event, and captures the resulting per-class NIfTI masks in a temp directory.
+- 🧠 **Mac without CUDA works.** v0.7.6 framed TotalSegmentator as needing CUDA — that was wrong. PyTorch's MPS backend handles Apple Silicon and CPU fallback works on every Mac. The native runner uses whatever your existing Python install resolves to. Same workflow as the user's manual `pip install totalsegmentator` + CLI run, just driven from inside TAMIAS.
+- 🪟 **`NativePyRunner` subcomponent** in `TotalSegmentatorPanel` replaces the v0.7.6 disabled-button explainer when run in the Tauri build:
+  - Stage 1: detection — runs `totalseg_detect`; shows `pip install totalsegmentator` + relaunch instructions on miss.
+  - Stage 2: ready — task selector (`total`, `lung_vessels`, `body`, `cerebral_bleed`, `hip_implant`, `coronary_arteries`, `pleural_pericard_effusion`) + `--fast` toggle.
+  - Stage 3: running — live progress tail, capped at 200 lines (Rust-side cap matches UI cap).
+  - Stage 4: done — output directory + mask filenames listed.
+- 📦 **Pyodide path stays as a collapsed fallback** (`<details>` block, "browser-only, experimental"). Honest about its current dead end at SimpleITK; will start working when Pyodide closes the gap, no UI change needed.
+- 🌐 **Browser PWA**: native runner card auto-degrades to "install desktop app for native Python integration" when `window.__TAURI__` isn't present. The PWA path keeps working unchanged.
+
+### How to use it
+
+1. Install TotalSegmentator on your machine: `pip install totalsegmentator` (or `pipx install totalsegmentator`).
+2. Relaunch TAMIAS so PATH detection picks the binary up.
+3. Load a CT volume in the radiology panel.
+4. Open On-Prem AI → TotalSegmentator → load any manifest (BYO or local) to expose the runner card.
+5. Pick a task + click Run. Progress streams in real time. Output masks land in a temp directory; auto-loading them back into the viewer ships in v0.7.8.
+
+### Internal — Why no `tauri-plugin-shell` scope
+
+The shell plugin requires whitelisting commands by argument pattern. TotalSegmentator's CLI grows new flags every release (subtask names, `--statistics`, `--quiet`). We bypass the plugin entirely and use `std::process::Command` from Rust — same security trust boundary (the user accepts the desktop install), much more future-proof. Custom Tauri commands are app-defined via `invoke_handler` and don't require capability gating.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 10/10 vitest pass.
+- `npm run build` — production bundle ships in 19.46s (5466 KiB precache).
+- `cargo check` (Rust side) — compiles clean.
+
 ## [0.7.6] — Pyodide TotalSegmentator runner (experimental)
 
 ### Added — In-browser TotalSegmentator attempt

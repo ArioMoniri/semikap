@@ -11,13 +11,20 @@
 // downloads it, and offers the user a one-click install. See README → Auto
 // updates.
 
+mod totalseg;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![about])
+        .invoke_handler(tauri::generate_handler![
+            about,
+            totalseg::totalseg_detect,
+            totalseg::totalseg_run,
+            totalseg::totalseg_read_mask,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running TAMIAS desktop app");
 }

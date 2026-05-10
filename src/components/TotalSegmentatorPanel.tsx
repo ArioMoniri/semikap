@@ -337,7 +337,23 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
                 <XIcon className="h-3 w-3" />
               </button>
             </div>
-            <PyodideRunner />
+            {/* v0.7.7 — primary path is the NATIVE python runner, which
+                spawns the user's local `totalsegmentator` install via
+                a Tauri command. This is the workflow the user already
+                uses on Mac/Linux, just automated through TAMIAS. The
+                Pyodide attempt stays as a collapsed fallback for
+                completeness; it will not work today but is wired so
+                the Pyodide ecosystem closing the gap unlocks it
+                without a re-release. */}
+            <NativePyRunner viewerRef={_viewerRef} />
+            <details className="rounded border border-slate-200 dark:border-slate-800">
+              <summary className="cursor-pointer px-2 py-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                Pyodide fallback (browser-only, experimental)
+              </summary>
+              <div className="border-t border-slate-200 p-2 dark:border-slate-800">
+                <PyodideRunner />
+              </div>
+            </details>
           </div>
         )}
 
@@ -636,6 +652,251 @@ function PyodideRunner() {
       {reason && (
         <div className="rounded border border-red-200 bg-red-50 p-1 text-[10px] text-red-900 dark:border-red-900/40 dark:bg-red-950 dark:text-red-200">
           {reason}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * v0.7.7 — Native Python runner via Tauri.
+ *
+ * Spawns the user's locally installed `totalsegmentator` via a Tauri
+ * command (Rust side: `src-tauri/src/totalseg.rs`). On the browser
+ * PWA the Tauri APIs aren't present, so we render an "install desktop
+ * app" stub instead.
+ *
+ * Stages: detecting → ready / missing → running → done / failed.
+ * Progress is streamed via the `totalseg-progress` Tauri event from
+ * the Rust side; each line is appended to a tail buffer and rendered
+ * verbatim. Output masks land in a temp directory; the result struct
+ * carries the path + filenames so a future revision can auto-load the
+ * masks back into NiiVue.
+ */
+function NativePyRunner({
+  viewerRef: _viewerRef,
+}: {
+  viewerRef: React.MutableRefObject<ViewerHandle | null>;
+}) {
+  type Env = {
+    available: boolean;
+    invocation: string | null;
+    version: string | null;
+    error: string | null;
+  };
+
+  const [env, setEnv] = useState<Env | null>(null);
+  const [task, setTask] = useState<string>('total');
+  const [fast, setFast] = useState<boolean>(true);
+  const [running, setRunning] = useState<boolean>(false);
+  const [progress, setProgress] = useState<string[]>([]);
+  const [result, setResult] = useState<{ outputDir: string; maskFiles: string[] } | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+
+  /**
+   * Lazy-loaded Tauri shim. Importing `@tauri-apps/api` from a module
+   * that *also* runs in the PWA throws on the browser side, so we
+   * import dynamically and feature-detect.
+   */
+  const tauriRef = useRef<{
+    invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+    listen: (
+      event: string,
+      cb: (e: { payload: unknown }) => void
+    ) => Promise<() => void>;
+  } | null>(null);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    (async () => {
+      try {
+        const isTauri =
+          typeof window !== 'undefined' &&
+          ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
+        if (!isTauri) {
+          setEnv({
+            available: false,
+            invocation: null,
+            version: null,
+            error:
+              'Native runner is only available in the Tauri desktop build. Install the latest TAMIAS DMG / MSI / AppImage to use this path.',
+          });
+          return;
+        }
+        const core = await import(/* @vite-ignore */ '@tauri-apps/api/core');
+        const event = await import(/* @vite-ignore */ '@tauri-apps/api/event');
+        tauriRef.current = {
+          invoke: core.invoke as (
+            cmd: string,
+            args?: Record<string, unknown>
+          ) => Promise<unknown>,
+          listen: event.listen as (
+            evt: string,
+            cb: (e: { payload: unknown }) => void
+          ) => Promise<() => void>,
+        };
+        const detected = (await tauriRef.current.invoke('totalseg_detect')) as Env;
+        setEnv(detected);
+
+        // Subscribe to streamed progress lines.
+        unlisten = await tauriRef.current.listen('totalseg-progress', (e) => {
+          const line = String(e.payload ?? '');
+          setProgress((prev) => {
+            const next = [...prev, line];
+            // Cap UI buffer at 200 — matches the Rust-side cap.
+            return next.length > 200 ? next.slice(-200) : next;
+          });
+        });
+      } catch (err) {
+        setEnv({
+          available: false,
+          invocation: null,
+          version: null,
+          error: `Tauri detection failed: ${(err as Error).message}`,
+        });
+      }
+    })();
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
+  const handleRun = useCallback(async () => {
+    if (!tauriRef.current || !env?.invocation) return;
+    const v = useAppStore.getState().volume;
+    if (!v) {
+      setRunError('Load a primary volume first.');
+      return;
+    }
+    setRunError(null);
+    setRunning(true);
+    setProgress([]);
+    setResult(null);
+    try {
+      // We pass the volume's source bytes — TotalSegmentator accepts
+      // NIfTI / DICOM input, both of which TAMIAS already loads as a
+      // PickedFile. Rust writes them to a temp file before invoking
+      // the upstream tool.
+      const res = (await tauriRef.current.invoke('totalseg_run', {
+        volumeBytes: Array.from(v.source.bytes as Uint8Array),
+        invocation: env.invocation,
+        task,
+        fast,
+      })) as {
+        output_dir: string;
+        mask_files: string[];
+      };
+      setResult({ outputDir: res.output_dir, maskFiles: res.mask_files });
+    } catch (err) {
+      setRunError(String(err));
+    } finally {
+      setRunning(false);
+    }
+  }, [env, task, fast]);
+
+  if (!env) {
+    return (
+      <div className="rounded border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+        Detecting native TotalSegmentator install…
+      </div>
+    );
+  }
+
+  if (!env.available) {
+    return (
+      <div className="space-y-1 rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+        <div className="font-medium">Native runner unavailable</div>
+        <div>{env.error}</div>
+        <div className="mt-1 font-mono text-[10px] opacity-80">
+          $ pip install totalsegmentator
+        </div>
+        <div className="text-[10px] opacity-70">
+          Then relaunch TAMIAS so PATH detection picks the binary up.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded border border-emerald-200 bg-emerald-50 p-2 text-[11px] text-emerald-900 dark:border-emerald-800/50 dark:bg-emerald-950 dark:text-emerald-200">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="font-medium">Native TotalSegmentator detected</div>
+        <span className="rounded bg-emerald-200/60 px-1 font-mono text-[9px] dark:bg-emerald-800/40">
+          {env.invocation}
+        </span>
+      </div>
+      {env.version && (
+        <div className="font-mono text-[10px] opacity-80">v{env.version}</div>
+      )}
+
+      <div className="grid grid-cols-2 gap-1.5 pt-1">
+        <label className="space-y-0.5">
+          <span className="text-[10px] uppercase tracking-wide opacity-70">
+            Task
+          </span>
+          <select
+            value={task}
+            onChange={(e) => setTask(e.target.value)}
+            className="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          >
+            <option value="total">total (117 classes)</option>
+            <option value="lung_vessels">lung_vessels</option>
+            <option value="body">body</option>
+            <option value="cerebral_bleed">cerebral_bleed</option>
+            <option value="hip_implant">hip_implant</option>
+            <option value="coronary_arteries">coronary_arteries</option>
+            <option value="pleural_pericard_effusion">pleural_pericard_effusion</option>
+          </select>
+        </label>
+        <label className="flex items-end gap-1.5">
+          <input
+            type="checkbox"
+            checked={fast}
+            onChange={(e) => setFast(e.target.checked)}
+            className="rounded border-slate-300"
+          />
+          <span className="text-[11px]">--fast (3 mm spacing)</span>
+        </label>
+      </div>
+
+      <Button
+        size="sm"
+        variant="ink"
+        onClick={() => void handleRun()}
+        disabled={running}
+        className="w-full gap-1.5"
+      >
+        <Play className="h-3.5 w-3.5" />
+        {running ? 'Running…' : 'Run TotalSegmentator on current volume'}
+      </Button>
+
+      {runError && (
+        <div className="rounded border border-red-200 bg-red-50 p-1.5 text-[10px] text-red-900 dark:border-red-900/40 dark:bg-red-950 dark:text-red-200">
+          {runError}
+        </div>
+      )}
+
+      {progress.length > 0 && (
+        <details open={running} className="text-[10px]">
+          <summary className="cursor-pointer font-medium opacity-80">
+            Progress ({progress.length} lines)
+          </summary>
+          <pre className="mt-1 max-h-40 overflow-auto rounded bg-slate-900/85 p-1.5 font-mono text-[10px] leading-snug text-slate-100">
+            {progress.join('\n')}
+          </pre>
+        </details>
+      )}
+
+      {result && (
+        <div className="space-y-0.5 rounded border border-emerald-300 bg-emerald-100/50 p-1.5 text-[10px] dark:border-emerald-800 dark:bg-emerald-900/30">
+          <div className="font-medium">
+            Done — {result.maskFiles.length} mask{result.maskFiles.length === 1 ? '' : 's'} written
+          </div>
+          <div className="font-mono opacity-80">{result.outputDir}</div>
+          <div className="opacity-70">
+            Auto-loading masks into the viewer is wired in a follow-up.
+            For now, the files are on disk for you to inspect.
+          </div>
         </div>
       )}
     </div>
