@@ -121,11 +121,13 @@ function ModeBtn({
   icon,
   active,
   onClick,
+  hint,
 }: {
   label: string;
   icon?: React.ReactNode;
   active: boolean;
   onClick: () => void;
+  hint?: string;
 }) {
   return (
     <Button
@@ -136,7 +138,7 @@ function ModeBtn({
         'h-auto flex-col gap-0.5 px-1 py-1.5 text-[10px] leading-tight',
         active ? '' : 'text-slate-700 dark:text-slate-200'
       )}
-      title={label}
+      title={hint ?? label}
     >
       {icon}
       <span className="truncate">{label}</span>
