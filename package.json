@@ -1,7 +1,7 @@
 {
   "name": "tamias",
   "private": true,
-  "version": "0.7.3",
+  "version": "0.7.4",
   "type": "module",
   "description": "Transparent locAl Medical Image AnalysiS Tool — browser-only PWA for ONNX medical imaging models",
   "license": "Apache-2.0",
@@ -22,6 +22,8 @@
     "setup": "npm ci && npm run build && npm start",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "format": "prettier --write .",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
@@ -78,6 +80,7 @@
     "typescript-eslint": "^8.18.1",
     "vite": "^5.4.11",
     "vite-plugin-pwa": "^0.21.1",
+    "vitest": "^2.1.8",
     "workbox-window": "^7.3.0"
   },
   "engines": {

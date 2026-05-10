@@ -193,6 +193,13 @@ export interface UserPrefs {
    *  not persisted via the localStorage prefs path — survives only the
    *  current session. IDB-backed persistence ships in a follow-up. */
   screenshotDirHandle: FileSystemDirectoryHandle | null;
+  /**
+   * v0.7.4 — the "No upload" privacy badge in the header is dismissable.
+   * Once the user clicks the X, this flag persists in localStorage so the
+   * badge stays hidden across reloads. Reset via Settings → "Restore
+   * privacy banner". Defaults to false (banner shown).
+   */
+  dismissedNoUploadBanner: boolean;
 }
 
 /**
@@ -400,5 +407,6 @@ function defaultPrefs(): UserPrefs {
     screenshotMode: 'ask',
     screenshotDirName: null,
     screenshotDirHandle: null,
+    dismissedNoUploadBanner: false,
   };
 }

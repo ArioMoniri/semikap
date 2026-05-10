@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Crosshair, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Crosshair, Microscope, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
+import { Badge } from '../ui/Badge';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { CollapsibleSection } from '../ui/Collapsible';
 import { PathologySlidePicker } from './PathologySlidePicker';
@@ -136,6 +138,7 @@ export function PathologyShell({ sidebarWidth, sidebarCollapsed, onToggleSidebar
       >
         <CollapsibleSection title="Slide" defaultOpen trailing={slide ? 'loaded' : 'pick'}>
           <PathologySlidePicker onPicked={handleSlide} current={slide} />
+          {slide && <LoadedSlidesList slide={slide} />}
         </CollapsibleSection>
 
         <CollapsibleSection
@@ -368,3 +371,74 @@ const DEFAULT_PALETTE = [
   '#06b6d4', // cyan
   '#d946ef', // magenta
 ];
+
+/**
+ * v0.7.4 — pathology equivalent of the radiology LoadedImagesList. The
+ * pathology side currently mounts at most one slide so the search input
+ * is hidden until a future revision tracks multiple slides; the chip
+ * format mirrors the radiology one so the two modalities feel
+ * consistent. Filename is the primary affordance because pathology
+ * slides are typically picked from a much larger library.
+ */
+function LoadedSlidesList({ slide }: { slide: PickedSlide }) {
+  const [filter, setFilter] = useState('');
+  const rows = useMemo(() => [slide], [slide]);
+  const filtered = useMemo(() => {
+    if (!filter.trim()) return rows;
+    const q = filter.toLowerCase();
+    return rows.filter((r) => r.name.toLowerCase().includes(q));
+  }, [rows, filter]);
+
+  return (
+    <Card className="mt-2">
+      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0 pb-1">
+        <CardTitle className="text-xs uppercase tracking-wide text-slate-500">
+          Loaded slides ({rows.length})
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
+        {rows.length > 1 && (
+          <label className="flex items-center gap-1.5">
+            <Search className="h-3 w-3 shrink-0 text-slate-400" />
+            <input
+              type="search"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Search loaded slides…"
+              aria-label="Search loaded slides"
+              className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs placeholder:text-slate-400 focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-900"
+            />
+          </label>
+        )}
+        <ul className="space-y-1.5">
+          {filtered.map((r, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-2 rounded border border-slate-200 bg-slate-50 p-1.5 text-[11px] dark:border-slate-800 dark:bg-slate-900"
+            >
+              <div className="grid h-[60px] w-[60px] place-items-center rounded border border-slate-300 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800">
+                <Microscope className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="flex items-center gap-1">
+                  <Badge variant="ok" className="text-[9px] uppercase">
+                    {r.format}
+                  </Badge>
+                  <span className="text-[10px] text-slate-500 tabular-nums">
+                    {(r.bytes.length / (1024 * 1024)).toFixed(1)} MB
+                  </span>
+                </div>
+                <div
+                  className="truncate font-medium text-slate-700 dark:text-slate-300"
+                  title={r.name}
+                >
+                  {r.name}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}

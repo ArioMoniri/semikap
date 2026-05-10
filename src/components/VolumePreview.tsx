@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '../lib/state/store';
+import { cn } from '../lib/ui/cn';
 
 /**
  * Tiny mid-axial-slice thumbnail of the currently loaded volume — like the
@@ -10,8 +11,13 @@ import { useAppStore } from '../lib/state/store';
  * Cheap — runs once per volume (no animation, no GL), plain 2D canvas.
  * Honours the volume's actual dtype range via window/level autodetect on
  * the slice itself, so dark CTs and bright MRs both render legibly.
+ *
+ * v0.7.4 — `compact` shrinks the thumbnail to a 140px-wide chip and
+ * shows the filename below it, matching the new "Loaded images" list.
+ * Default is the legacy full-width style so callers without the prop
+ * see no behaviour change.
  */
-export function VolumePreview() {
+export function VolumePreview({ compact = false }: { compact?: boolean }) {
   const volume = useAppStore((s) => s.volume);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -57,7 +63,7 @@ export function VolumePreview() {
 
   const [X, Y, Z] = volume.meta.dims;
   return (
-    <div className="space-y-1">
+    <div className={cn('space-y-1', compact && 'w-[140px]')}>
       <div className="overflow-hidden rounded border border-slate-300 bg-black dark:border-slate-700">
         <canvas
           ref={canvasRef}
@@ -65,8 +71,13 @@ export function VolumePreview() {
           aria-label="Mid-axial slice preview of the loaded volume"
         />
       </div>
+      {compact && (
+        <div className="truncate text-[10px] font-medium text-slate-700 dark:text-slate-300" title={volume.source.name}>
+          {volume.source.name}
+        </div>
+      )}
       <div className="text-[10px] text-slate-500">
-        Mid-axial slice {Math.floor(Z / 2) + 1}/{Z} · {X}×{Y}
+        Mid-axial {Math.floor(Z / 2) + 1}/{Z} · {X}×{Y}
       </div>
     </div>
   );

@@ -34,6 +34,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Unit tests (vitest)
+        run: npm test
+
       - name: Production build
         run: npm run build
 

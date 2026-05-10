@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.7.4] — Drag-drop everywhere · Multi-DICOM · On-Prem AI tab + TotalSegmentator preview · Vitest
+
+### Added — Inputs
+
+- 🪂 **Drag-and-drop on every input picker.** Pre-v0.7.4 only the primary-image and secondary-series cards accepted a drop; the radiology + pathology ONNX model pickers required two click-through file dialogs. Now you can drop the `.onnx` and the `.json` manifest together (in either order) and the picker routes by extension. Drop one and we hold it pending the other so the click flow and the drop flow can be mixed freely.
+- 📚 **Multi-DICOM series input.** New `Series…` button beside `Browse` on the radiology primary picker. Pick or drop multiple `.dcm` slices (Chromium: drop the whole folder) and the new `loadPrimaryFromFiles` wrapper hands them to `NVImage.loadFromFile([...])`, which orders by `ImagePositionPatient` and produces a single 3D volume. `pickFiles({multiple: true})` plus a multi-file `readDroppedFiles` adapter (with recursive `webkitGetAsEntry` walk) make this work in both browser PWA and Tauri builds.
+- 🔍 **Loaded-images list with search.** New compact card under "Inputs" lists every loaded radiology image (140-px thumbnail · format badge · filename · size). The search input auto-shows once 2+ images are loaded — same UX as the cached-models filter. Pathology gets a parallel `LoadedSlidesList` under "Slide".
+- 🛡️ **`No upload` banner is now dismissable.** Click the X to hide; the choice persists in localStorage (`prefs.dismissedNoUploadBanner`). Re-enable via Settings (next release).
+
+### Added — On-Prem AI tab
+
+- 🧠 **Renamed `SAM (assisted)` → `On-Prem AI`** in both modalities. The section now hosts both the existing `SamPanel` and the new `TotalSegmentatorPanel` so all on-device inference families live in one collapse. Future panels (nnUNet variants, MONAI bundles) land here without sidebar clutter.
+- 🫁 **TotalSegmentator panel (preview).** Whole-body anatomical segmentation. v0.7.4 ships the manifest schema (`src/lib/totalseg/types.ts`), the loader scaffold (`src/lib/totalseg/loader.ts`) with streaming-fetch + progress callbacks, and the panel UI (onboarding · BYO URL form · loaded state). Inference runtime lands in a follow-up because the upstream upstream (https://github.com/wasserth/TotalSegmentator) ships only Python / nnUNet weights — the BYO URL flow is the user-facing escape hatch for community ONNX exports.
+
+### Added — Test kit + CI
+
+- 🧪 **Vitest scaffold** (`vitest.config.ts`, `npm test`, `npm run test:watch`). 10 unit tests in `tests/totalseg.loader.test.ts` cover the manifest parser (4), the BYO builder (3), and the preset list shape (2). All 10 pass on CI and locally; coverage report is wired through `--reporter v8` for the `src/lib/totalseg/**` and `src/lib/sam/**` paths.
+- 🤖 **CI now runs `npm test`** between `npm run lint` and `npm run build` in `.github/workflows/ci.yml`. Failures block PR merges.
+
+### Internal
+
+- `pickFiles(accept)` and `readDroppedFiles(event)` are the new multi-file primitives in `src/lib/fs/filesystem.ts`. The single-file `pickFile` and `readDroppedFile` stay for backwards compatibility.
+- `LocalFilePicker.onPickedMany?` is optional — callers that don't pass it see the legacy single-file behaviour, so nothing in the existing radiology / pathology inference paths regresses.
+- `NiivueViewer.loadPrimaryFromFiles(items)` short-circuits to `loadPrimaryFromBytes` when the array has length 1, so the multi-file path doesn't pay the `File` allocation cost on single-volume picks.
+- The TotalSegmentator manifest parser returns a deep-copied object (`JSON.parse(JSON.stringify(m))`) so callers can stash the parsed manifest in zustand without retaining a reference to the raw drop bytes.
+
 ## [0.7.3] — Cross-origin isolation on macOS Tauri + Angle/W-L coexistence
 
 ### Fixed — Critical UX regressions

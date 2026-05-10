@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Brain, FileCheck2 } from 'lucide-react';
-import { pickFile } from '../../lib/fs/filesystem';
+import { pickFile, readDroppedFiles } from '../../lib/fs/filesystem';
 import { parsePathologyManifest } from '../../lib/pathology/manifest';
 import { sha256Hex } from '../../lib/fs/opfs';
 import type { PathologyManifest } from '../../types';
@@ -8,6 +8,7 @@ import type { PickedFile } from '../../lib/fs/filesystem';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
+import { cn } from '../../lib/ui/cn';
 
 const MODEL_ACCEPT: Record<string, string[]> = {
   'application/octet-stream': ['.onnx', '.ort'],
@@ -31,6 +32,23 @@ interface Props {
 export function PathologyModelPicker({ onLoaded, current }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [pendingModel, setPendingModel] = useState<PickedFile | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  const finishLoad = useCallback(
+    async (model: PickedFile, manifestBytes: Uint8Array) => {
+      try {
+        const text = new TextDecoder().decode(manifestBytes);
+        const manifest = parsePathologyManifest(JSON.parse(text));
+        const hash = await sha256Hex(model.bytes);
+        onLoaded({ source: model, bytes: model.bytes, hash, manifest });
+        setPendingModel(null);
+        setError(null);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [onLoaded]
+  );
 
   const handlePickModel = useCallback(async () => {
     setError(null);
@@ -46,19 +64,60 @@ export function PathologyModelPicker({ onLoaded, current }: Props) {
     }
     const file = await pickFile(JSON_ACCEPT);
     if (!file) return;
-    try {
-      const text = new TextDecoder().decode(file.bytes);
-      const manifest = parsePathologyManifest(JSON.parse(text));
-      const hash = await sha256Hex(pendingModel.bytes);
-      onLoaded({ source: pendingModel, bytes: pendingModel.bytes, hash, manifest });
-      setPendingModel(null);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }, [pendingModel, onLoaded]);
+    await finishLoad(pendingModel, file.bytes);
+  }, [pendingModel, finishLoad]);
+
+  /**
+   * v0.7.4 — drag-and-drop. Routes by extension exactly like the
+   * radiology ModelPicker: drop both .onnx + .json together for one-shot
+   * load; drop one and we hold it pending the other. Mirrors
+   * `pendingModel` so a drop and a click can be mixed freely.
+   */
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      setDragOver(false);
+      setError(null);
+      const dropped = await readDroppedFiles(e.nativeEvent);
+      if (dropped.length === 0) return;
+      let model: PickedFile | null = pendingModel;
+      let manifestBytes: Uint8Array | null = null;
+      for (const f of dropped) {
+        const lower = f.name.toLowerCase();
+        if (lower.endsWith('.onnx') || lower.endsWith('.ort')) {
+          model = f;
+        } else if (lower.endsWith('.json')) {
+          manifestBytes = f.bytes;
+        }
+      }
+      if (model && manifestBytes) {
+        await finishLoad(model, manifestBytes);
+        return;
+      }
+      if (model && !manifestBytes) {
+        setPendingModel(model);
+        setError('Got the .onnx — drop or pick its manifest .json next.');
+        return;
+      }
+      if (!model && manifestBytes) {
+        setError('Got a manifest — drop the matching .onnx first.');
+      }
+    },
+    [pendingModel, finishLoad]
+  );
 
   return (
-    <Card>
+    <Card
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => void handleDrop(e)}
+      className={cn(
+        'border-2 border-dashed transition-colors',
+        dragOver ? 'border-tamias-accent bg-blue-50 dark:bg-blue-950/30' : 'border-slate-200'
+      )}
+    >
       <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2">

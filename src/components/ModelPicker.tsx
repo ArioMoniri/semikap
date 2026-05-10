@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Brain, FileCheck2, History, Trash2, FolderOpen } from 'lucide-react';
-import { pickFile } from '../lib/fs/filesystem';
+import { pickFile, readDroppedFiles } from '../lib/fs/filesystem';
+import { asBytes, type Bytes } from '../types';
 import { parseManifest } from '../lib/inference/manifest';
+import { cn } from '../lib/ui/cn';
 import {
   cacheModel,
   deleteCachedModel,
@@ -25,6 +27,14 @@ interface Props {
 export function ModelPicker({ onLoaded, current }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [cached, setCached] = useState<CachedModelMeta[]>([]);
+  /**
+   * v0.7.4 — drag-and-drop hover state for the visual outline. The user
+   * can drop one .onnx and one .json (in either order) and we route by
+   * extension; or drop just one and we hold it as "pending" the same way
+   * the two-click flow does.
+   */
+  const [dragOver, setDragOver] = useState(false);
+  const [pendingOnnx, setPendingOnnx] = useState<{ name: string; bytes: Bytes } | null>(null);
   /**
    * Free-text filter applied to the cached-models list. Matches case-
    * insensitively against name, version, and modality so users with a
@@ -114,6 +124,92 @@ export function ModelPicker({ onLoaded, current }: Props) {
     [onLoaded, refreshCache]
   );
 
+  /**
+   * Apply an ONNX + manifest pair (regardless of how we got them — drag,
+   * pick, or one-side-then-the-other). Splits out the validation +
+   * caching pipeline so the file-picker and DnD code paths share it.
+   */
+  const finishLoad = useCallback(
+    async (
+      onnx: { name: string; bytes: Bytes },
+      manifestBytes: Bytes
+    ): Promise<void> => {
+      let manifest: ModelManifest;
+      try {
+        const parsed = JSON.parse(new TextDecoder().decode(manifestBytes));
+        manifest = parseManifest(parsed);
+      } catch (e) {
+        setError(`Manifest invalid: ${(e as Error).message}`);
+        return;
+      }
+      const hash = await sha256Hex(onnx.bytes);
+      if (manifest.sha256 && manifest.sha256.toLowerCase() !== hash.toLowerCase()) {
+        setError(
+          `Manifest sha256 mismatch:\n  expected ${manifest.sha256}\n  actual   ${hash}`
+        );
+        return;
+      }
+      await cacheModel(onnx.bytes, manifest).catch((e) => {
+        console.warn('[TAMIAS] Failed to cache model in OPFS:', e);
+      });
+      await refreshCache();
+      onLoaded({
+        source: { name: onnx.name, hint: onnx.name, bytes: onnx.bytes },
+        bytes: onnx.bytes,
+        hash,
+        manifest,
+      });
+    },
+    [onLoaded, refreshCache]
+  );
+
+  /**
+   * Drag-and-drop handler. Splits the dropped files by extension:
+   *   - .onnx / .ort → model bytes
+   *   - .json        → manifest bytes
+   * If the drop contains both we run the load pipeline immediately.
+   * If it only contains one we stash it (as `pendingOnnx` or hint via
+   * the existing two-click flow) so a subsequent drop or pick completes
+   * the pair. Mirrors the click flow without forcing the user through
+   * two file dialogs.
+   */
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      setDragOver(false);
+      setError(null);
+      const dropped = await readDroppedFiles(e.nativeEvent);
+      if (dropped.length === 0) return;
+      let onnx: { name: string; bytes: Bytes } | null = pendingOnnx;
+      let manifestBytes: Bytes | null = null;
+      for (const f of dropped) {
+        const lower = f.name.toLowerCase();
+        if (lower.endsWith('.onnx') || lower.endsWith('.ort')) {
+          onnx = { name: f.name, bytes: f.bytes };
+        } else if (lower.endsWith('.json')) {
+          manifestBytes = f.bytes;
+        }
+      }
+      if (onnx && manifestBytes) {
+        setPendingOnnx(null);
+        await finishLoad(onnx, manifestBytes);
+        return;
+      }
+      if (onnx && !manifestBytes) {
+        setPendingOnnx(onnx);
+        setError('Got the .onnx — now drop or pick its manifest .json.');
+        return;
+      }
+      if (!onnx && manifestBytes) {
+        setError('Got a manifest — drop the matching .onnx (or click Pick .onnx first).');
+      }
+    },
+    [finishLoad, pendingOnnx]
+  );
+
+  // Force the consume-bytes type to match exactly what asBytes produces; the
+  // utility re-export keeps this trivial.
+  void asBytes;
+
   const handleDeleteFromCache = useCallback(
     async (hash: string) => {
       await deleteCachedModel(hash);
@@ -123,14 +219,25 @@ export function ModelPicker({ onLoaded, current }: Props) {
   );
 
   return (
-    <Card>
+    <Card
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => void handleDrop(e)}
+      className={cn(
+        'border-2 border-dashed transition-colors',
+        dragOver ? 'border-tamias-accent bg-blue-50 dark:bg-blue-950/30' : 'border-slate-200'
+      )}
+    >
       <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2">
             <Brain className="h-4 w-4 text-tamias-accent" /> ONNX model + manifest
           </CardTitle>
           <CardDescription>
-            Pick an .onnx (or .ort) followed by its manifest .json sidecar.
+            Drop the .onnx + .json together, or pick them in turn.
           </CardDescription>
         </div>
         <Button size="sm" onClick={handlePickModel} className="shrink-0 gap-1.5">

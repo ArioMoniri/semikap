@@ -213,6 +213,60 @@ export class NiivueViewer {
   }
 
   /**
+   * v0.7.4 — load a multi-file DICOM series as the primary volume. Each
+   * entry is a single .dcm slice; NVImage.loadFromFile concatenates them
+   * into one 3D volume using each slice's ImagePositionPatient header
+   * for ordering. Falls back to single-file load when the series turns
+   * out to be one file.
+   *
+   * `inputFiles` are constructed as native `File` objects so we can pass
+   * them to NVImage.loadFromFile, which is the only NiiVue 0.44 entry
+   * point that accepts a heterogeneous array of DICOM slices.
+   */
+  async loadPrimaryFromFiles(
+    items: Array<{ name: string; bytes: Bytes }>
+  ): Promise<LoadedVolume> {
+    if (items.length === 0) throw new Error('No files provided');
+    if (items.length === 1) {
+      const it = items[0]!;
+      return this.loadPrimaryFromBytes(it.name, it.bytes);
+    }
+    while (this.nv.volumes.length > 0) {
+      const v = this.nv.volumes[0];
+      if (!v) break;
+      this.nv.removeVolume(v);
+    }
+    this.primaryIndex = -1;
+    this.secondaryIndex = -1;
+    this.maskIndex = -1;
+
+    const files: File[] = items.map(
+      (it) =>
+        new File([it.bytes as BlobPart], it.name, {
+          type: it.name.toLowerCase().endsWith('.dcm') ? 'application/dicom' : 'application/octet-stream',
+        })
+    );
+    // NVImage.loadFromFile in 0.44.x accepts File | File[]; the array form
+    // is the documented multi-DICOM-slice load path. The cast keeps us
+    // tolerant of older typings that only declared the singular form.
+    type LoadFromFile = (
+      arg: File | File[],
+      opts?: Record<string, unknown>
+    ) => Promise<NVImage>;
+    const loadFromFile = (NVImage as unknown as { loadFromFile: LoadFromFile })
+      .loadFromFile;
+    const image = await loadFromFile(files, { name: ensureNiiName(items[0]!.name) });
+    this.nv.addVolume(image);
+    this.nv.updateGLVolume();
+    this.primaryIndex = 0;
+    const driver = this.nv as unknown as NVDriver;
+    if (typeof driver.createEmptyDrawing === 'function') {
+      driver.createEmptyDrawing();
+    }
+    return extractVolume(image);
+  }
+
+  /**
    * Add a secondary base volume (e.g. PET on top of CT, T2 on top of T1).
    * Replaces any prior secondary.
    */

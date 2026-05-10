@@ -10,6 +10,8 @@ import { Viewer } from './Viewer';
 import type { ViewerHandle } from './Viewer';
 import { InferencePanel } from './InferencePanel';
 import { SamPanel } from './SamPanel';
+import { TotalSegmentatorPanel } from './TotalSegmentatorPanel';
+import { LoadedImagesList } from './LoadedImagesList';
 import { ExportPanel } from './ExportPanel';
 import { GpuInfoPanel } from './GpuInfoPanel';
 import { OverlayControls } from './OverlayControls';
@@ -186,6 +188,35 @@ export function AppShell() {
     [setVolume, pushError]
   );
 
+  /**
+   * v0.7.4 — multi-file load (DICOM series). Routed through NiiVue's
+   * NVImage.loadFromFile array form, which orders slices by
+   * ImagePositionPatient before producing a single 3D volume. Falls back
+   * to single-file load when only one file ends up in the array.
+   */
+  const handleImagesPickedMany = useCallback(
+    async (files: PickedFile[]) => {
+      if (files.length === 0) return;
+      try {
+        if (!viewerRef.current) throw new Error('Viewer not ready');
+        const loaded = await viewerRef.current.loadPrimaryFromFiles(
+          files.map((f) => ({ name: f.name, bytes: f.bytes }))
+        );
+        const first = files[0]!;
+        setVolume({
+          source: first,
+          voxels: loaded.voxels,
+          meta: loaded.meta,
+          sourceFormat: detectSourceFormat(first.name),
+        });
+        setStudyHint(`${first.name} (+${files.length - 1} more)`);
+      } catch (e) {
+        pushError(`Failed to load DICOM series: ${(e as Error).message}`);
+      }
+    },
+    [setVolume, pushError]
+  );
+
   const handleResultMask = useCallback(
     async (
       mask: Uint8Array,
@@ -274,9 +305,7 @@ export function AppShell() {
               <Microscope className="h-3 w-3" /> Pathology
             </button>
           </div>
-          <Badge variant="ok" className="gap-1">
-            <ShieldCheck className="h-3 w-3" /> No upload
-          </Badge>
+          <NoUploadBadge />
           {backend && (
             <Badge variant={backend.provider === 'webgpu' ? 'accent' : 'outline'}>
               {backend.provider.toUpperCase()}
@@ -317,9 +346,14 @@ export function AppShell() {
             <div className="space-y-2.5">
               <LocalFilePicker
                 onPicked={handleImagePicked}
+                onPickedMany={handleImagesPickedMany}
                 current={volume?.source ?? null}
               />
               <SecondarySeriesPicker viewerRef={viewerRef} />
+              {/* v0.7.4 — searchable list of loaded images. Hidden when
+                  nothing is loaded; auto-shows the search input once 2+
+                  images land. */}
+              <LoadedImagesList viewerRef={viewerRef} />
             </div>
           </CollapsibleSection>
 
@@ -335,12 +369,22 @@ export function AppShell() {
             <InferencePanel onResultMask={handleResultMask} />
           </CollapsibleSection>
 
+          {/*
+            v0.7.4: regrouped under a single "On-Prem AI" section. SAM
+            (interactive segmentation, ships in v0.7.x) and TotalSegmentator
+            (whole-body anatomical segmentation, preview/BYO-URL in v0.7.4)
+            both run *entirely on this device* — no cloud inference. Future
+            on-prem inference panels (e.g. nnUNet variants) land here too.
+          */}
           <CollapsibleSection
-            title="SAM (assisted)"
+            title="On-Prem AI"
             defaultOpen={false}
             trailing="preview"
           >
-            <SamPanel viewerRef={viewerRef} />
+            <div className="space-y-2.5">
+              <SamPanel viewerRef={viewerRef} />
+              <TotalSegmentatorPanel viewerRef={viewerRef} />
+            </div>
           </CollapsibleSection>
 
           <CollapsibleSection title="Layout" defaultOpen={false}>
@@ -487,6 +531,40 @@ export function AppShell() {
       </main>
       )}
     </div>
+  );
+}
+
+/**
+ * Header "No upload" privacy badge with a dismiss button.
+ *
+ * Pre-v0.7.4 this rendered as a static `<Badge>` with no way to hide it.
+ * Users who already understood the privacy model found it permanently
+ * sticky in the cramped header bar. Now: a single-click X writes
+ * `prefs.dismissedNoUploadBanner = true` to localStorage, the badge
+ * unmounts, and the user can restore it later via Settings.
+ *
+ * Subscribes to the prefs slice through `useAppStore` so the dismiss
+ * is reactive (the previous attempt called `useAppStore.getState()` at
+ * render-time, which never re-rendered when the state flipped).
+ */
+function NoUploadBadge() {
+  const dismissed = useAppStore((s) => s.prefs.dismissedNoUploadBanner);
+  const setPrefs = useAppStore((s) => s.setPrefs);
+  if (dismissed) return null;
+  return (
+    <Badge variant="ok" className="gap-1 pr-0.5">
+      <ShieldCheck className="h-3 w-3" />
+      <span>No upload</span>
+      <button
+        type="button"
+        onClick={() => setPrefs({ dismissedNoUploadBanner: true })}
+        aria-label="Dismiss no-upload banner"
+        title="Dismiss · re-enable in Settings"
+        className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-emerald-700/70 hover:bg-emerald-200/40 hover:text-emerald-900 dark:text-emerald-200/70 dark:hover:bg-emerald-700/30 dark:hover:text-emerald-100"
+      >
+        <X className="h-2.5 w-2.5" />
+      </button>
+    </Badge>
   );
 }
 

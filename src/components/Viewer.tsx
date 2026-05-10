@@ -11,6 +11,10 @@ export interface LoadedFromViewer {
 
 export interface ViewerHandle {
   loadPrimary(name: string, bytes: Bytes): Promise<LoadedFromViewer>;
+  /** v0.7.4 — load a multi-file DICOM series into the primary slot. */
+  loadPrimaryFromFiles(
+    items: Array<{ name: string; bytes: Bytes }>
+  ): Promise<LoadedFromViewer>;
   loadSecondary(name: string, bytes: Bytes, opacity?: number, colormap?: OverlayColorMap): Promise<LoadedFromViewer>;
   removeSecondary(): void;
   addMaskOverlay(
@@ -142,11 +146,9 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
     // `drawScene()` so the volumes re-upload textures and the canvas repaints.
     const onContextLost = (e: Event) => {
       e.preventDefault(); // tells the browser the context is recoverable
-      // eslint-disable-next-line no-console
       console.warn('[TAMIAS] WebGL context lost — will restore on next event');
     };
     const onContextRestored = () => {
-      // eslint-disable-next-line no-console
       console.info('[TAMIAS] WebGL context restored — repainting');
       viewerRef.current?.redraw();
     };
@@ -180,6 +182,10 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
   useImperativeHandle(
     ref,
     (): ViewerHandle => ({
+      async loadPrimaryFromFiles(items) {
+        if (!viewerRef.current) throw new Error('Viewer not ready');
+        return viewerRef.current.loadPrimaryFromFiles(items);
+      },
       async loadPrimary(name, bytes) {
         if (!viewerRef.current) throw new Error('Viewer not ready');
         return viewerRef.current.loadPrimaryFromBytes(name, bytes);
