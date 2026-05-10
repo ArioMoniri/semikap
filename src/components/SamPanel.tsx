@@ -66,6 +66,21 @@ export function SamPanel({ viewerRef }: Props) {
 
   const [activeMode, setActiveMode] = useState<'point' | 'box' | 'text' | 'off'>('off');
   const [textValue, setTextValue] = useState('');
+  /**
+   * Inline BYO/Custom URL panel state. The previous v0.7.1 flow used three
+   * synchronous `window.prompt()` calls — Tauri WKWebView (macOS) silently
+   * blocks `prompt()` so the dialog never appeared and the buttons looked
+   * dead. Replaced with an in-component slide-down form that lives inside
+   * the SAM card. `customUrlForm.family` carries SAM 3's text-prompt flag
+   * so the resulting manifest gets `expectsText: true`.
+   */
+  const [customUrlForm, setCustomUrlForm] = useState<{
+    open: boolean;
+    family?: 'sam' | 'sam2' | 'sam3' | 'medsam';
+    name: string;
+    encoderUrl: string;
+    decoderUrl: string;
+  }>({ open: false, name: '', encoderUrl: '', decoderUrl: '' });
 
   const handleAddText = useCallback(() => {
     if (!textValue.trim()) return;
@@ -145,33 +160,45 @@ export function SamPanel({ viewerRef }: Props) {
   );
 
   /**
-   * Phase F — Custom URL onboarding. Prompts the user for a friendly
-   * name + encoder URL + decoder URL, then runs the same load pipeline
-   * as a preset. Used by the "SAM 3 (bring-your-own URL)" entry and the
-   * standalone "Custom URL" button so any HuggingFace ONNX export can
-   * be loaded without code changes.
+   * Phase F — Custom URL onboarding. v0.7.2: replaced the three-step
+   * `window.prompt()` flow with an in-component form (`customUrlForm`)
+   * because Tauri WKWebView blocks synchronous `prompt()` and the
+   * BYO/Custom URL buttons looked dead. `runCustomUrlFlow` now just
+   * toggles the form open; `submitCustomUrlForm` runs the actual load
+   * pipeline once the user clicks Submit.
    */
   const runCustomUrlFlow = useCallback(
-    async (family?: 'sam' | 'sam2' | 'sam3' | 'medsam') => {
-      const name = prompt('Friendly name for this SAM model:', 'My SAM');
-      if (!name) return;
-      const encoderUrl = prompt(
-        'Encoder ONNX URL (e.g. HuggingFace resolve link):',
-        'https://huggingface.co/.../encoder.onnx'
-      );
-      if (!encoderUrl) return;
-      const decoderUrl = prompt(
-        'Decoder ONNX URL:',
-        'https://huggingface.co/.../decoder.onnx'
-      );
-      if (!decoderUrl) return;
+    (family?: 'sam' | 'sam2' | 'sam3' | 'medsam') => {
+      setCustomUrlForm({
+        open: true,
+        ...(family ? { family } : {}),
+        name: family === 'sam3' ? 'SAM 3' : 'My SAM',
+        encoderUrl: '',
+        decoderUrl: '',
+      });
+    },
+    []
+  );
+
+  const closeCustomUrlForm = useCallback(() => {
+    setCustomUrlForm({ open: false, name: '', encoderUrl: '', decoderUrl: '' });
+  }, []);
+
+  const submitCustomUrlForm = useCallback(
+    async () => {
+      const { name, encoderUrl, decoderUrl, family } = customUrlForm;
+      if (!name.trim() || !encoderUrl.trim() || !decoderUrl.trim()) {
+        pushError('Custom SAM URL: name, encoder URL and decoder URL are all required.');
+        return;
+      }
       const manifest = buildCustomSamManifest({
-        name,
-        encoderUrl,
-        decoderUrl,
+        name: name.trim(),
+        encoderUrl: encoderUrl.trim(),
+        decoderUrl: decoderUrl.trim(),
         ...(family ? { family } : {}),
         expectsText: family === 'sam3',
       });
+      closeCustomUrlForm();
       try {
         setSam({
           busy: { stage: 'fetching', label: 'Downloading encoder…', bytesLoaded: 0 },
@@ -197,7 +224,7 @@ export function SamPanel({ viewerRef }: Props) {
         });
         setSam({
           modelLoaded: true,
-          modelName: name,
+          modelName: name.trim(),
           manifest,
           encoderBytes: bytes.encoderBytes,
           decoderBytes: bytes.decoderBytes,
@@ -208,7 +235,7 @@ export function SamPanel({ viewerRef }: Props) {
         });
         void appendAudit({
           kind: 'export',
-          message: `SAM model loaded (custom URL): ${name}`,
+          message: `SAM model loaded (custom URL): ${name.trim()}`,
           details: { family: manifest.family },
         });
       } catch (e) {
@@ -220,7 +247,7 @@ export function SamPanel({ viewerRef }: Props) {
         setSam({ busy: null });
       }
     },
-    [setSam, pushError]
+    [customUrlForm, closeCustomUrlForm, setSam, pushError]
   );
 
   const handlePickLocal = useCallback(async () => {
@@ -559,7 +586,21 @@ export function SamPanel({ viewerRef }: Props) {
             <OnboardingView
               onPickLocal={handlePickLocal}
               onDownload={handleDownloadPreset}
-              onCustomUrl={() => void runCustomUrlFlow()}
+              onCustomUrl={() => runCustomUrlFlow()}
+            />
+          )}
+
+          {customUrlForm.open && !sam.busy && (
+            <CustomUrlForm
+              name={customUrlForm.name}
+              encoderUrl={customUrlForm.encoderUrl}
+              decoderUrl={customUrlForm.decoderUrl}
+              isSam3={customUrlForm.family === 'sam3'}
+              onChange={(patch) =>
+                setCustomUrlForm((prev) => ({ ...prev, ...patch }))
+              }
+              onSubmit={() => void submitCustomUrlForm()}
+              onCancel={closeCustomUrlForm}
             />
           )}
 
@@ -695,7 +736,7 @@ function OnboardingView({
         Recommended starter: <strong>SAM 2 Tiny</strong> (~30 MB, runs on phones)
         or <strong>MedSAM</strong> (~360 MB, fine-tuned on medical imaging).
         For SAM 3 or any other compatible ONNX export, use the
-        <strong> SAM 3 (bring-your-own URL)</strong> entry or the
+        <strong> SAM 3 (BYO URL)</strong> entry or the
         <strong> Custom URL…</strong> button to paste encoder + decoder links.
       </div>
     </div>
@@ -970,6 +1011,88 @@ function summarisePrompt(p: SamPrompt): string {
   if (p.kind === 'box')
     return `box [${p.xyxy.map((n) => Math.round(n)).join(', ')}]`;
   return `text "${p.value}"`;
+}
+
+/**
+ * Inline BYO/Custom URL form. Replaces the v0.7.1 `window.prompt()`
+ * trio that Tauri WKWebView silently blocked. Lives inside the SAM
+ * onboarding card so the user never leaves the panel.
+ */
+function CustomUrlForm({
+  name,
+  encoderUrl,
+  decoderUrl,
+  isSam3,
+  onChange,
+  onSubmit,
+  onCancel,
+}: {
+  name: string;
+  encoderUrl: string;
+  decoderUrl: string;
+  isSam3: boolean;
+  onChange: (patch: { name?: string; encoderUrl?: string; decoderUrl?: string }) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  const canSubmit = name.trim() && encoderUrl.trim() && decoderUrl.trim();
+  return (
+    <div className="space-y-2 rounded border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-900">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        {isSam3 ? 'SAM 3 — bring your own URL' : 'Custom SAM URL'}
+      </div>
+      <label className="block space-y-1">
+        <span className="text-[11px] text-slate-600 dark:text-slate-300">Name</span>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => onChange({ name: e.target.value })}
+          placeholder="My SAM"
+          className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs placeholder:text-slate-400 focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-950"
+        />
+      </label>
+      <label className="block space-y-1">
+        <span className="text-[11px] text-slate-600 dark:text-slate-300">
+          Encoder ONNX URL
+        </span>
+        <input
+          type="url"
+          value={encoderUrl}
+          onChange={(e) => onChange({ encoderUrl: e.target.value })}
+          placeholder="https://huggingface.co/.../encoder.onnx"
+          spellCheck={false}
+          className="w-full rounded border border-slate-300 bg-white px-2 py-1 font-mono text-[11px] placeholder:text-slate-400 focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-950"
+        />
+      </label>
+      <label className="block space-y-1">
+        <span className="text-[11px] text-slate-600 dark:text-slate-300">
+          Decoder ONNX URL
+        </span>
+        <input
+          type="url"
+          value={decoderUrl}
+          onChange={(e) => onChange({ decoderUrl: e.target.value })}
+          placeholder="https://huggingface.co/.../decoder.onnx"
+          spellCheck={false}
+          className="w-full rounded border border-slate-300 bg-white px-2 py-1 font-mono text-[11px] placeholder:text-slate-400 focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-950"
+        />
+      </label>
+      <div className="flex gap-1.5 pt-1">
+        <Button
+          size="sm"
+          variant="ink"
+          onClick={onSubmit}
+          disabled={!canSubmit}
+          className="flex-1 gap-1.5"
+        >
+          <Download className="h-3.5 w-3.5" /> Download &amp; load
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel} className="flex-1 gap-1.5">
+          <XIcon className="h-3.5 w-3.5" /> Cancel
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function ModeBtn({

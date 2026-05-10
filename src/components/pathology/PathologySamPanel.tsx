@@ -26,7 +26,12 @@ import type {
 } from '../../lib/sam/types';
 import type { SamApi } from '../../workers/sam.worker';
 import { ExternalLink } from '../ExternalLink';
-import { PRESET_SAM_MODELS, loadSamModel, type SamLoadProgress } from '../../lib/sam/loader';
+import {
+  PRESET_SAM_MODELS,
+  loadSamModel,
+  buildCustomSamManifest,
+  type SamLoadProgress,
+} from '../../lib/sam/loader';
 import { pickFile } from '../../lib/fs/filesystem';
 import { appendAudit } from '../../lib/fs/audit';
 import type { PathologyViewerHandle } from './PathologyViewer';
@@ -81,6 +86,20 @@ export function PathologySamPanel({ viewerRef, hasSlide }: Props) {
   );
   const [textValue, setTextValue] = useState('');
   const [roiSize, setRoiSize] = useState<number>(DEFAULT_ROI_SIZE);
+  /**
+   * v0.7.2: BYO/Custom URL inline form. The "SAM 3 (BYO URL)" preset has
+   * `encoder.url === null` by design — clicking it must open this form
+   * instead of running loadSamModel against a null URL. Tauri WKWebView
+   * blocks `prompt()` so we use an in-card form. Mirrors the radiology
+   * SamPanel pattern.
+   */
+  const [customUrlForm, setCustomUrlForm] = useState<{
+    open: boolean;
+    family?: 'sam' | 'sam2' | 'sam3' | 'medsam';
+    name: string;
+    encoderUrl: string;
+    decoderUrl: string;
+  }>({ open: false, name: '', encoderUrl: '', decoderUrl: '' });
 
   const handleAddText = useCallback(() => {
     if (!textValue.trim()) return;
@@ -88,10 +107,32 @@ export function PathologySamPanel({ viewerRef, hasSlide }: Props) {
     setTextValue('');
   }, [textValue]);
 
+  const openCustomUrlForm = useCallback(
+    (family?: 'sam' | 'sam2' | 'sam3' | 'medsam') => {
+      setCustomUrlForm({
+        open: true,
+        ...(family ? { family } : {}),
+        name: family === 'sam3' ? 'SAM 3' : 'My SAM',
+        encoderUrl: '',
+        decoderUrl: '',
+      });
+    },
+    []
+  );
+
+  const closeCustomUrlForm = useCallback(() => {
+    setCustomUrlForm({ open: false, name: '', encoderUrl: '', decoderUrl: '' });
+  }, []);
+
   const handleDownloadPreset = useCallback(
     async (presetId: string) => {
       const preset = PRESET_SAM_MODELS.find((p) => p.id === presetId);
       if (!preset) return;
+      // BYO URL preset has null URLs — route to the inline custom form.
+      if (preset.manifest.encoder.url === null) {
+        openCustomUrlForm(preset.manifest.family);
+        return;
+      }
       // Skip the synchronous confirm() — Tauri WebViews block it (the
       // dialog never appears, button looked broken). Button label already
       // shows size + license; cancel via the busy banner.
@@ -144,8 +185,72 @@ export function PathologySamPanel({ viewerRef, hasSlide }: Props) {
         setSam({ busy: null });
       }
     },
-    [setSam, pushError]
+    [setSam, pushError, openCustomUrlForm]
   );
+
+  const submitCustomUrlForm = useCallback(async () => {
+    const { name, encoderUrl, decoderUrl, family } = customUrlForm;
+    if (!name.trim() || !encoderUrl.trim() || !decoderUrl.trim()) {
+      pushError('Custom SAM URL: name, encoder URL and decoder URL are all required.');
+      return;
+    }
+    const manifest = buildCustomSamManifest({
+      name: name.trim(),
+      encoderUrl: encoderUrl.trim(),
+      decoderUrl: decoderUrl.trim(),
+      ...(family ? { family } : {}),
+      expectsText: family === 'sam3',
+    });
+    closeCustomUrlForm();
+    try {
+      setSam({
+        busy: { stage: 'fetching', label: 'Downloading encoder…', bytesLoaded: 0 },
+      });
+      const bytes = await loadSamModel(manifest, (p: SamLoadProgress) => {
+        setSam({
+          busy: {
+            stage: 'fetching',
+            label:
+              p.stage === 'encoder'
+                ? 'Downloading encoder…'
+                : p.stage === 'decoder'
+                ? 'Downloading decoder…'
+                : p.stage === 'verify'
+                ? 'Verifying…'
+                : p.stage === 'cache'
+                ? 'Caching to OPFS…'
+                : 'Done',
+            bytesLoaded: p.bytesLoaded,
+            ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
+          },
+        });
+      });
+      setSam({
+        modelLoaded: true,
+        modelName: name.trim(),
+        manifest,
+        encoderBytes: bytes.encoderBytes,
+        decoderBytes: bytes.decoderBytes,
+        embedding: null,
+        preview: null,
+        prompts: [],
+        roi: null,
+        busy: null,
+      });
+      void appendAudit({
+        kind: 'export',
+        message: `SAM model loaded (pathology, custom URL): ${name.trim()}`,
+        details: { family: manifest.family },
+      });
+    } catch (e) {
+      const err = e as Error;
+      pushError(
+        `SAM custom-URL load failed: ${err.message}`,
+        err.stack ? { stack: err.stack } : undefined
+      );
+      setSam({ busy: null });
+    }
+  }, [customUrlForm, closeCustomUrlForm, setSam, pushError]);
 
   const handlePickLocal = useCallback(async () => {
     try {
@@ -406,7 +511,25 @@ export function PathologySamPanel({ viewerRef, hasSlide }: Props) {
           {sam.busy && <BusyView busy={sam.busy} />}
 
           {!sam.modelLoaded && !sam.busy && (
-            <OnboardingView onPickLocal={handlePickLocal} onDownload={handleDownloadPreset} />
+            <OnboardingView
+              onPickLocal={handlePickLocal}
+              onDownload={handleDownloadPreset}
+              onCustomUrl={() => openCustomUrlForm()}
+            />
+          )}
+
+          {customUrlForm.open && !sam.busy && (
+            <CustomUrlForm
+              name={customUrlForm.name}
+              encoderUrl={customUrlForm.encoderUrl}
+              decoderUrl={customUrlForm.decoderUrl}
+              isSam3={customUrlForm.family === 'sam3'}
+              onChange={(patch) =>
+                setCustomUrlForm((prev) => ({ ...prev, ...patch }))
+              }
+              onSubmit={() => void submitCustomUrlForm()}
+              onCancel={closeCustomUrlForm}
+            />
           )}
 
           {sam.modelLoaded && !sam.busy && (
@@ -478,9 +601,11 @@ function BusyView({
 function OnboardingView({
   onPickLocal,
   onDownload,
+  onCustomUrl,
 }: {
   onPickLocal: () => void;
   onDownload: (id: string) => void;
+  onCustomUrl: () => void;
 }) {
   return (
     <div className="space-y-2">
@@ -503,6 +628,7 @@ function OnboardingView({
             (preset.approxBytesEncoder + preset.approxBytesDecoder) /
             (1024 * 1024)
           ).toFixed(0);
+          const isBYO = preset.manifest.encoder.url === null;
           return (
             <Button
               key={preset.id}
@@ -510,16 +636,114 @@ function OnboardingView({
               size="sm"
               className="justify-between gap-1.5"
               onClick={() => onDownload(preset.id)}
+              title={
+                isBYO
+                  ? 'No bundled URL yet — opens the Custom URL form.'
+                  : `Stream ~${sizeMB} MB from HuggingFace into OPFS.`
+              }
             >
               <span className="flex items-center gap-1.5">
                 <Download className="h-3.5 w-3.5" /> {preset.manifest.name}
               </span>
               <span className="text-[10px] text-slate-500">
-                ~{sizeMB} MB · {preset.manifest.license}
+                {isBYO
+                  ? 'BYO URL · ' + preset.manifest.license
+                  : `~${sizeMB} MB · ${preset.manifest.license}`}
               </span>
             </Button>
           );
         })}
+        <Button
+          variant="outline"
+          size="sm"
+          className="justify-start gap-1.5"
+          onClick={onCustomUrl}
+          title="Paste your own HuggingFace encoder + decoder URLs"
+        >
+          <FolderOpen className="h-3.5 w-3.5" /> Custom URL…
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Inline BYO/Custom URL form — same shape as the radiology SamPanel
+ * version. Replaces v0.7.1's `prompt()` triple, which Tauri WKWebView
+ * silently blocks.
+ */
+function CustomUrlForm({
+  name,
+  encoderUrl,
+  decoderUrl,
+  isSam3,
+  onChange,
+  onSubmit,
+  onCancel,
+}: {
+  name: string;
+  encoderUrl: string;
+  decoderUrl: string;
+  isSam3: boolean;
+  onChange: (patch: { name?: string; encoderUrl?: string; decoderUrl?: string }) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  const canSubmit = name.trim() && encoderUrl.trim() && decoderUrl.trim();
+  return (
+    <div className="space-y-2 rounded border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-900">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        {isSam3 ? 'SAM 3 — bring your own URL' : 'Custom SAM URL'}
+      </div>
+      <label className="block space-y-1">
+        <span className="text-[11px] text-slate-600 dark:text-slate-300">Name</span>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => onChange({ name: e.target.value })}
+          placeholder="My SAM"
+          className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs placeholder:text-slate-400 focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-950"
+        />
+      </label>
+      <label className="block space-y-1">
+        <span className="text-[11px] text-slate-600 dark:text-slate-300">
+          Encoder ONNX URL
+        </span>
+        <input
+          type="url"
+          value={encoderUrl}
+          onChange={(e) => onChange({ encoderUrl: e.target.value })}
+          placeholder="https://huggingface.co/.../encoder.onnx"
+          spellCheck={false}
+          className="w-full rounded border border-slate-300 bg-white px-2 py-1 font-mono text-[11px] placeholder:text-slate-400 focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-950"
+        />
+      </label>
+      <label className="block space-y-1">
+        <span className="text-[11px] text-slate-600 dark:text-slate-300">
+          Decoder ONNX URL
+        </span>
+        <input
+          type="url"
+          value={decoderUrl}
+          onChange={(e) => onChange({ decoderUrl: e.target.value })}
+          placeholder="https://huggingface.co/.../decoder.onnx"
+          spellCheck={false}
+          className="w-full rounded border border-slate-300 bg-white px-2 py-1 font-mono text-[11px] placeholder:text-slate-400 focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-950"
+        />
+      </label>
+      <div className="flex gap-1.5 pt-1">
+        <Button
+          size="sm"
+          variant="ink"
+          onClick={onSubmit}
+          disabled={!canSubmit}
+          className="flex-1 gap-1.5"
+        >
+          <Download className="h-3.5 w-3.5" /> Download &amp; load
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel} className="flex-1 gap-1.5">
+          <XIcon className="h-3.5 w-3.5" /> Cancel
+        </Button>
       </div>
     </div>
   );

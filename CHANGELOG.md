@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.7.2] — SAM URL fixes + BYO inline form + CSP-safe SW guard
+
+### Fixed — Critical SAM-onboarding regressions
+
+- 🔗 **SAM model 401/404 download failures.** All three preset URLs were broken: `onnx-community/sam2-hiera-tiny/resolve/main/onnx/encoder.onnx` 404'd (the file is named `vision_encoder.onnx` in that repo and the repo itself is older than the ONNX export); `sam2-hiera-base-plus` was a typo for the canonical `sam2.1-hiera-base-plus-ONNX`; `Xenova/medsam` 401'd because the org rotated the repo to `Xenova/medsam-vit-base`. Updated `src/lib/sam/loader.ts` to point at the working `onnx-community/sam2.1-hiera-{tiny,base-plus}-ONNX` repos with the actual `vision_encoder_quantized.onnx` + `prompt_encoder_mask_decoder_quantized.onnx` filenames. Verified each endpoint returns HTTP 200 before tagging.
+- 📝 **"SAM 3 (BYO URL)" + "Custom URL…" buttons did nothing.** Both flows used three sequential `window.prompt()` calls to collect name + encoder URL + decoder URL. macOS Tauri (WKWebView) silently blocks `prompt()`, so the dialog never appeared and the buttons looked dead. Replaced with an in-card inline form (`name`, `encoder URL`, `decoder URL` inputs + Submit/Cancel) in both `SamPanel` and `PathologySamPanel`. The form lives inside the SAM card so the user never leaves the panel; Submit runs the same `loadSamModel` pipeline as a preset.
+- 🪪 **"SAM 3 (bring-your-own URL)" label overflowed its outline button.** Renamed to "SAM 3 (BYO URL)" so the chip stays inside the button outline at the panel's narrow width.
+- 🛡️ **CSP-blocked inline COI guard.** v0.7.0 added an inline `<script>` to skip `coi-serviceworker` registration under the Tauri `tauri://` protocol — but the strict CSP (`script-src 'self' 'wasm-unsafe-eval'`, no `'unsafe-inline'`) blocked it on every load. Externalised the guard to `public/coi-config.js` so the same logic runs without a CSP exception. SW registration is still skipped on `tauri://` (where headers are set natively) and runs on `http://`/`https://` (where the SW provides COOP+COEP).
+
+### Internal
+
+- Both `SamPanel` and `PathologySamPanel` now share a small `CustomUrlForm` subcomponent shape (3 inputs + 2 buttons). `PathologySamPanel` previously had no Custom URL flow at all — the BYO preset used to call `loadSamModel` against a `null` URL and fail silently; it now routes the same way the radiology panel does.
+
 ## [0.7.1] — Global undo stack + Angle measurement tool
 
 ### Added — Centralised undo for tools + settings

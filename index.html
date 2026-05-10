@@ -43,18 +43,15 @@
     >Skip to viewer</a>
     <div id="root"></div>
     <!-- coi-serviceworker promotes the page to cross-origin isolation on hosts
-         (e.g. GitHub Pages) that don't set COOP/COEP. Loaded before the app.
-         Skipped under the Tauri custom protocol (`tauri://`) where
-         navigator.serviceWorker.register() throws "scriptURL must be HTTP
-         or HTTPS" — the desktop bundle gets COOP/COEP from
-         app.security.headers in tauri.conf.json instead. -->
-    <script>
-      if (location.protocol === 'http:' || location.protocol === 'https:') {
-        const s = document.createElement('script');
-        s.src = '/coi-serviceworker.min.js';
-        document.currentScript.parentNode.insertBefore(s, document.currentScript);
-      }
-    </script>
+         (e.g. GitHub Pages) that don't set COOP/COEP. coi-config.js gates
+         registration to http:/https: only — under the Tauri custom protocol
+         (`tauri://`) navigator.serviceWorker.register() throws
+         "scriptURL must be HTTP or HTTPS"; the desktop bundle gets
+         COOP/COEP from app.security.headers in tauri.conf.json instead.
+         Both files are external (script-src 'self') because our strict
+         CSP doesn't allow inline scripts (`'unsafe-inline'`). -->
+    <script src="/coi-config.js"></script>
+    <script src="/coi-serviceworker.min.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

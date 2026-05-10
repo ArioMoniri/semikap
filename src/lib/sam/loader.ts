@@ -48,24 +48,32 @@ export const PRESET_SAM_MODELS: Array<{
   approxBytesEncoder: number;
   approxBytesDecoder: number;
 }> = [
+  // ── HuggingFace ONNX URL notes ─────────────────────────────────────────
+  // The original v0.7.0 URLs (`encoder.onnx` / `decoder.onnx` under
+  // `onnx-community/sam2-hiera-tiny`) returned 404 — that repo's actual
+  // file naming is `vision_encoder*.onnx` / `prompt_encoder_mask_decoder*
+  // .onnx`. The `-base-plus` and `Xenova/medsam` repos either don't exist
+  // anymore (404) or returned 401. Replaced with the maintained `2.1`
+  // ONNX exports (named `*-ONNX`) and `Xenova/medsam-vit-base`. All
+  // verified 200 OK as of v0.7.2.
   {
     id: 'sam2-tiny',
     approxBytesEncoder: 32_000_000,
     approxBytesDecoder: 16_000_000,
     manifest: {
       kind: 'sam',
-      name: 'SAM 2 Tiny',
+      name: 'SAM 2.1 Tiny',
       version: '2.1.0',
       license: 'Apache-2.0',
       family: 'sam2',
       modality: 'Multi',
       encoder: {
-        url: 'https://huggingface.co/onnx-community/sam2-hiera-tiny/resolve/main/onnx/encoder.onnx',
+        url: 'https://huggingface.co/onnx-community/sam2.1-hiera-tiny-ONNX/resolve/main/onnx/vision_encoder_quantized.onnx',
         inputShape: [1, 3, 1024, 1024],
         embeddingShape: [1, 256, 64, 64],
       },
       decoder: {
-        url: 'https://huggingface.co/onnx-community/sam2-hiera-tiny/resolve/main/onnx/decoder.onnx',
+        url: 'https://huggingface.co/onnx-community/sam2.1-hiera-tiny-ONNX/resolve/main/onnx/prompt_encoder_mask_decoder_quantized.onnx',
         outputs: ['masks', 'iou_predictions'],
       },
       prompts: { supports: ['point', 'box'], expectsNegativePoints: true },
@@ -79,18 +87,18 @@ export const PRESET_SAM_MODELS: Array<{
     approxBytesDecoder: 16_000_000,
     manifest: {
       kind: 'sam',
-      name: 'SAM 2 Base+',
+      name: 'SAM 2.1 Base+',
       version: '2.1.0',
       license: 'Apache-2.0',
       family: 'sam2',
       modality: 'Multi',
       encoder: {
-        url: 'https://huggingface.co/onnx-community/sam2-hiera-base-plus/resolve/main/onnx/encoder.onnx',
+        url: 'https://huggingface.co/onnx-community/sam2.1-hiera-base-plus-ONNX/resolve/main/onnx/vision_encoder_quantized.onnx',
         inputShape: [1, 3, 1024, 1024],
         embeddingShape: [1, 256, 64, 64],
       },
       decoder: {
-        url: 'https://huggingface.co/onnx-community/sam2-hiera-base-plus/resolve/main/onnx/decoder.onnx',
+        url: 'https://huggingface.co/onnx-community/sam2.1-hiera-base-plus-ONNX/resolve/main/onnx/prompt_encoder_mask_decoder_quantized.onnx',
         outputs: ['masks', 'iou_predictions'],
       },
       prompts: { supports: ['point', 'box'], expectsNegativePoints: true },
@@ -110,12 +118,12 @@ export const PRESET_SAM_MODELS: Array<{
       family: 'medsam',
       modality: 'Multi',
       encoder: {
-        url: 'https://huggingface.co/Xenova/medsam/resolve/main/onnx/vision_encoder_quantized.onnx',
+        url: 'https://huggingface.co/Xenova/medsam-vit-base/resolve/main/onnx/vision_encoder_quantized.onnx',
         inputShape: [1, 3, 1024, 1024],
         embeddingShape: [1, 256, 64, 64],
       },
       decoder: {
-        url: 'https://huggingface.co/Xenova/medsam/resolve/main/onnx/prompt_encoder_mask_decoder_quantized.onnx',
+        url: 'https://huggingface.co/Xenova/medsam-vit-base/resolve/main/onnx/prompt_encoder_mask_decoder_quantized.onnx',
         outputs: ['masks', 'iou_predictions'],
       },
       // MedSAM is box-prompt-only by design (the medical fine-tune
@@ -139,7 +147,10 @@ export const PRESET_SAM_MODELS: Array<{
     approxBytesDecoder: 0,
     manifest: {
       kind: 'sam',
-      name: 'SAM 3 (bring-your-own URL)',
+      // Short label to keep the preset button text from overflowing the
+       // outline at narrow sidebar widths. Tooltip on the button explains
+       // the full meaning (BYO URL, paste encoder + decoder links).
+      name: 'SAM 3 (BYO URL)',
       version: '3.0.0',
       license: 'Apache-2.0',
       family: 'sam3',
