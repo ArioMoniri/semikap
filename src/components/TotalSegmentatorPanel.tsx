@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react';
-import { Layers, Download, FolderOpen, X as XIcon } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Layers, Download, FolderOpen, X as XIcon, Play, FileCheck2 } from 'lucide-react';
+import type { WorkerRequest, WorkerResponse } from '../workers/totalseg.pyodide.worker';
 import { useAppStore } from '../lib/state/store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
@@ -336,25 +337,7 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
                 <XIcon className="h-3 w-3" />
               </button>
             </div>
-            {/* v0.7.5 — replaces the disabled "Run on current volume
-                (preview)" button. The disabled button looked broken in
-                user testing ("still this button does nothing"), so we
-                surface the real status (no upstream ONNX export yet) +
-                a one-tap link to the upstream Python tool instead. */}
-            <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-              <div className="font-medium">Inference runtime — coming next</div>
-              <div className="mt-0.5">
-                Upstream ships only nnUNet weights;{' '}
-                <ExternalLink
-                  href="https://github.com/wasserth/TotalSegmentator"
-                  className="underline"
-                >
-                  wasserth/TotalSegmentator
-                </ExternalLink>{' '}
-                converts on Python. Browser ONNX runtime lands once a
-                community export is ready.
-              </div>
-            </div>
+            <PyodideRunner />
           </div>
         )}
 
@@ -406,6 +389,253 @@ function BusyView({
           {busy.bytesTotal
             ? ` / ${(busy.bytesTotal / (1024 * 1024)).toFixed(1)} MB`
             : ''}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * v0.7.6 — in-browser TotalSegmentator runner via Pyodide.
+ *
+ * **Honest framing for users:** the official TotalSegmentator pipeline
+ * needs PyTorch + nnUNetv2 + SimpleITK + CUDA. In a web browser via
+ * Pyodide:
+ *   - numpy / nibabel / scipy: Pyodide built-ins (work).
+ *   - PyTorch: experimental WASM build, ~80 MB, CPU-only.
+ *   - SimpleITK: no WASM build at the time of v0.7.6 — `micropip
+ *     .install("SimpleITK")` fails.
+ *   - nnUNetv2: not in Pyodide registry; pulls torch + custom ops.
+ *
+ * Net effect: `micropip.install("totalsegmentator")` is **expected to
+ * fail** at the SimpleITK step on every browser today. The runner
+ * still pulls Pyodide + the available pieces so the user can see the
+ * real progress and the verbatim install errors. When a future
+ * Pyodide release closes the gap, the same UI starts working — the
+ * underlying worker is already wired end-to-end.
+ *
+ * Stages: idle → license → init (load Pyodide ~10 MB) → install (try
+ * to install totalsegmentator + transitive deps) → ready / failed.
+ * The license gate (Apache-2.0 code + CC-BY-NC-style weights) is
+ * required because the user explicitly asked for it ("just put in
+ * license") — no inference starts without an explicit accept.
+ */
+function PyodideRunner() {
+  const [stage, setStage] = useState<
+    'idle' | 'license' | 'booting' | 'installing' | 'ready' | 'failed'
+  >('idle');
+  const [progress, setProgress] = useState<{ stage: string; message?: string }>({
+    stage: 'idle',
+  });
+  const [installed, setInstalled] = useState<string[]>([]);
+  const [failed, setFailed] = useState<Array<{ pkg: string; error: string }>>([]);
+  const [reason, setReason] = useState<string | null>(null);
+  const workerRef = useRef<Worker | null>(null);
+
+  const ensureWorker = useCallback((): Worker => {
+    if (workerRef.current) return workerRef.current;
+    // Vite resolves the worker URL at build-time; we use the
+    // `import.meta.url` form so ?worker is unnecessary.
+    const w = new Worker(
+      new URL('../workers/totalseg.pyodide.worker.ts', import.meta.url),
+      { type: 'module' }
+    );
+    w.onmessage = (e: MessageEvent<WorkerResponse>) => {
+      const m = e.data;
+      if (m.kind === 'progress') {
+        const next: { stage: string; message?: string } = { stage: m.stage };
+        if (m.message !== undefined) next.message = m.message;
+        setProgress(next);
+        return;
+      }
+      if (m.kind === 'ready') {
+        setStage('installing');
+        setProgress({ stage: 'micropip-install', message: 'Asking micropip for totalsegmentator…' });
+        const req: WorkerRequest = { kind: 'install' };
+        w.postMessage(req);
+        return;
+      }
+      if (m.kind === 'install-done') {
+        setStage('ready');
+        setInstalled(m.installed);
+        setFailed(m.failed);
+        return;
+      }
+      if (m.kind === 'install-failed') {
+        setStage('failed');
+        setReason(m.reason);
+        setInstalled(m.installed);
+        setFailed(m.failed);
+        return;
+      }
+      if (m.kind === 'run-done') {
+        setStage('ready');
+        return;
+      }
+      if (m.kind === 'run-failed') {
+        setStage('failed');
+        setReason(m.reason);
+        return;
+      }
+    };
+    workerRef.current = w;
+    return w;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      workerRef.current?.terminate();
+      workerRef.current = null;
+    };
+  }, []);
+
+  const startBoot = useCallback(() => {
+    setStage('booting');
+    setReason(null);
+    setInstalled([]);
+    setFailed([]);
+    setProgress({ stage: 'pyodide-fetch', message: 'Fetching Pyodide bootstrap…' });
+    const w = ensureWorker();
+    const req: WorkerRequest = { kind: 'init' };
+    w.postMessage(req);
+  }, [ensureWorker]);
+
+  if (stage === 'idle') {
+    return (
+      <div className="space-y-2 rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+        <div className="font-medium">Run via Pyodide (experimental)</div>
+        <div>
+          Loads Python in WebAssembly + tries to install{' '}
+          <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/40">
+            totalsegmentator
+          </code>{' '}
+          via micropip. <strong>Expected to fail today</strong> on the
+          SimpleITK / torch dependency wall — but you'll see the exact
+          point of failure, and when Pyodide closes the gap this UI
+          starts working unchanged.
+        </div>
+        <Button
+          size="sm"
+          variant="ink"
+          onClick={() => setStage('license')}
+          className="w-full gap-1.5"
+        >
+          <Play className="h-3.5 w-3.5" /> Try Pyodide pipeline
+        </Button>
+      </div>
+    );
+  }
+
+  if (stage === 'license') {
+    return (
+      <div className="space-y-2 rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+        <div className="font-medium">Licence acceptance required</div>
+        <ul className="list-disc space-y-0.5 pl-4">
+          <li>
+            TotalSegmentator code:{' '}
+            <ExternalLink
+              href="https://github.com/wasserth/TotalSegmentator/blob/master/LICENSE"
+              className="underline"
+            >
+              Apache-2.0
+            </ExternalLink>
+          </li>
+          <li>
+            Model weights:{' '}
+            <ExternalLink
+              href="https://zenodo.org/record/10047292"
+              className="underline"
+            >
+              CC-BY-NC-4.0 (research / non-commercial)
+            </ExternalLink>
+          </li>
+          <li>
+            Pyodide (Python in WASM): Mozilla Public License 2.0
+          </li>
+        </ul>
+        <div className="text-[10px] opacity-80">
+          By continuing you accept the upstream licences. All inference
+          stays on this device — no bytes leave your browser.
+        </div>
+        <div className="flex gap-1.5">
+          <Button
+            size="sm"
+            variant="ink"
+            onClick={startBoot}
+            className="flex-1 gap-1.5"
+          >
+            <FileCheck2 className="h-3.5 w-3.5" /> Accept &amp; continue
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setStage('idle')}
+            className="flex-1 gap-1.5"
+          >
+            <XIcon className="h-3.5 w-3.5" /> Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded border border-blue-200 bg-blue-50 p-2 text-[11px] text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
+      <div className="flex items-center justify-between">
+        <div className="font-medium">
+          {stage === 'booting' && 'Booting Pyodide…'}
+          {stage === 'installing' && 'Installing TotalSegmentator…'}
+          {stage === 'ready' && 'Pyodide ready'}
+          {stage === 'failed' && 'Pyodide pipeline failed'}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            workerRef.current?.terminate();
+            workerRef.current = null;
+            setStage('idle');
+            setReason(null);
+            setInstalled([]);
+            setFailed([]);
+          }}
+          aria-label="Cancel Pyodide pipeline"
+          className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:hover:bg-slate-700 dark:hover:text-slate-100"
+          title="Cancel"
+        >
+          <XIcon className="h-3 w-3" />
+        </button>
+      </div>
+      <div className="text-[10px] tabular-nums opacity-80">
+        Stage: {progress.stage}
+      </div>
+      {progress.message && (
+        <div className="font-mono text-[10px] leading-snug opacity-90">
+          {progress.message}
+        </div>
+      )}
+      {installed.length > 0 && (
+        <div className="text-[10px]">
+          <span className="font-medium">Installed:</span> {installed.join(', ')}
+        </div>
+      )}
+      {failed.length > 0 && (
+        <details className="text-[10px]">
+          <summary className="cursor-pointer font-medium">
+            Failed ({failed.length}) — click to expand
+          </summary>
+          <ul className="mt-1 space-y-1">
+            {failed.map((f, i) => (
+              <li key={i} className="rounded bg-red-50 p-1 dark:bg-red-950/40">
+                <div className="font-mono font-medium">{f.pkg}</div>
+                <div className="font-mono opacity-80">{f.error}</div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {reason && (
+        <div className="rounded border border-red-200 bg-red-50 p-1 text-[10px] text-red-900 dark:border-red-900/40 dark:bg-red-950 dark:text-red-200">
+          {reason}
         </div>
       )}
     </div>

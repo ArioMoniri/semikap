@@ -6,6 +6,42 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.7.6] — Pyodide TotalSegmentator runner (experimental)
+
+### Added — In-browser TotalSegmentator attempt
+
+- 🐍 **Pyodide-based TotalSegmentator runner.** New `src/workers/totalseg.pyodide.worker.ts` + `PyodideRunner` subcomponent inside `TotalSegmentatorPanel`. Replaces the v0.7.5 amber explainer card. Stages: idle → license → init (Pyodide loads from jsdelivr CDN, ~10 MB) → install (`micropip.install("totalsegmentator")` + transitive deps) → ready / failed. Each stage streams progress + the verbatim install error back to the UI.
+- 🪪 **Licence acceptance gate.** Before any Python boot, the user explicitly accepts: TotalSegmentator code (Apache-2.0) + model weights (CC-BY-NC-4.0) + Pyodide (MPL-2.0). The user asked for "just put in licence" parity with the upstream Python tool; this is the in-app version of that step.
+- 📊 **Honest failure mode.** Today, `micropip.install("totalsegmentator")` is **expected to fail** at the SimpleITK / nnUNetv2 / torch dependency wall — those packages have no Pyodide WASM build. The runner attempts each transitive dep individually so the user sees which packages did install vs. failed, with each verbatim error in an expandable `<details>` block. When a future Pyodide release closes the gap, the same UI starts working unchanged — the worker is wired end-to-end (init → install → run).
+- 🌐 **CSP allowlist updated** for Pyodide CDN: `https://cdn.jsdelivr.net`, `https://files.pythonhosted.org`, `https://pypi.org` added to `script-src` and `connect-src` in both the Tauri shell config (`src-tauri/tauri.conf.json`) and the PWA `index.html` meta CSP.
+
+### Why not "fully automated TotalSegmentator" yet
+
+The upstream Python tool runs TotalSegmentator in ~30s on a CUDA GPU because it ships nnUNet + PyTorch + SimpleITK + 200-500 MB of weights. In a browser via Pyodide:
+
+| Dep | Pyodide status |
+|---|---|
+| `numpy`, `scipy`, `nibabel` | ✅ first-class Pyodide packages |
+| `torch` | ⚠️ experimental WASM build, ~80 MB, CPU-only — not on jsdelivr CDN |
+| `SimpleITK` | ❌ no WASM build at all |
+| `nnunetv2` | ❌ not in Pyodide registry; pulls torch + custom ops |
+| `dicom2nifti` | depends on `SimpleITK`, blocked |
+
+So a literal `pip install totalsegmentator` in-browser today fails at SimpleITK. The v0.7.6 runner does the install attempt anyway, showing the user the exact wall — and remains the correct scaffolding for the day a community ONNX export of the nnUNet ensemble lands (in which case the existing BYO URL flow runs it via ORT, no Pyodide needed). Both paths now coexist in the panel.
+
+### Still deferred to v0.7.7
+
+- Persistent multi-distance measurements (NiiVue 0.44 ruler stores one at a time; needs a custom SVG overlay layer).
+- Per-pane slice number overlays (one chip per MPR viewport; needs hooking NiiVue's `screenSlices` private layout).
+- On-canvas drawn angle with multi-color arms (uses the same SVG overlay as multi-distance).
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 10/10 vitest pass.
+- `npm run build` — production bundle ships in 19.87s (5458 KiB precache, +10 KiB vs v0.7.5 from the new worker).
+
 ## [0.7.5] — SAM portal fix · wheel/pinch zoom · slice indicator · CSP/SW polish
 
 ### Fixed — Critical regressions
