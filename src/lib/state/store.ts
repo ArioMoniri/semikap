@@ -115,7 +115,49 @@ interface AppState {
   /** User-level UI preferences that persist across sessions. */
   prefs: UserPrefs;
   setPrefs(patch: Partial<UserPrefs>): void;
+
+  /**
+   * v0.7.8 — persistent measurements (distance + angle). Pre-v0.7.8
+   * NiiVue's distance ruler overwrote on each new draw and the angle
+   * tool only ever held one in memory. This slice stores every
+   * completed measurement in mm-space so an SVG overlay can render
+   * them across pan/zoom/slice changes, and the user can delete each
+   * one explicitly via a click handle.
+   */
+  measurements: Measurement[];
+  addMeasurement(m: Measurement): void;
+  removeMeasurement(id: string): void;
+  clearMeasurements(): void;
 }
+
+/**
+ * v0.7.8 — one persistent measurement in mm space.
+ * `kind: 'distance'` is a single line segment between two world-space
+ * points; `kind: 'angle'` is three points (vertex, arm-1 endpoint,
+ * arm-2 endpoint) that define a planar angle.
+ */
+export type Measurement =
+  | {
+      id: string;
+      kind: 'distance';
+      a: [number, number, number];
+      b: [number, number, number];
+      /** mm-space distance, computed once at add-time so the overlay
+       *  doesn't have to recompute on every render. */
+      distanceMm: number;
+      /** ISO timestamp; used for sort order in the sidebar list. */
+      addedAt: string;
+    }
+  | {
+      id: string;
+      kind: 'angle';
+      vertex: [number, number, number];
+      arm1: [number, number, number];
+      arm2: [number, number, number];
+      /** Degrees, computed once at add-time. */
+      degrees: number;
+      addedAt: string;
+    };
 
 export interface SamState {
   /** True once an encoder + decoder ONNX have been loaded (from disk or
@@ -335,6 +377,17 @@ export const useAppStore = create<AppState>((set) => ({
       savePrefs(next);
       return { prefs: next };
     }),
+
+  // v0.7.8 — persistent measurements. Bypasses NiiVue's single-shot
+  // distance ruler by storing every completed measurement in mm here;
+  // the SVG overlay reads from this slice and renders them with
+  // delete handles.
+  measurements: [],
+  addMeasurement: (m) =>
+    set((s) => ({ measurements: [...s.measurements, m] })),
+  removeMeasurement: (id) =>
+    set((s) => ({ measurements: s.measurements.filter((m) => m.id !== id) })),
+  clearMeasurements: () => set({ measurements: [] }),
 }));
 
 // ── Local-storage backed preferences ────────────────────────────────────

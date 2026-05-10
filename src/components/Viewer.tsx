@@ -1,5 +1,6 @@
 import { useEffect, useImperativeHandle, useRef, forwardRef } from 'react';
 import { NiivueViewer, type OverlayColorMap, type ProbeReading, type AngleState } from '../lib/viewer/niivue';
+import { useAppStore } from '../lib/state/store';
 import type { Bytes, VolumeMetadata } from '../types';
 
 export type { ProbeReading };
@@ -92,6 +93,20 @@ export interface ViewerHandle {
    *  matches the canvas position) to source-axial-slice voxel coords.
    *  Returns null when the click is outside any slice tile. */
   canvasToAxialVoxel(canvasX: number, canvasY: number): { x: number; y: number } | null;
+  /** v0.7.8 — convert a source-mm point to canvas pixel coordinates. */
+  mmToCanvas(mm: [number, number, number]): {
+    x: number;
+    y: number;
+    tile: 'axial' | 'coronal' | 'sagittal' | '3d' | null;
+  } | null;
+  /** v0.7.8 — read NiiVue's per-pane layout (one entry per visible
+   *  MPR tile) for the slice-chip overlay. */
+  getScreenSlices(): Array<{
+    rect: [number, number, number, number];
+    axis: 'axial' | 'coronal' | 'sagittal' | '3d';
+    sliceIndex: number;
+    sliceCount: number;
+  }>;
 }
 
 export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
@@ -133,6 +148,37 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
         lastMm
       ) {
         viewerRef.current.addAnglePoint(lastMm);
+        // v0.7.8 — auto-commit when the third point lands. The
+        // wrapper notifies via onAngleUpdate; here we read the
+        // post-add state synchronously and, if complete, push the
+        // measurement to the persistent store + clear the in-progress
+        // points so the next angle starts fresh. This replaces the
+        // pre-v0.7.8 manual "Reset" workflow.
+        const nv = viewerRef.current;
+        if (nv) {
+          // We can't read state synchronously from the wrapper
+          // without subscribing — but the wrapper has a public
+          // snapshot helper via onAngleUpdate.
+          const unsub = nv.onAngleUpdate((s) => {
+            unsub();
+            if (s.points.length === 3 && s.degrees !== null) {
+              const id =
+                typeof crypto !== 'undefined' && 'randomUUID' in crypto
+                  ? crypto.randomUUID()
+                  : `m-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+              useAppStore.getState().addMeasurement({
+                id,
+                kind: 'angle',
+                vertex: s.points[0]!,
+                arm1: s.points[1]!,
+                arm2: s.points[2]!,
+                degrees: s.degrees,
+                addedAt: new Date().toISOString(),
+              });
+              nv.clearAnglePoints();
+            }
+          });
+        }
       }
     };
     canvas.addEventListener('pointerup', onPointerUp);
@@ -330,6 +376,12 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       canvasToAxialVoxel(x, y) {
         return viewerRef.current?.canvasToAxialVoxel(x, y) ?? null;
+      },
+      mmToCanvas(mm) {
+        return viewerRef.current?.mmToCanvas(mm) ?? null;
+      },
+      getScreenSlices() {
+        return viewerRef.current?.getScreenSlices() ?? [];
       },
     }),
     []

@@ -844,6 +844,124 @@ export class NiivueViewer {
     return { x: Math.round(frac[0] * X), y: Math.round(frac[1] * Y) };
   }
 
+  /**
+   * v0.7.8 — convert a source-mm point to canvas pixel coordinates.
+   * Used by the new MeasurementsOverlay (SVG layer rendered over the
+   * viewer canvas) to draw angle arms + persistent distance lines at
+   * the correct pixel positions even as the user pans / zooms /
+   * cycles slice indices.
+   *
+   * Returns null when:
+   *   - the point doesn't fall on any of the currently visible MPR
+   *     tiles (e.g. it's behind the active slice's depth)
+   *   - NiiVue doesn't expose `frac2canvasPos` (older builds)
+   *
+   * The returned `tile` is one of `'axial' | 'coronal' | 'sagittal' |
+   * '3d'` (or null if undetermined). Useful for filtering: a 2D
+   * measurement only paints on the tile whose normal matches the
+   * measurement's reference plane.
+   */
+  mmToCanvas(mm: [number, number, number]): {
+    x: number;
+    y: number;
+    tile: 'axial' | 'coronal' | 'sagittal' | '3d' | null;
+  } | null {
+    const nv = this.nv as unknown as {
+      mm2frac?(mm: [number, number, number]): [number, number, number];
+      frac2canvasPos?(frac: [number, number, number]): [number, number] | null;
+    };
+    const frac = nv.mm2frac?.(mm);
+    if (!frac) return null;
+    const pos = nv.frac2canvasPos?.(frac);
+    if (!pos) return null;
+    return { x: pos[0], y: pos[1], tile: null };
+  }
+
+  /**
+   * v0.7.8 — read NiiVue's per-pane layout. Returns one entry per
+   * visible MPR tile with the tile's bounding rectangle in canvas
+   * pixel coords + which axis it represents. Used by the per-pane
+   * slice-number chip overlay so we can position one chip in the
+   * top-left of each MPR viewport.
+   *
+   * NiiVue 0.44 stores this as `nv.screenSlices`, a private array of
+   * objects with shape `{leftTopWidthHeight: [x, y, w, h], axCorSag:
+   * 0|1|2|4}`. We adapt to that shape and return a typed view; if
+   * NiiVue's internals change in a future version, the wrapper
+   * insulates the React layer from the breakage.
+   */
+  getScreenSlices(): Array<{
+    rect: [number, number, number, number];
+    axis: 'axial' | 'coronal' | 'sagittal' | '3d';
+    sliceIndex: number;
+    sliceCount: number;
+  }> {
+    const nv = this.nv as unknown as {
+      screenSlices?: Array<{
+        leftTopWidthHeight?: number[];
+        axCorSag?: number;
+      }>;
+      scene?: {
+        crosshairPos?: [number, number, number];
+      };
+    };
+    const slices = nv.screenSlices ?? [];
+    if (this.primaryIndex < 0) return [];
+    const v = this.nv.volumes[this.primaryIndex] as unknown as {
+      hdr?: { dims: number[] };
+    };
+    const X = v?.hdr?.dims[1] ?? 1;
+    const Y = v?.hdr?.dims[2] ?? 1;
+    const Z = v?.hdr?.dims[3] ?? 1;
+    const cross = nv.scene?.crosshairPos ?? [0.5, 0.5, 0.5];
+    const out: Array<{
+      rect: [number, number, number, number];
+      axis: 'axial' | 'coronal' | 'sagittal' | '3d';
+      sliceIndex: number;
+      sliceCount: number;
+    }> = [];
+    for (const s of slices) {
+      const rect = s.leftTopWidthHeight;
+      if (!rect || rect.length !== 4) continue;
+      // NiiVue's axCorSag mapping (from src/niivue.ts in upstream):
+      //   0 = axial (Z), 1 = coronal (Y), 2 = sagittal (X), 4 = 3D render.
+      let axis: 'axial' | 'coronal' | 'sagittal' | '3d';
+      let sliceIndex: number;
+      let sliceCount: number;
+      switch (s.axCorSag) {
+        case 0:
+          axis = 'axial';
+          sliceIndex = Math.round((cross[2] ?? 0.5) * (Z - 1));
+          sliceCount = Z;
+          break;
+        case 1:
+          axis = 'coronal';
+          sliceIndex = Math.round((cross[1] ?? 0.5) * (Y - 1));
+          sliceCount = Y;
+          break;
+        case 2:
+          axis = 'sagittal';
+          sliceIndex = Math.round((cross[0] ?? 0.5) * (X - 1));
+          sliceCount = X;
+          break;
+        case 4:
+          axis = '3d';
+          sliceIndex = 0;
+          sliceCount = 0;
+          break;
+        default:
+          continue;
+      }
+      out.push({
+        rect: [rect[0]!, rect[1]!, rect[2]!, rect[3]!],
+        axis,
+        sliceIndex,
+        sliceCount,
+      });
+    }
+    return out;
+  }
+
   setMaskOutlineOnly(on: boolean): void {
     if (this.maskIndex < 0) return;
     const v = this.nv.volumes[this.maskIndex] as unknown as {

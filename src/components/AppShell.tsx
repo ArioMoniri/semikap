@@ -8,6 +8,8 @@ import { SecondarySeriesPicker } from './SecondarySeriesPicker';
 import { ModelPicker } from './ModelPicker';
 import { Viewer } from './Viewer';
 import type { ViewerHandle } from './Viewer';
+import { MeasurementsOverlay } from './MeasurementsOverlay';
+import { SliceChipsOverlay } from './SliceChipsOverlay';
 import { InferencePanel } from './InferencePanel';
 import { SamPanel } from './SamPanel';
 import { TotalSegmentatorPanel } from './TotalSegmentatorPanel';
@@ -482,6 +484,14 @@ export function AppShell() {
             )}
           </Button>
           <Viewer ref={viewerRef} />
+          {/* v0.7.8 — overlays mounted as siblings inside the relative
+              `#viewer` <section> so SVG `absolute inset-0` lands on
+              the correct ancestor. Both are passive (pointer-events-
+              none on the wrapper) so NiiVue interactions pass
+              through; the only clickable elements are the per-
+              measurement delete handles inside MeasurementsOverlay. */}
+          <MeasurementsOverlay viewerRef={viewerRef} />
+          <SliceChipsOverlay viewerRef={viewerRef} />
           {studyMeta && (
             <div
               className="pointer-events-none absolute left-11 top-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"

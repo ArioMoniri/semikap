@@ -136,6 +136,31 @@ export function SettingsPanel() {
             )}
           </div>
 
+          {/*
+            v0.7.8 — restore the dismissable "No upload" header badge.
+            v0.7.4 added the dismiss button + persisted the choice to
+            localStorage but the promised "re-enable in Settings" path
+            never landed. This is it.
+          */}
+          {prefs.dismissedNoUploadBanner && (
+            <div className="space-y-1 rounded border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-900">
+              <div className="text-[11px] font-medium text-slate-700 dark:text-slate-300">
+                Header banner — “No upload”
+              </div>
+              <div className="text-[11px] text-slate-500">
+                You dismissed this badge previously. Restore it to keep
+                the privacy guarantee visible in the header.
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPrefs({ dismissedNoUploadBanner: false })}
+              >
+                Restore privacy banner
+              </Button>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={handleExport} className="gap-1.5">
               <FileDown className="h-3.5 w-3.5" /> Export log

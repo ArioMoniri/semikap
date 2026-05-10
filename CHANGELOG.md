@@ -6,6 +6,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.7.8] — Persistent measurements · per-pane slice chips · docs · Settings polish
+
+### Added — Drawing on the canvas
+
+- 📐 **Persistent multi-color angle measurements.** New `MeasurementsOverlay` SVG layer renders every committed angle on top of the NiiVue canvas. Color-coded: yellow vertex, red arm 1, blue arm 2 (matches the orientation cube convention). Each angle gets a delete X handle at the vertex. The in-progress angle (between clicks 1–3) shows the same colors as a dashed preview so the user can see what they're about to commit.
+- 📏 **Persistent multi-distance measurements.** Same overlay, cyan dashed lines + endpoint dots + mm-readout label + delete handle. Distance entries persist across pan / zoom / slice scroll because they're stored in source-mm coordinates and re-projected to canvas pixels every animation frame.
+- 🪟 **Per-pane slice number chips.** New `SliceChipsOverlay` reads NiiVue's private `screenSlices` layout array via the new `NiivueViewer.getScreenSlices()` wrapper helper and renders a small `<axis> <currentSlice>/<total>` chip in the top-left of each MPR viewport. The 3D render tile gets a `3D` label. Updates every frame so layout changes (single-plane / MPR / 3D / mosaic) are picked up immediately.
+- 🪪 **Settings → Restore privacy banner.** v0.7.4 added a dismissable "No upload" header badge but the promised "re-enable in Settings" path never landed. It does now — once dismissed, a "Restore privacy banner" tile appears under Settings.
+- 🤝 **Auto-commit angles.** Pre-v0.7.8 the angle tool held the three points in transient state and the user had to manually clear via Reset before drawing the next one. Now the third click pushes the angle to the persistent measurements store and resets the in-progress points so the next angle starts fresh.
+- 🧪 **6 new vitest tests** for the measurements zustand slice (add / remove / clear / order / both kinds). Total test suite: **16/16 passing**.
+
+### Added — Documentation
+
+- 📚 **`docs/TOTALSEGMENTATOR.md`** — created. The TotalSeg panel UI links here from the help chip; v0.7.4 → v0.7.7 left the link broken (404 on the repo). Now covers all three runtime paths (native sidecar, BYO ONNX URL, Pyodide), one-time setup, supported tasks, security posture, troubleshooting + roadmap.
+- 📖 **README updated** with TotalSegmentator + persistent-measurements highlights in the v0.7.x callout block.
+
+### Internal — NiiVue wrapper API additions
+
+- `NiivueViewer.mmToCanvas(mm)` — projects a source-mm point to canvas pixel coords by chaining NiiVue's private `mm2frac` + `frac2canvasPos`. Powers the SVG overlay's per-frame projection.
+- `NiivueViewer.getScreenSlices()` — typed view over NiiVue's private `screenSlices` array. Returns each visible MPR tile's bounding rect + axis + current slice index + total count, derived from `nv.scene.crosshairPos`.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — **16/16 vitest pass** (10 totalseg loader + 6 measurements).
+- `npm run build` — production bundle ships in 21.09s (5472 KiB precache).
+
+### Known limitations (deferred to v0.7.9)
+
+- **Distance capture from right-drag**. The current overlay renders persistent distance measurements that are stored in zustand, but capturing endpoints from the user's right-mouse drag (which currently triggers NiiVue's transient ruler) needs hooking the NiiVue measure callback. v0.7.9 wires that.
+- **Auto-load TotalSegmentator masks** back into the viewer after the native runner finishes. Today the user has to manually point a file picker at the temp dir.
+
 ## [0.7.7] — Native TotalSegmentator runner (Tauri-only)
 
 ### Added — Real TotalSegmentator inference
