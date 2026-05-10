@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Comlink from 'comlink';
-import { Brush, Eraser, RotateCcw, Sparkles, Wand2 } from 'lucide-react';
+import { Brush, Eraser, RotateCcw, Sparkles, Wand2, Trash2 } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import type { ViewerHandle } from './Viewer';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
@@ -39,6 +39,13 @@ export function AnnotationPanel({ viewerRef }: Props) {
   const pushError = useAppStore((s) => s.pushError);
   const [mode, setMode] = useState<Mode>('off');
   const [label, setLabel] = useState<number>(1);
+  /**
+   * Brush radius in voxels. Single slider drives both brush + eraser
+   * because that's what users expect (the eraser is a "brush that paints
+   * label 0"). 1 = precise, 5 = default, 12 = broad. Pushed to NiiVue's
+   * pen-radius opt every render so the slider takes effect immediately.
+   */
+  const [brushRadius, setBrushRadius] = useState<number>(5);
   const smartBusy = useRef(false);
 
   // Manifest labels are still used for tooltips on the colour swatches so
@@ -55,8 +62,37 @@ export function AnnotationPanel({ viewerRef }: Props) {
     } else {
       viewerRef.current.setDrawingEnabled(true);
       viewerRef.current.setBrushLabel(mode === 'eraser' ? 0 : label);
+      viewerRef.current.setBrushRadius(brushRadius);
     }
-  }, [mode, label, viewerRef]);
+  }, [mode, label, brushRadius, viewerRef]);
+
+  /**
+   * Cmd-Z (macOS) / Ctrl-Z (Win/Linux) → undo last brush stroke.
+   * Only active when the user is in brush/eraser/smart mode so the
+   * shortcut doesn't steal Cmd-Z from input fields elsewhere in the app
+   * (the SAM panel's URL input, the Settings panel, etc).
+   */
+  useEffect(() => {
+    if (mode === 'off') return;
+    const onKey = (e: KeyboardEvent) => {
+      const isUndo =
+        (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z';
+      if (!isUndo) return;
+      // Don't hijack Cmd-Z when the user is typing into an input/textarea.
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) {
+        return;
+      }
+      e.preventDefault();
+      viewerRef.current?.undoLastBrushStroke();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, viewerRef]);
+
+  const handleEraseAll = useCallback(() => {
+    viewerRef.current?.clearAllBrushStrokes();
+  }, [viewerRef]);
 
   /**
    * Phase C.2 — single-stroke smart-brush. The user clicks anywhere on
@@ -245,10 +281,41 @@ export function AnnotationPanel({ viewerRef }: Props) {
           >
             <Wand2 className="h-3.5 w-3.5" /> Smart
           </Button>
-          <Button size="sm" variant="ghost" onClick={handleUndo} className="gap-1.5">
+          <Button size="sm" variant="ghost" onClick={handleUndo} className="gap-1.5" title="Undo last stroke (⌘Z / Ctrl-Z)">
             <RotateCcw className="h-3.5 w-3.5" /> Undo
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleEraseAll}
+            className="gap-1.5 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+            title="Wipe every painted voxel (cannot undo)"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Erase all
+          </Button>
         </div>
+
+        {/* Brush radius slider — affects both Brush and Eraser strokes (the
+            eraser is a brush that paints label 0). Hidden in Smart mode
+            because SAM produces a snapped mask, not a freehand stroke. */}
+        {(mode === 'brush' || mode === 'eraser') && (
+          <label className="flex min-w-0 items-center gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+            <span className="w-14 shrink-0">
+              {mode === 'eraser' ? 'Eraser' : 'Brush'}
+            </span>
+            <input
+              type="range"
+              min={1}
+              max={30}
+              step={1}
+              value={brushRadius}
+              onChange={(e) => setBrushRadius(Number(e.target.value))}
+              className="min-w-0 flex-1 accent-tamias-accent"
+              aria-label={`${mode === 'eraser' ? 'Eraser' : 'Brush'} radius (voxels)`}
+            />
+            <span className="w-8 shrink-0 text-right tabular-nums">{brushRadius}px</span>
+          </label>
+        )}
 
         {/* Smart-brush hint. Phase C.2 wires single-click → SAM mask
             straight into this panel; the SAM section above remains the

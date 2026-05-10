@@ -34,6 +34,10 @@ export interface ViewerHandle {
   setDrawingEnabled(on: boolean): void;
   setBrushLabel(label: number): void;
   setBrushOpacity(opacity: number): void;
+  /** Brush radius in voxels (1..30). Applies to both brush + eraser. */
+  setBrushRadius(radius: number): void;
+  /** Wipe every painted voxel; subsequent strokes still work. */
+  clearAllBrushStrokes(): void;
   /** Push current draw bitmap into the 3D mesh + redraw. Call on pointerup
    *  so the user's brush strokes appear in the volumetric render, not
    *  just the 2D MPR slices. */
@@ -180,6 +184,12 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       setBrushOpacity(opacity) {
         viewerRef.current?.setBrushOpacity(opacity);
+      },
+      setBrushRadius(radius) {
+        viewerRef.current?.setBrushRadius(radius);
+      },
+      clearAllBrushStrokes() {
+        viewerRef.current?.clearAllBrushStrokes();
       },
       refreshDrawing() {
         viewerRef.current?.refreshDrawing();

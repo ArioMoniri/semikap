@@ -86,17 +86,12 @@ export function SamPanel({ viewerRef }: Props) {
         await runCustomUrlFlow(preset.manifest.family);
         return;
       }
-      const sizeMB = (
-        (preset.approxBytesEncoder + preset.approxBytesDecoder) /
-        (1024 * 1024)
-      ).toFixed(0);
-      const ok = confirm(
-        `Download ${preset.manifest.name} from HuggingFace?\n\n` +
-          `~${sizeMB} MB · ${preset.manifest.license} · cached locally after download · no upload.\n\n` +
-          'The download is one-shot; subsequent loads come from your browser cache (OPFS) and ' +
-          'work offline.'
-      );
-      if (!ok) return;
+      // The Download button label already shows the size + license, and
+      // each download writes to OPFS so the user can re-use it offline.
+      // Removed the synchronous window.confirm() dialog — Tauri WebViews
+      // (macOS WKWebView in particular) block synchronous confirm() so
+      // the dialog never appeared and the button looked broken. Trusting
+      // the explicit click; cancel via the Cancel button on the busy banner.
       try {
         setSam({
           busy: { stage: 'fetching', label: 'Downloading encoder…', bytesLoaded: 0 },

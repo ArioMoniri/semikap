@@ -92,15 +92,9 @@ export function PathologySamPanel({ viewerRef, hasSlide }: Props) {
     async (presetId: string) => {
       const preset = PRESET_SAM_MODELS.find((p) => p.id === presetId);
       if (!preset) return;
-      const sizeMB = (
-        (preset.approxBytesEncoder + preset.approxBytesDecoder) /
-        (1024 * 1024)
-      ).toFixed(0);
-      const ok = confirm(
-        `Download ${preset.manifest.name} from HuggingFace?\n\n` +
-          `~${sizeMB} MB · ${preset.manifest.license} · cached locally · no upload.`
-      );
-      if (!ok) return;
+      // Skip the synchronous confirm() — Tauri WebViews block it (the
+      // dialog never appears, button looked broken). Button label already
+      // shows size + license; cancel via the busy banner.
       try {
         setSam({
           busy: { stage: 'fetching', label: 'Downloading encoder…', bytesLoaded: 0 },

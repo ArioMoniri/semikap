@@ -106,6 +106,13 @@ export class NiivueViewer {
       // volume loads. Our React empty-state already covers this case more
       // tastefully, so suppress the canvas text.
       loadingText: '',
+      // Smaller colorbar — default 0.05 of canvas height made the tick labels
+      // overlap as "0100200300400" at narrow viewports. 0.025 fits two bars
+      // (image + mask) side-by-side cleanly even on a half-width sidebar.
+      colorbarHeight: 0.025,
+      // 1.5px margin between bar and canvas edge keeps the labels from
+      // colliding with slice edges.
+      colorbarMargin: 0.015,
     });
     void this.nv.attachToCanvas(canvas);
 
@@ -419,6 +426,43 @@ export class NiivueViewer {
   /** Set the brush label index. Pass `0` for eraser. */
   setBrushLabel(label: number): void {
     (this.nv as unknown as NVDriver).setPenValue(label, true);
+  }
+
+  /**
+   * Brush radius in voxels (clamped 1..30). NiiVue 0.44 reads this off
+   * `nv.opts.penSize` for both brush + eraser strokes; bigger = wider
+   * filled disc per click. Reasonable defaults: 1 (precise), 5 (default),
+   * 12 (broad).
+   */
+  setBrushRadius(radius: number): void {
+    const r = Math.max(1, Math.min(30, Math.round(radius)));
+    const opts = (this.nv as unknown as { opts: Record<string, number> }).opts;
+    if (opts) {
+      opts.penSize = r;
+      // Some NiiVue builds use penDilateMagnitude as the radius source —
+      // set both so the slider works regardless of the underlying field.
+      opts.penDilateMagnitude = r;
+    }
+  }
+
+  /**
+   * Wipe every painted voxel — equivalent to undoing every stroke at once.
+   * Closes the existing draw bitmap then re-allocates an empty one so
+   * subsequent strokes work without reload. Refreshes the 3D mesh so
+   * the wipe propagates to the volumetric render too.
+   */
+  clearAllBrushStrokes(): void {
+    const driver = this.nv as unknown as NVDriver & {
+      createEmptyDrawing?(): void;
+    };
+    if (typeof driver.closeDrawing === 'function') driver.closeDrawing();
+    if (typeof driver.createEmptyDrawing === 'function') driver.createEmptyDrawing();
+    // Force the 3D draw mesh to forget the cleared voxels.
+    if (this.drawingActive) {
+      const nv = this.nv as unknown as { refreshDrawing?(force: boolean): void };
+      if (typeof nv.refreshDrawing === 'function') nv.refreshDrawing(true);
+    }
+    this.nv.drawScene();
   }
 
   /**

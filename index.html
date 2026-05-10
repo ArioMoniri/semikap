@@ -22,9 +22,16 @@
       example kit" button can fetch the smoke-test files from this repo.
       Image data still cannot be uploaded — fetch() is one-way (download).
     -->
+    <!--
+      `frame-ancestors` is intentionally NOT in the meta CSP — browsers ignore
+      it there and emit a console warning. Send `X-Frame-Options: DENY` (or
+      `frame-ancestors` in a real HTTP CSP) at the server level instead.
+      HuggingFace domains are added so the browser PWA can pull the SAM
+      checkpoints (Tauri shell already gets them via app.security.csp).
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src 'self' blob: data: https://raw.githubusercontent.com; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+      content="default-src 'self'; connect-src 'self' blob: data: https://raw.githubusercontent.com https://huggingface.co https://*.huggingface.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'"
     />
 
     <title>TAMIAS — Local Medical Image Analysis</title>
@@ -36,8 +43,18 @@
     >Skip to viewer</a>
     <div id="root"></div>
     <!-- coi-serviceworker promotes the page to cross-origin isolation on hosts
-         (e.g. GitHub Pages) that don't set COOP/COEP. Loaded before the app. -->
-    <script src="/coi-serviceworker.min.js"></script>
+         (e.g. GitHub Pages) that don't set COOP/COEP. Loaded before the app.
+         Skipped under the Tauri custom protocol (`tauri://`) where
+         navigator.serviceWorker.register() throws "scriptURL must be HTTP
+         or HTTPS" — the desktop bundle gets COOP/COEP from
+         app.security.headers in tauri.conf.json instead. -->
+    <script>
+      if (location.protocol === 'http:' || location.protocol === 'https:') {
+        const s = document.createElement('script');
+        s.src = '/coi-serviceworker.min.js';
+        document.currentScript.parentNode.insertBefore(s, document.currentScript);
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
