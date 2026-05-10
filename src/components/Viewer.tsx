@@ -114,11 +114,20 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       lastMm = reading ? reading.mm : null;
     });
 
-    const onPointerUp = () => {
+    const onPointerUp = (e: PointerEvent) => {
       // Brush propagation to 3D mesh.
       viewerRef.current?.refreshDrawing();
-      // Angle measurement: if mode is active, snapshot the latest mm point.
-      if (viewerRef.current?.isAngleMode() && lastMm) {
+      // Angle measurement: only LEFT-button pointerups (e.button === 0)
+      // count as angle-vertex captures. v0.7.2 captured every button so
+      // a right-mouse W/L drag dropped a stray angle vertex on release;
+      // worse, it made W/L feel "stuck" because the angle tool also
+      // reset some internal state. Restricting to button 0 keeps the
+      // right-drag W/L behaviour live while Angle is selected.
+      if (
+        e.button === 0 &&
+        viewerRef.current?.isAngleMode() &&
+        lastMm
+      ) {
         viewerRef.current.addAnglePoint(lastMm);
       }
     };

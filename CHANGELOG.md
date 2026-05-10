@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.7.3] — Cross-origin isolation on macOS Tauri + Angle/W-L coexistence
+
+### Fixed — Critical UX regressions
+
+- 🧵 **`crossOriginIsolated === false` on the macOS Tauri build.** v0.7.0/0.7.1/0.7.2 set `Cross-Origin-Embedder-Policy: credentialless` via `app.security.headers` so the WKWebView wouldn't block the Tauri custom protocol or HuggingFace fetches. But Safari/WKWebView **does not honour the `credentialless` value** the way Chromium does — `self.crossOriginIsolated` stayed `false`, `SharedArrayBuffer` was unavailable, and ONNX inference ran in single-threaded WASM mode (the WebGPU backend works either way; the regression is the WASM fallback path). Switched headers back to `Cross-Origin-Embedder-Policy: require-corp` AND removed the v0.7.2 "skip on tauri://" guard in `public/coi-config.js`, so `coi-serviceworker` now installs on the desktop app too. The SW intercepts every fetch and adds `CORP: cross-origin` to HuggingFace responses, which lets `require-corp` accept them. Net effect on macOS Tauri: `crossOriginIsolated === true`, multi-threaded WASM unlocked, HF downloads still work.
+- 📐 **Angle button broke right-mouse-drag W/L.** Toggling the Angle tool in v0.7.1/0.7.2 forced NiiVue's `dragMode` to `'none'`, but `'none'` also disables NiiVue's right-mouse-drag W/L. Result: the user could not adjust window/level while measuring an angle. Removed the forced `setDragMode('none')` in `ToolsPanel.toggleAngle`. Kept the angle-vertex capture intact by tightening the `pointerup` filter in `Viewer.tsx` to `e.button === 0` only — left-clicks still drop angle vertices, but right-mouse drags pass straight through to NiiVue's W/L handler.
+- 🖱️ **Stray angle vertices from right-clicks.** Same root cause: the v0.7.1 pointerup handler ignored `e.button`, so a right-mouse-up at the end of a W/L drag also dropped a third (unwanted) angle point. Now filtered to button 0.
+
+### Why `require-corp` works in v0.7.3 (and didn't in v0.6.x)
+
+The original argument against `require-corp` was that it blocks the Tauri custom-protocol IPC bridge and HuggingFace fetches. Both turn out to be solvable:
+- Tauri custom-protocol responses are **same-origin** with the document, so they don't need a `CORP` header for `require-corp` to admit them.
+- HuggingFace responses are cross-origin and don't carry `CORP`. The fix is to register `coi-serviceworker` on the `tauri://` scheme too, which we used to skip. The SW intercepts the response and adds `CORP: cross-origin`, which `require-corp` accepts.
+
+`coi-serviceworker` already wraps `register()` in its own try/catch, so on Tauri builds where SW registration genuinely fails (older WKWebView, no SW support compiled in) the app silently falls back to the v0.7.2 single-threaded path — strictly an upgrade from v0.7.2.
+
 ## [0.7.2] — SAM URL fixes + BYO inline form + CSP-safe SW guard
 
 ### Fixed — Critical SAM-onboarding regressions

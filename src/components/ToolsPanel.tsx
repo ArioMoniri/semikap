@@ -71,12 +71,12 @@ export function ToolsPanel({ viewerRef }: Props) {
     if (!v) return;
     const next = !v.isAngleMode();
     v.setAngleMode(next);
-    // Drag mode goes to "none" while measuring so click+drag doesn't
-    // also pan/contrast — the click is reserved for the angle capture.
-    if (next) {
-      v.setDragMode('none');
-      setDrag('none');
-    }
+    // v0.7.3: do NOT reset dragMode to 'none' on enter. The previous
+    // version forced 'none' so click+drag wouldn't also pan/contrast —
+    // but that broke the user's right-mouse-drag W/L (NiiVue's W/L is
+    // tied to dragMode 'contrast'). The angle tool only consumes
+    // left-button pointerup events (filtered in Viewer.tsx); other
+    // drag interactions stay live.
   }, [viewerRef]);
 
   const resetAngle = useCallback(() => {
