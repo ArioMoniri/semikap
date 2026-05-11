@@ -35,6 +35,27 @@ export function MeasurementsOverlay({
 }) {
   const measurements = useAppStore((s) => s.measurements);
   const removeMeasurement = useAppStore((s) => s.removeMeasurement);
+  /**
+   * v0.8.5 — read the user's distance-unit preference. Stored values
+   * stay in mm (NIfTI / DICOM convention); the overlay just formats.
+   * For 'px', we read the active volume's voxel spacing — assumes
+   * isotropic spacing across the measurement (which is true for
+   * single-plane measurements).
+   */
+  const distanceUnit = useAppStore((s) => s.prefs.distanceUnit);
+  const volume = useAppStore((s) => s.volume);
+  const formatDistance = (mm: number): string => {
+    if (distanceUnit === 'cm') return `${(mm / 10).toFixed(2)} cm`;
+    if (distanceUnit === 'px') {
+      // Use the smallest voxel spacing as the "1 px" reference. Most
+      // CT/MR have anisotropic spacing; this is a reasonable
+      // approximation for the in-plane measurement.
+      const sp = volume?.meta.spacing ?? [1, 1, 1];
+      const px = mm / Math.min(sp[0] ?? 1, sp[1] ?? 1, sp[2] ?? 1);
+      return `${px.toFixed(0)} px`;
+    }
+    return `${mm.toFixed(1)} mm`;
+  };
 
   const [angle, setAngle] = useState<AngleState | null>(null);
   // Bumped every animation frame so the SVG re-projects after any
@@ -115,7 +136,7 @@ export function MeasurementsOverlay({
                 fontSize={11}
                 textAnchor="middle"
               >
-                {m.distanceMm.toFixed(1)} mm
+                {formatDistance(m.distanceMm)}
               </text>
               <DeleteHandle
                 x={(a.x + b.x) / 2}

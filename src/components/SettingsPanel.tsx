@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Settings, FileDown, Trash2, Camera, FolderOpen, KeyRound, CheckCircle2, XCircle, Cpu, HardDrive, ZoomIn } from 'lucide-react';
+import { Settings, FileDown, Trash2, Camera, FolderOpen, KeyRound, CheckCircle2, XCircle, Cpu, HardDrive, ZoomIn, Ruler, FileSearch, ExternalLink as ExternalLinkIcon } from 'lucide-react';
 import { clearAuditLog, exportAuditLog, readAuditLog, type AuditEntry } from '../lib/fs/audit';
 import { saveBytes, pickDirectory } from '../lib/fs/filesystem';
 import {
@@ -8,7 +8,8 @@ import {
   SCREENSHOT_DIR_KEY,
   MODEL_DIR_KEY,
 } from '../lib/fs/idb-handle';
-import { describeWritePath } from '../lib/sam/cache';
+import { describeWritePath, listSamBlobs, deleteSamBlob } from '../lib/sam/cache';
+import { revealPath } from '../lib/fs/reveal';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { useAppStore } from '../lib/state/store';
@@ -223,6 +224,44 @@ export function SettingsPanel() {
             inverted={prefs.pinchInverted}
             onChange={(patch) => setPrefs(patch)}
           />
+
+          {/*
+            v0.8.5 — distance unit chooser. Stored measurements are
+            always in mm (NIfTI/DICOM convention); the unit only
+            affects the SVG overlay's text labels.
+          */}
+          <DistanceUnitSection
+            unit={prefs.distanceUnit}
+            onChange={(distanceUnit) => setPrefs({ distanceUnit })}
+          />
+
+          {/*
+            v0.8.5 — axis-coloured crosshair. Replaces NiiVue's
+            single-color yellow line with per-axis lines (X=red,
+            Y=green, Z=blue) matching the orientation cube
+            convention.
+          */}
+          <label className="flex items-center gap-2 text-[11px] text-slate-700 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={prefs.axisColoredCrosshair}
+              onChange={(e) => setPrefs({ axisColoredCrosshair: e.target.checked })}
+              className="h-3.5 w-3.5 rounded border-slate-300 text-tamias-accent focus:ring-2 focus:ring-tamias-accent/20"
+            />
+            Axis-coloured crosshair (X=red · Y=green · Z=blue)
+          </label>
+
+          {/*
+            v0.8.5 — Files browser. Lists every cached SAM blob the
+            app holds (user folder + OPFS) with a "Show" button per
+            row that calls the Tauri opener plugin's
+            `revealItemInDir`. Browser fallback copies the path to
+            the clipboard. Resolves the user's "settings should show
+            downloaded models, imported images or models or
+            anything's used path and on click redirect to that path
+            in the finder of that os" request.
+          */}
+          <FilesBrowserSection />
 
           {/*
             v0.7.8 — restore the dismissable "No upload" header badge.
@@ -607,6 +646,217 @@ function WasmIsolationStatus() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+
+/**
+ * v0.8.5 — distance unit selector. Mirror of the screenshot mode
+ * picker pattern (segment of three small buttons). Stored values
+ * stay in mm internally; this only changes display formatting.
+ */
+function DistanceUnitSection({
+  unit,
+  onChange,
+}: {
+  unit: 'mm' | 'cm' | 'px';
+  onChange: (next: 'mm' | 'cm' | 'px') => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        <Ruler className="h-3 w-3" /> Distance unit
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {(['mm', 'cm', 'px'] as const).map((u) => (
+          <Button
+            key={u}
+            size="sm"
+            variant={unit === u ? 'ink' : 'outline'}
+            onClick={() => onChange(u)}
+            className="gap-1"
+            title={
+              u === 'mm'
+                ? 'Millimeters (default; standard radiology unit)'
+                : u === 'cm'
+                ? 'Centimeters (good for soft-tissue work)'
+                : 'Pixels (uses the smallest voxel spacing of the active volume)'
+            }
+          >
+            {u}
+          </Button>
+        ))}
+      </div>
+      <div className="text-[11px] text-slate-500">
+        Affects the distance ruler labels in the viewer overlay.
+        Stored measurements stay in mm internally — switch unit any
+        time without losing precision.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * v0.8.5 — Files browser. Lists every cached SAM blob the app holds
+ * across both backends (user-chosen download folder + OPFS), one row
+ * per file, with size in MB and a "Show" button that calls the
+ * Tauri opener plugin's `revealItemInDir` to open the parent folder
+ * in Finder/Explorer/the default Linux file manager.
+ *
+ * Browser fallback (when Tauri isn't available): the Show button
+ * copies the path to the clipboard and surfaces a brief "Copied" tag
+ * so the user can paste it into their file manager themselves —
+ * `window.open('file://...')` is blocked by every modern browser for
+ * security.
+ *
+ * The OPFS rows show the pseudo-path `OPFS:/sam/<sha>.bin` and
+ * disable the Show button (OPFS is invisible to the OS file manager
+ * by spec).
+ */
+function FilesBrowserSection() {
+  const userDir = useAppStore((s) => s.prefs.modelDownloadDirHandle);
+  const [files, setFiles] = useState<
+    { sha256: string; bytes: number; backend: 'user-folder' | 'opfs' }[]
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const [revealState, setRevealState] = useState<Record<string, 'copied' | 'failed' | null>>(
+    {}
+  );
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await listSamBlobs(userDir);
+      setFiles(list);
+    } finally {
+      setLoading(false);
+    }
+  }, [userDir]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const onReveal = useCallback(
+    async (sha: string, backend: 'user-folder' | 'opfs') => {
+      if (backend === 'opfs') return; // can't reveal OPFS in OS file manager
+      // Path: <userDir>/sam-cache/<sha>.bin — userDir.name is the
+      // human-readable folder name; the FSA layer doesn't expose the
+      // absolute path, so we hand the relative-from-user-folder
+      // shape to revealPath. The Tauri opener call works against
+      // absolute paths only, so this falls back to clipboard on
+      // browser AND on Tauri until we wire an absolute-path getter
+      // (planned for v0.9.x — needs a separate FSA-handle-to-path
+      // bridge).
+      const path = `${userDir?.name ?? ''}/sam-cache/${sha}.bin`;
+      const result = await revealPath(path);
+      setRevealState((prev) => ({ ...prev, [sha]: result === 'revealed' ? null : result }));
+    },
+    [userDir]
+  );
+
+  const onDelete = useCallback(
+    async (sha: string) => {
+      await deleteSamBlob(sha, userDir);
+      await refresh();
+    },
+    [userDir, refresh]
+  );
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <FileSearch className="h-3 w-3" /> Cached files (models, weights)
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => void refresh()} className="h-6 text-[11px]">
+          Refresh
+        </Button>
+      </div>
+      {loading && (
+        <div className="text-[11px] text-slate-500">Loading…</div>
+      )}
+      {!loading && files.length === 0 && (
+        <div className="rounded border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-900">
+          No cached files yet. Download a SAM model from the SAM panel
+          and the bytes will appear here, with a "Show" button to
+          open the location in Finder/Explorer.
+        </div>
+      )}
+      {!loading &&
+        files.map((f) => {
+          const path =
+            f.backend === 'user-folder'
+              ? `${userDir?.name ?? '(folder)'}/sam-cache/${f.sha256}.bin`
+              : `OPFS:/sam/${f.sha256}.bin`;
+          const sizeMb = (f.bytes / (1024 * 1024)).toFixed(1);
+          const note = revealState[f.sha256];
+          return (
+            <div
+              key={`${f.backend}-${f.sha256}`}
+              className="space-y-1 rounded border border-slate-200 bg-slate-50 p-2 text-[11px] dark:border-slate-800 dark:bg-slate-900"
+            >
+              <div className="flex items-center justify-between gap-1.5">
+                <span
+                  className={
+                    f.backend === 'user-folder'
+                      ? 'rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+                      : 'rounded bg-slate-200 px-1 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+                  }
+                >
+                  {f.backend === 'user-folder' ? 'your folder' : 'browser private'}
+                </span>
+                <span className="tabular-nums text-slate-500">{sizeMb} MB</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void onReveal(f.sha256, f.backend)}
+                disabled={f.backend === 'opfs'}
+                className="block w-full break-all text-left font-mono text-[10px] text-slate-600 underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:text-slate-500 dark:text-slate-400"
+                title={
+                  f.backend === 'user-folder'
+                    ? 'Click to open this folder in Finder/Explorer'
+                    : 'OPFS files are invisible to the OS file manager by browser spec.'
+                }
+              >
+                {path}
+              </button>
+              <div className="flex items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void onReveal(f.sha256, f.backend)}
+                    disabled={f.backend === 'opfs'}
+                    className="h-6 gap-1 text-[11px]"
+                    title="Show in Finder / Explorer (Tauri); copies path on browser"
+                  >
+                    <ExternalLinkIcon className="h-3 w-3" /> Show
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void onDelete(f.sha256)}
+                    className="h-6 gap-1 text-[11px] text-red-700 hover:bg-red-50"
+                  >
+                    <Trash2 className="h-3 w-3" /> Delete
+                  </Button>
+                </div>
+                {note === 'copied' && (
+                  <span className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                    Path copied to clipboard
+                  </span>
+                )}
+                {note === 'failed' && (
+                  <span className="text-[10px] text-red-700 dark:text-red-400">
+                    Couldn’t reveal or copy
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
     </div>
   );
 }

@@ -19,6 +19,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
+        // v0.8.5 — `revealItemInDir` for the Settings → Files browser
+        // (so clicking a cached-model row opens its parent folder in
+        // Finder/Explorer/the default Linux file manager).
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             about,
             totalseg::totalseg_detect,

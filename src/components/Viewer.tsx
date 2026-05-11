@@ -118,6 +118,17 @@ export interface ViewerHandle {
     sliceIndex: number;
     sliceCount: number;
   }>;
+  /** v0.8.5 — toggle NiiVue's native single-color crosshair. The
+   *  axis-coloured crosshair overlay hides this and paints its own
+   *  per-axis lines via SVG. */
+  setNativeCrosshairVisible(visible: boolean): void;
+  /** v0.8.5 — per-tile crosshair canvas-pixel position, for the
+   *  axis-coloured crosshair SVG overlay. */
+  getCrosshairTilePositions(): Array<{
+    rect: [number, number, number, number];
+    axis: 'axial' | 'coronal' | 'sagittal' | '3d';
+    crosshair: { x: number; y: number };
+  }>;
 }
 
 export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
@@ -222,6 +233,10 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
             addedAt: new Date().toISOString(),
           });
           nv.clearAnglePoints();
+          // v0.8.5 — same redraw guard as the distance commit, in
+          // case the angle store mutation triggers the same
+          // canvas-blank race observed for distance.
+          requestAnimationFrame(() => nv.redraw());
         }
       }
 
@@ -255,6 +270,19 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
             distanceMm,
             addedAt: new Date().toISOString(),
           });
+          /*
+           * v0.8.5 — force a NiiVue redraw on the next animation frame
+           * after committing the measurement. The user reported the
+           * canvas going BLANK after a distance measurement (regression
+           * from v0.8.4): NiiVue's measurement-mode pointerup leaves
+           * the GL state in a configuration where the next React
+           * render cycle (triggered by `addMeasurement` mutating the
+           * zustand store + the MeasurementsOverlay re-render) erases
+           * the canvas to backColor before the next drawScene tick.
+           * Deferring `redraw()` past the React commit phase forces a
+           * fresh paint that catches up.
+           */
+          requestAnimationFrame(() => nv.redraw());
         }
       }
       measureStartMm = null;
@@ -482,6 +510,12 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       getScreenSlices() {
         return viewerRef.current?.getScreenSlices() ?? [];
+      },
+      setNativeCrosshairVisible(visible) {
+        viewerRef.current?.setNativeCrosshairVisible(visible);
+      },
+      getCrosshairTilePositions() {
+        return viewerRef.current?.getCrosshairTilePositions() ?? [];
       },
     }),
     []

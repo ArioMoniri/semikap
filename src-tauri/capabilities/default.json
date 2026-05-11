@@ -13,6 +13,7 @@
         { "url": "https://github.com/ArioMoniri/semikap" },
         { "url": "https://github.com/ArioMoniri/semikap/**" }
       ]
-    }
+    },
+    "opener:allow-reveal-item-in-dir"
   ]
 }

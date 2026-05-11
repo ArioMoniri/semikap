@@ -304,6 +304,33 @@ export interface UserPrefs {
    * mental model.
    */
   pinchInverted: boolean;
+  /**
+   * v0.8.5 — display unit for the distance ruler + persistent
+   * distance measurements. Stored values are always mm internally
+   * (NIfTI / DICOM convention); the unit only affects the SVG
+   * overlay's text labels and the at-add formatting in any UI.
+   *
+   *   - 'mm' (default) — millimeters. Standard radiology unit.
+   *   - 'cm'           — centimeters. Common for soft-tissue work
+   *                      where millimeter precision is overkill.
+   *   - 'px'           — pixels of the source slice. Useful when
+   *                      coordinating with image-processing
+   *                      pipelines that work in voxel space.
+   *                      Conversion uses the source volume's voxel
+   *                      spacing — the overlay grabs the spacing
+   *                      from the active volume at render time.
+   */
+  distanceUnit: 'mm' | 'cm' | 'px';
+  /**
+   * v0.8.5 — paint the MPR crosshair lines in axis-matched colors
+   * (X=red, Y=green, Z=blue, matching the standard radiology
+   * orientation cube convention). When true, NiiVue's native
+   * single-color crosshair is hidden (alpha=0) and an SVG overlay
+   * paints the per-axis lines on top of each tile. When false,
+   * NiiVue's native yellow-orange crosshair is used (the v0.7.x
+   * behaviour). Default true.
+   */
+  axisColoredCrosshair: boolean;
 }
 
 /**
@@ -565,5 +592,7 @@ function defaultPrefs(): UserPrefs {
     huggingfaceToken: '',
     pinchSensitivity: 1,
     pinchInverted: false,
+    distanceUnit: 'mm',
+    axisColoredCrosshair: true,
   };
 }

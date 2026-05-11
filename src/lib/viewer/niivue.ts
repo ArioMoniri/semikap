@@ -695,6 +695,75 @@ export class NiivueViewer {
     this.nv.drawScene();
   }
 
+  /**
+   * v0.8.5 — toggle NiiVue's native crosshair visibility. When the
+   * user enables the axis-coloured crosshair overlay (Settings), we
+   * hide NiiVue's single-color line by setting alpha to 0; an SVG
+   * sibling layer paints the per-axis lines instead.
+   *
+   * The original color (orange) is preserved in the closure so
+   * disabling the axis overlay restores the v0.7.x look exactly.
+   */
+  setNativeCrosshairVisible(visible: boolean): void {
+    const opts = (this.nv as unknown as {
+      opts: { crosshairColor: [number, number, number, number] };
+    }).opts;
+    // Always preserve the RGB; only alpha changes.
+    opts.crosshairColor[3] = visible ? 1 : 0;
+    this.nv.drawScene();
+  }
+
+  /**
+   * v0.8.5 — read the crosshair position in canvas-pixel coordinates
+   * for each visible MPR tile. Returns one entry per tile with the
+   * crosshair's (x, y) inside that tile's rect, plus which two axes
+   * the tile shows (so the overlay can paint each line in its
+   * axis-matched color). Returns an empty array when no volume is
+   * loaded or NiiVue's `frac2canvasPos` isn't available.
+   */
+  getCrosshairTilePositions(): Array<{
+    rect: [number, number, number, number];
+    axis: 'axial' | 'coronal' | 'sagittal' | '3d';
+    /** Canvas-pixel position of the crosshair within this tile. */
+    crosshair: { x: number; y: number };
+  }> {
+    const nv = this.nv as unknown as {
+      scene?: { crosshairPos?: [number, number, number] };
+      frac2canvasPos?(frac: [number, number, number]): [number, number] | null;
+    };
+    const cross = nv.scene?.crosshairPos;
+    if (!cross) return [];
+    const pos = nv.frac2canvasPos?.(cross);
+    if (!pos) return [];
+    // `frac2canvasPos` returns the canvas-pixel position of the
+    // 3D crosshair in NiiVue's current view. To split per-tile we
+    // need the per-tile bounds + clamp the crosshair to each tile.
+    // The screenSlices entries already carry the bounds; the
+    // crosshair's (x,y) within each tile is just the tile-local
+    // intersection of `pos` with the tile's rect.
+    const out: Array<{
+      rect: [number, number, number, number];
+      axis: 'axial' | 'coronal' | 'sagittal' | '3d';
+      crosshair: { x: number; y: number };
+    }> = [];
+    for (const s of this.getScreenSlices()) {
+      // For each tile we want the 2D crosshair point that NiiVue
+      // would draw on it. NiiVue's internal `frac2canvasPos` already
+      // resolves this — when the crosshair fraction is inside a
+      // tile, the returned (x,y) lies within that tile's rect.
+      const [tx, ty, tw, th] = s.rect;
+      if (
+        pos[0] >= tx &&
+        pos[0] <= tx + tw &&
+        pos[1] >= ty &&
+        pos[1] <= ty + th
+      ) {
+        out.push({ rect: s.rect, axis: s.axis, crosshair: { x: pos[0], y: pos[1] } });
+      }
+    }
+    return out;
+  }
+
   /** v0.8.4 — synchronous getter for the current drag mode. Used by
    *  the Viewer's pointer-down/up handlers to decide whether to
    *  capture a distance measurement. */
@@ -736,30 +805,31 @@ export class NiivueViewer {
    */
   zoomBy(factor: number): void {
     const nv = this.nv as unknown as {
-      scene?: { volScaleMultiplier?: number };
-      opts?: { pan2Dxyzmm?: number[] };
+      scene?: {
+        volScaleMultiplier?: number;
+        /** v0.8.5 — `[panX, panY, panZ, zoom]` in mm-space; the
+         *  4th component is the 2D MPR zoom multiplier. NiiVue 0.44
+         *  stores this on `scene`, NOT `opts` (the v0.8.4 researcher
+         *  pass got the location wrong — `resetView()` already wrote
+         *  to `nv.scene.pan2Dxyzmm` and that's the live one). */
+        pan2Dxyzmm?: [number, number, number, number];
+      };
     };
     const curScale = nv.scene?.volScaleMultiplier ?? 1;
     const next = Math.max(0.25, Math.min(16, curScale * factor));
     if (nv.scene) nv.scene.volScaleMultiplier = next;
     /*
-     * v0.8.4 — also update `pan2Dxyzmm[3]`, NiiVue 0.44's independent
-     * 2D zoom factor. Pre-v0.8.4 the toolbar zoom buttons + the
-     * mouse-wheel handler only updated `volScaleMultiplier`, which
-     * affects the 3D render but is increasingly out-of-sync with the
-     * 2D MPR tiles in NiiVue 0.44 — the 2D tiles use `pan2Dxyzmm[3]`
-     * as their per-tile zoom. Result: the user reported "zoom in/out
-     * only works on the 3D version, not the others." We now scale
-     * BOTH so 2D + 3D stay in lockstep.
-     *
-     * `pan2Dxyzmm` is `[panX, panY, panZ, zoom]` (mm-space pan + a
-     * unitless 2D zoom multiplier). Default 1.0; clamp same range as
-     * the 3D scale so the bar stays consistent.
+     * v0.8.5 — also update `scene.pan2Dxyzmm[3]`, the live 2D MPR
+     * zoom multiplier. The v0.8.4 attempt wrote to `opts.pan2Dxyzmm`
+     * (incorrect — that's not where NiiVue 0.44 reads it from), so
+     * the toolbar Zoom buttons + the wheel handler still appeared
+     * to do nothing on 2D tiles. The user reported "zoom in put is
+     * only working on the 3d image always." Fixed by writing to the
+     * scene field that `resetView()` and the internal renderer use.
      */
-    const opts = nv.opts;
-    if (opts?.pan2Dxyzmm) {
-      const cur2D = opts.pan2Dxyzmm[3] ?? 1;
-      opts.pan2Dxyzmm[3] = Math.max(0.25, Math.min(16, cur2D * factor));
+    if (nv.scene?.pan2Dxyzmm) {
+      const cur2D = nv.scene.pan2Dxyzmm[3] ?? 1;
+      nv.scene.pan2Dxyzmm[3] = Math.max(0.25, Math.min(16, cur2D * factor));
     }
     this.nv.drawScene();
   }

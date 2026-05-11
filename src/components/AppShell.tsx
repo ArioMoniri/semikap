@@ -10,6 +10,7 @@ import { Viewer } from './Viewer';
 import type { ViewerHandle } from './Viewer';
 import { MeasurementsOverlay } from './MeasurementsOverlay';
 import { SliceChipsOverlay } from './SliceChipsOverlay';
+import { AxisCrosshairOverlay } from './AxisCrosshairOverlay';
 import { InferencePanel } from './InferencePanel';
 import { SamPanel } from './SamPanel';
 import { TotalSegmentatorPanel } from './TotalSegmentatorPanel';
@@ -492,6 +493,11 @@ export function AppShell() {
               measurement delete handles inside MeasurementsOverlay. */}
           <MeasurementsOverlay viewerRef={viewerRef} />
           <SliceChipsOverlay viewerRef={viewerRef} />
+          {/* v0.8.5 — axis-coloured crosshair overlay. Hides
+              NiiVue's native single-color crosshair and paints
+              per-axis lines (X=red, Y=green, Z=blue) on each MPR
+              tile when Settings → "Axis-coloured crosshair" is on. */}
+          <AxisCrosshairOverlay viewerRef={viewerRef} />
           {studyMeta && (
             <div
               className="pointer-events-none absolute left-11 top-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"

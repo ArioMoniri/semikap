@@ -6,6 +6,58 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.5] — Canvas-blank fix · 2D zoom (real fix) · distance units · Files browser · axis-coloured crosshair
+
+### Fixed — v0.8.4 regressions
+
+- 🖼️ **Canvas went blank after a single distance measurement.** v0.8.4's pointerdown/up capture for distance persistence triggered the v0.5.4-style canvas-blank race: NiiVue's measurement-mode pointerup left the GL state in a configuration where the React commit triggered by `addMeasurement` erased the canvas to backColor before the next `drawScene` tick. Fix: `requestAnimationFrame(() => nv.redraw())` immediately after the store mutation, both for distance AND angle commits.
+- 🔍 **Zoom still didn't affect 2D MPR panes.** The v0.8.4 researcher pass said NiiVue 0.44 stores the 2D zoom multiplier on `nv.opts.pan2Dxyzmm[3]`. That was wrong — `resetView()` already wrote to `nv.scene.pan2Dxyzmm`, so the live one is on `scene`, not `opts`. v0.8.5 writes to `nv.scene.pan2Dxyzmm[3]`. The toolbar Zoom buttons + wheel/pinch zoom now visibly scale the 2D tiles.
+
+### Added — Distance unit selector
+
+- 📐 **Settings → "Distance unit"** chooser: mm / cm / px. Stored measurements stay in mm internally (NIfTI/DICOM convention); the unit only affects the SVG overlay's text labels. Switching unit doesn't lose precision. The 'px' option uses the smallest voxel spacing of the active volume as the reference.
+
+### Added — Settings → Files browser with reveal-in-finder
+
+- 📂 **List every cached SAM blob** (encoder, decoder, external-data sidecar) across both backends (user-chosen download folder + OPFS) with one row per file showing the full path, size, and a "Show" button.
+- 🪟 **"Show" reveals the file in Finder/Explorer/the default Linux file manager.** Uses Tauri 2.x's new `@tauri-apps/plugin-opener` (`revealItemInDir`). Required wiring:
+  - `Cargo.toml`: `tauri-plugin-opener = "2"`
+  - `lib.rs`: `.plugin(tauri_plugin_opener::init())`
+  - `capabilities/default.json`: `"opener:allow-reveal-item-in-dir"`
+  - `package.json`: `@tauri-apps/plugin-opener@^2.0.0`
+- 🌐 **Browser fallback**: when running as a PWA (`window.open('file://...')` is blocked by every modern browser), the Show button copies the path to the clipboard and surfaces a "Path copied" hint so the user can paste it in their file manager.
+- 🚮 **Per-row Delete** also wired: removes the blob from both OPFS and user-folder backends in one pass.
+
+### Added — Axis-coloured crosshair
+
+- 🎨 **Per-axis crosshair lines** (X=red, Y=green, Z=blue, matching the radiology orientation cube convention). Researcher confirmed NiiVue 0.44 has no per-axis crosshair color API (single global `crosshairColor`). Implementation: hide NiiVue's native crosshair (`alpha=0`) and overlay an SVG sibling layer that polls `getCrosshairTilePositions()` every animation frame, drawing two lines per visible MPR tile through the live crosshair point. Settings → "Axis-coloured crosshair" toggle gates it (default ON); turning off restores the v0.7.x yellow-orange single-color line.
+
+### Internal
+
+- `src/lib/viewer/niivue.ts` — fixed `zoomBy()` to write `scene.pan2Dxyzmm[3]`. New `setNativeCrosshairVisible()` and `getCrosshairTilePositions()`.
+- `src/components/Viewer.tsx` — `requestAnimationFrame(redraw)` after every measurement commit. New ViewerHandle methods exposed.
+- `src/components/MeasurementsOverlay.tsx` — `formatDistance()` honours `prefs.distanceUnit`.
+- `src/components/AxisCrosshairOverlay.tsx` — new SVG overlay; mounted in `AppShell` next to MeasurementsOverlay.
+- `src/components/SettingsPanel.tsx` — new `DistanceUnitSection`, `FilesBrowserSection`, axis-crosshair checkbox.
+- `src/lib/fs/reveal.ts` — new helper; dynamic-imports `@tauri-apps/plugin-opener` only when `__TAURI_INTERNALS__` is present so the PWA bundle doesn't pull it eagerly.
+- `src/lib/sam/cache.ts` — `listSamBlobs(userDir)` + `deleteSamBlob(sha, userDir)` already accept the optional userDir from v0.8.2; reused by the Files browser.
+- `src/lib/state/store.ts` — `UserPrefs.distanceUnit` (default 'mm') + `axisColoredCrosshair` (default true).
+- `src-tauri/Cargo.toml` + `src-tauri/src/lib.rs` + `src-tauri/capabilities/default.json` + `package.json` — all wired for `tauri-plugin-opener@2`.
+
+### Deferred to v0.8.6
+
+- 🖱️ **Per-pane crosshair lock** ("ax moving for the panel cursor is on") — needs a Settings toggle + non-trivial rewrite of NiiVue's click→navigate path.
+- 📐 **100% zoom = real-life voxel/pixel size** — needs DPI math + tile-pixel-per-voxel calculation per pane.
+- 🏷️ **Imported images & dropped DICOMs** in Files browser — the v0.8.5 pass surfaces only cached SAM models. Surfacing the in-memory imported volumes + their original file paths needs an FSA-handle-to-absolute-path bridge.
+- 📦 **Workflow race fix** (v0.8.4 created two duplicate drafts) — gate the release-create step on a single "create-draft" job that emits the release ID for all platform builds to upload to.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 8s (36 precache entries, 5502 KiB).
+
 ## [0.8.4] — Angle/distance fixes · 2D zoom · screenshot panel picker · pinch sensitivity
 
 ### Fixed — Critical measurement bugs
