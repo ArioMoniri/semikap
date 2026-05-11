@@ -206,10 +206,39 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
 
         {!modelLoaded && !busy && (
           <div className="space-y-2">
+            {/* v0.7.9 — replaced the vague "No upstream ONNX export
+                yet" line with the actual reason. The user asked
+                "didn't we solve the total segmentator issue to be
+                downloaded automatically and just put in license
+                since now needs user to put link". Honest answer:
+                upstream is a 5-fold nnUNet ensemble with sliding-
+                window inference and dynamic patching — not cleanly
+                exportable as a single ONNX graph. Confirmed no
+                community export exists on HuggingFace as of
+                2026-05-11 (researcher pass). Recommended path:
+                run TotalSegmentator outside Tamias (Docker image at
+                wasserth/TotalSegmentator), then load the resulting
+                `.nii.gz` mask back into Tamias as an overlay. */}
             <div className="text-slate-600 dark:text-slate-300">
-              No upstream ONNX export yet. Paste a community-converted URL or
-              load a manifest from disk. Once loaded, runs entirely on this
-              device — no network for inference.
+              <strong>No automated download possible.</strong>{' '}
+              TotalSegmentator is a 5-fold nnUNet ensemble that
+              can&apos;t be cleanly exported as a single ONNX graph
+              — no community export exists on HuggingFace.
+              Recommended: run upstream{' '}
+              <a
+                href="https://github.com/wasserth/TotalSegmentator"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline"
+              >
+                wasserth/TotalSegmentator
+              </a>{' '}
+              (Docker / pip), then load the resulting{' '}
+              <code className="rounded bg-slate-200 px-1 py-0.5 text-[10px] dark:bg-slate-800">
+                .nii.gz
+              </code>{' '}
+              mask via the regular file picker. The BYO URL flow
+              below stays for any future community ONNX wrapper.
             </div>
             <div className="grid grid-cols-1 gap-1.5">
               <Button

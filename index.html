@@ -29,9 +29,26 @@
       HuggingFace domains are added so the browser PWA can pull the SAM
       checkpoints (Tauri shell already gets them via app.security.csp).
     -->
+    <!--
+      v0.7.9 — two CSP additions:
+      1. `https://*.xethub.hf.co` (and the canonical
+         `cas-bridge.xethub.hf.co`). HuggingFace migrated their LFS
+         storage backend to "Xet" in early 2026 — every
+         `huggingface.co/<repo>/resolve/main/<big-file>` now issues a
+         302 redirect to `https://cas-bridge.xethub.hf.co/...`. Without
+         this entry SAM/MedSAM/SAM-2.1 downloads die with "Refused to
+         connect to https://cas-bridge.xethub.hf.co/...".
+      2. `ipc:`, `ipc://localhost`, `http://ipc.localhost`,
+         `https://tauri.localhost`, `http://tauri.localhost`, `tauri:`.
+         The bundled Tauri build uses tauri.conf.json's CSP which
+         already had these; the dev build serves through Vite which
+         uses *this* meta CSP, so the fix has to land here too —
+         otherwise `npm run tauri dev` floods with "Refused to connect
+         to ipc://localhost/plugin%3Aupdater%7Ccheck" on every launch.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src 'self' blob: data: https://raw.githubusercontent.com https://huggingface.co https://*.huggingface.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co https://cdn.jsdelivr.net https://files.pythonhosted.org https://pypi.org; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'"
+      content="default-src 'self' ipc: http://ipc.localhost https://tauri.localhost http://tauri.localhost tauri:; connect-src 'self' blob: data: ipc: ipc://localhost http://ipc.localhost https://tauri.localhost http://tauri.localhost tauri: https://raw.githubusercontent.com https://huggingface.co https://*.huggingface.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co https://*.xethub.hf.co https://cas-bridge.xethub.hf.co https://cdn.jsdelivr.net https://files.pythonhosted.org https://pypi.org; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'"
     />
 
     <title>TAMIAS — Local Medical Image Analysis</title>

@@ -77,6 +77,20 @@ export function SamPanel({ viewerRef }: Props) {
     'green'
   );
   /**
+   * v0.7.9 — capture the last download attempt so we can surface a
+   * one-tap "Retry" button when the fetch fails. The user reported
+   * `cas-bridge.xethub.hf.co` CSP blocks (now patched separately in
+   * the meta CSP + tauri.conf.json) and asked for "a retry button or
+   * better handling" for download failures. Setting this on every
+   * preset/custom-URL invocation lets the OnboardingView render a
+   * highlighted retry button when it's non-null.
+   */
+  const [lastDownload, setLastDownload] = useState<
+    | { kind: 'preset'; presetId: string }
+    | { kind: 'custom'; family?: 'sam' | 'sam2' | 'sam3' | 'medsam' }
+    | null
+  >(null);
+  /**
    * Inline BYO/Custom URL panel state. The previous v0.7.1 flow used three
    * synchronous `window.prompt()` calls — Tauri WKWebView (macOS) silently
    * blocks `prompt()` so the dialog never appeared and the buttons looked
@@ -102,6 +116,9 @@ export function SamPanel({ viewerRef }: Props) {
     async (presetId: string) => {
       const preset = PRESET_SAM_MODELS.find((p) => p.id === presetId);
       if (!preset) return;
+      // v0.7.9 — remember the attempt so the Retry button can replay
+      // it on failure.
+      setLastDownload({ kind: 'preset', presetId });
       // The "SAM 3 (bring-your-own URL)" preset has null URLs by design;
       // route it to the Custom URL onboarding flow so the user pastes their
       // own HuggingFace links. The BYO entry stays as a permanent escape
@@ -151,6 +168,8 @@ export function SamPanel({ viewerRef }: Props) {
           prompts: [],
           busy: null,
         });
+        // v0.7.9 — clear the retry chip on success.
+        setLastDownload(null);
         void appendAudit({
           kind: 'export',
           message: `SAM model loaded: ${preset.manifest.name}`,
@@ -208,6 +227,11 @@ export function SamPanel({ viewerRef }: Props) {
         ...(family ? { family } : {}),
         expectsText: family === 'sam3',
       });
+      // v0.7.9 — track for Retry. The Custom-URL flow can't be replayed
+      // verbatim (the form state is gone after closeCustomUrlForm), so
+      // Retry just reopens the form pre-filled with the same family
+      // hint; the user re-confirms the URLs.
+      setLastDownload({ kind: 'custom', ...(family ? { family } : {}) });
       closeCustomUrlForm();
       try {
         setSam({
@@ -243,6 +267,7 @@ export function SamPanel({ viewerRef }: Props) {
           prompts: [],
           busy: null,
         });
+        setLastDownload(null);
         void appendAudit({
           kind: 'export',
           message: `SAM model loaded (custom URL): ${name.trim()}`,
@@ -618,11 +643,37 @@ export function SamPanel({ viewerRef }: Props) {
           {sam.busy && <BusyView busy={sam.busy} />}
 
           {!sam.modelLoaded && !sam.busy && (
-            <OnboardingView
-              onPickLocal={handlePickLocal}
-              onDownload={handleDownloadPreset}
-              onCustomUrl={() => runCustomUrlFlow()}
-            />
+            <>
+              {/* v0.7.9 — Retry chip surfaces the last failed download
+                  so the user can re-trigger it after a CSP / network
+                  fix without re-finding the right preset button. */}
+              {lastDownload && (
+                <div className="flex items-center justify-between gap-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+                  <span className="truncate">
+                    Last download attempt failed.
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 shrink-0 px-2 text-[11px]"
+                    onClick={() => {
+                      if (lastDownload.kind === 'preset') {
+                        void handleDownloadPreset(lastDownload.presetId);
+                      } else {
+                        void runCustomUrlFlow(lastDownload.family);
+                      }
+                    }}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+              <OnboardingView
+                onPickLocal={handlePickLocal}
+                onDownload={handleDownloadPreset}
+                onCustomUrl={() => runCustomUrlFlow()}
+              />
+            </>
           )}
 
           {customUrlForm.open && !sam.busy && (
@@ -1121,6 +1172,40 @@ function CustomUrlForm({
       <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
         {isSam3 ? 'SAM 3 — bring your own URL' : 'Custom SAM URL'}
       </div>
+      {/* v0.7.9 — quick-fill SAM 3 URLs. The user asked "the sam3 is BYO
+          link but there are also links to download it directly". The
+          official `facebook/sam3` repo ships only `.safetensors` (no
+          ONNX), but `onnx-community/sam3-tracker-ONNX` has a fully
+          working Transformers.js export. Caveat: that export uses ONNX
+          external-data format (`.onnx` + sibling `.onnx_data`), which
+          our single-file loader doesn't read yet — adding that needs a
+          loader rewrite landing in v0.8.x. Until then the smaller
+          `vietanhdev/segment-anything-3-onnx-models` zip is the closest
+          drop-in. We surface BOTH options inline so the user can pick. */}
+      {isSam3 && (
+        <div className="space-y-1.5 rounded border border-amber-200 bg-amber-50 p-2 text-[10px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+          <div className="font-medium">Known SAM 3 ONNX exports</div>
+          <ul className="list-disc space-y-1 pl-4">
+            <li>
+              <code className="font-mono">onnx-community/sam3-tracker-ONNX</code>{' '}
+              — Transformers.js-compatible split (vision_encoder +
+              prompt_encoder_mask_decoder). <strong>Uses external-data
+              `.onnx_data` sidecar files</strong> which the current loader
+              doesn&apos;t read. Pending preset support in v0.8.x.
+            </li>
+            <li>
+              <code className="font-mono">vietanhdev/segment-anything-3-onnx-models</code>{' '}
+              — single zip (~3.41 GB ViT-H, Apache-2.0). Closest one-tap
+              drop-in for BYO; unzip locally and load via{' '}
+              <strong>Pick local manifest + ONNX</strong>.
+            </li>
+            <li>
+              <code className="font-mono">facebook/sam3</code> — official repo,
+              .safetensors only (no ONNX export upstream).
+            </li>
+          </ul>
+        </div>
+      )}
       <label className="block space-y-1">
         <span className="text-[11px] text-slate-600 dark:text-slate-300">Name</span>
         <input

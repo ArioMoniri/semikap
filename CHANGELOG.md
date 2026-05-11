@@ -6,6 +6,42 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.7.9] — Xet CSP fix · IPC dev unblock · SAM 3 URL pointers · Retry chip · honest TotalSeg messaging
+
+### Fixed — Critical: HuggingFace Xet migration broke every model download
+
+- 🛑 **`Refused to connect to https://cas-bridge.xethub.hf.co/...` blocked SAM/MedSAM/SAM-2.1 downloads.** HuggingFace migrated the LFS storage backend to Xet in early 2026 — every `huggingface.co/<repo>/resolve/main/<big-file>` now 302-redirects to `cas-bridge.xethub.hf.co`. Our CSP only listed `cdn-lfs.huggingface.co` + `cdn-lfs-us-1.huggingface.co`, so the redirect was rejected by the browser. Added `https://*.xethub.hf.co` and `https://cas-bridge.xethub.hf.co` to **both** `index.html`'s meta CSP (PWA + dev) and `tauri.conf.json`'s `app.security.csp` (desktop bundle). Confirmed via researcher pass: there's no documented HTTP header to opt out of Xet redirects per-request, so the only fix is to allow the Xet origin.
+- 🔌 **`Refused to connect to ipc://localhost/plugin%3Aupdater%7Ccheck` floods on `npm run tauri dev`.** v0.7.5's IPC CSP fix only covered `tauri.conf.json` (desktop bundle); the dev server uses `index.html`'s meta CSP, which still missed `ipc:`/`tauri:`/`tauri.localhost`. Added all six entries to `index.html` so the auto-updater poll succeeds in dev mode.
+
+### Added — SAM 3 known-export pointers in BYO panel
+
+- 📚 **Inline citations of every working SAM 3 ONNX export.** The user reported "the SAM 3 is BYO link but there are also links to download it directly". Researcher pass confirmed:
+  - `onnx-community/sam3-tracker-ONNX` — Transformers.js-compatible split. **Uses ONNX external-data format (`.onnx` + `.onnx_data` sidecar)** which the current single-file loader doesn't read; preset support lands in v0.8.x.
+  - `vietanhdev/segment-anything-3-onnx-models` — single-zip ViT-H bundle (~3.41 GB, Apache-2.0). Closest one-tap drop-in via **Pick local manifest + ONNX**.
+  - `facebook/sam3` — official repo, .safetensors only (no upstream ONNX).
+- These options now render inline in the SAM 3 BYO form (amber chip with copy-pastable repo names).
+
+### Added — Retry chip for failed SAM downloads
+
+- 🔁 **One-tap "Retry" button** when a SAM model download fails. New `lastDownload` state captures the preset ID or custom-URL family on every download attempt; on failure the OnboardingView surfaces an amber "Last download attempt failed · Retry" chip that replays the same download.
+
+### Changed — Honest TotalSegmentator messaging
+
+- 📝 **Replaced the vague "No upstream ONNX export yet"** with the actual reason. Researcher confirmed: **no community ONNX export exists** — TotalSegmentator's 5-fold nnUNet ensemble with sliding-window inference can't be cleanly exported as a single ONNX graph. Recommended path is now spelled out: **run upstream TotalSegmentator (Docker / pip) → load the resulting `.nii.gz` mask back into Tamias as an overlay**.
+
+### Deferred to v0.8.x
+
+- 🔐 **HuggingFace OAuth / token field** for gated repo access (needs secure UI flow).
+- 📦 **ONNX external-data format support** in the SAM loader (so SAM 3 ships as a one-tap preset).
+- 🔄 **macOS WKWebView COI** — WebKit still doesn't honour COEP credentialless; nothing in-app can fix this.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle 8s (35 precache entries, 5475 KiB).
+
 ## [0.7.8] — Persistent measurements · per-pane slice chips · docs · Settings polish
 
 ### Added — Drawing on the canvas
