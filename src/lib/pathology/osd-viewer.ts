@@ -220,6 +220,27 @@ export function createOsdViewer(opts: OsdViewerOptions): OsdViewer {
    *  click at 40× covers ~10 µm. */
   let brushRadius = 24;
   let brushStrokeActive = false;
+  /*
+   * v0.8.7 — hoist `brushCachedCanvas` declaration up here, BEFORE
+   * `repaintOverlay` (and the OSD event handlers it gets registered
+   * with). Pre-v0.8.7 the `let brushCachedCanvas` lived after the
+   * brush-helper function declarations way down in the closure
+   * (~line 567). The OSD viewer fires `update-viewport` /
+   * `animation` synchronously during setup — so `repaintOverlay`
+   * runs, calls `drawBrush`, which tries to read
+   * `brushCachedCanvas` before the `let` has executed → temporal
+   * dead zone (TDZ) error: "Cannot access 'brushCachedCanvas'
+   * before initialization."
+   *
+   * The user reported this twice on every pathology slide load
+   * (and also for the radiology preview that mounts an OSD viewer
+   * for ROI thumbnails).
+   *
+   * Hoisting the `let` to the top of the closure scope eliminates
+   * the TDZ window — by the time any handler can fire, the binding
+   * is already initialised to null.
+   */
+  let brushCachedCanvas: HTMLCanvasElement | null = null;
 
   // Repaint the overlay canvas whenever the viewport moves or the mask
   // changes.
@@ -564,7 +585,8 @@ export function createOsdViewer(opts: OsdViewerOptions): OsdViewer {
   }
 
   // ── Brush helpers (closure scope) ───────────────────────────────────
-  let brushCachedCanvas: HTMLCanvasElement | null = null;
+  // (v0.8.7 — `brushCachedCanvas` declaration moved up to before
+  // `repaintOverlay` to fix a TDZ error; see comment there.)
 
   function invalidateBrushCache(): void {
     brushCachedCanvas = null;

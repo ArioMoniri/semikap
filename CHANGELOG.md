@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.7] — Pathology TDZ fix · slice-chip overlap · "Currently loaded" in Files browser
+
+### Fixed
+
+- 🐛 **`Cannot access 'brushCachedCanvas' before initialization`** — TDZ (temporal dead zone) error blocking pathology slide load AND the radiology brush layer. Root cause: the `let brushCachedCanvas` declaration in `osd-viewer.ts` was placed AFTER the `repaintOverlay` arrow (which transitively referenced it via `drawBrush`). OSD fires `update-viewport` / `animation` events synchronously during setup, so `repaintOverlay` ran BEFORE the `let` had executed → ReferenceError. Fixed by hoisting the declaration to the top of the closure scope (before `repaintOverlay`).
+- 🪟 **Slice-chip overlap with the AppShell volume-metadata badge.** The "C 227/242" chip rendered at the top-left of the coronal tile, which is also where AppShell paints `256 × 242 × 154 · 0.72 × 0.72 × 1.00 mm · uint8`. Sagittal chip was getting hidden behind the AppShell crosshair pill. Fix: render chips at the **bottom-left** of each tile, with an 8 CSS-px breathing margin so they stay inside the tile and out of the header zone.
+- 📐 **Slice chips at wrong positions on HiDPI displays.** NiiVue's `screenSlices.leftTopWidthHeight` is in canvas backing-store pixels (CSS × DPR). Pre-v0.8.7 we passed those values straight into a React `style` (CSS pixels), so on a 2× retina screen chips landed at twice the intended coordinates. Fix: divide by `window.devicePixelRatio` when computing the CSS positions.
+- 📂 **Files browser appeared empty** for users upgrading from v0.8.5: the `RecentFile` history starts empty, and only fills as the user loads new files. Fix: new **"Currently loaded"** section at the top of the Files browser shows the active volume + model directly from store state (`store.volume.source` / `store.model.source`) so the panel always has at least one row when something is loaded.
+
+### Internal
+
+- `src/lib/pathology/osd-viewer.ts` — moved `let brushCachedCanvas: HTMLCanvasElement | null = null` from after the brush helpers (line ~567) to before `repaintOverlay` (line ~222). Comment in place explaining the TDZ root cause for future maintainers.
+- `src/components/SliceChipsOverlay.tsx` — bottom-left positioning + DPR division + `maxWidth` clamp so chips don't escape narrow tiles in single-plane sliceMode.
+- `src/components/SettingsPanel.tsx` — new `ActiveFileRow` component + "Currently loaded" group at the top of `FilesBrowserSection`.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 9.48s (36 precache entries, 5511 KiB).
+
 ## [0.8.6] — Per-pane crosshair lock · Fit 1:1 (real size) · Recent files · Workflow race fix
 
 ### Added — Per-pane crosshair lock

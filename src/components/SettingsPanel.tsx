@@ -754,6 +754,13 @@ function FilesBrowserSection() {
   // back to clipboard when the path isn't absolute.
   const recentFiles = useAppStore((s) => s.recentFiles);
   const clearRecentFiles = useAppStore((s) => s.clearRecentFiles);
+  // v0.8.7 — also pull the currently-loaded volume + model so the
+  // panel shows SOMETHING immediately, before the user has loaded
+  // anything new under v0.8.6+ (the recent-files history starts
+  // empty for users upgrading from v0.8.5; they'd otherwise see
+  // only the cached SAM blobs).
+  const activeVolume = useAppStore((s) => s.volume);
+  const activeModel = useAppStore((s) => s.model);
   const [files, setFiles] = useState<
     { sha256: string; bytes: number; backend: 'user-folder' | 'opfs' }[]
   >([]);
@@ -804,7 +811,39 @@ function FilesBrowserSection() {
 
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-1.5">
+      {/*
+        v0.8.7 — "Currently loaded" rows. Show the active volume +
+        model directly from store state so the panel always has
+        something to show, even before the user has loaded a new
+        file under v0.8.6+ (the recent-files history starts empty
+        for users upgrading from v0.8.5). The user reported "loaded
+        files and models' paths in the local are not shown" —
+        this surfaces them immediately.
+      */}
+      {(activeVolume || activeModel) && (
+        <div className="space-y-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <FileSearch className="inline-block mr-1 h-3 w-3 align-middle" /> Currently loaded
+          </div>
+          {activeVolume?.source && (
+            <ActiveFileRow
+              kind="image"
+              name={activeVolume.source.name}
+              path={activeVolume.source.hint ?? activeVolume.source.name}
+              bytes={activeVolume.source.bytes?.byteLength ?? 0}
+            />
+          )}
+          {activeModel?.source && (
+            <ActiveFileRow
+              kind="model"
+              name={activeModel.source.name}
+              path={activeModel.source.hint ?? activeModel.source.name}
+              bytes={activeModel.bytes?.byteLength ?? 0}
+            />
+          )}
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-1.5 pt-2">
         <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
           <FileSearch className="h-3 w-3" /> Cached files (models, weights)
         </div>
@@ -1051,6 +1090,72 @@ function DpiCalibrationSection({
         measuring a known length (e.g. a physical ruler held to your
         screen vs the same length in your volume) — divide screen-pixels
         by mm to get the new value.
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * v0.8.7 — single-row "currently loaded" entry. Same visual shape
+ * as the recent-files rows but no Delete button (deleting the
+ * entry would just clear the active volume/model, which is what
+ * the existing "Forget" UX in ModelPicker does).
+ */
+function ActiveFileRow({
+  kind,
+  name,
+  path,
+  bytes,
+}: {
+  kind: 'image' | 'model';
+  name: string;
+  path: string;
+  bytes: number;
+}) {
+  const sizeMb = (bytes / (1024 * 1024)).toFixed(2);
+  const isAbsolute = path.startsWith('/') || /^[a-zA-Z]:\\/.test(path);
+  const [note, setNote] = useState<'copied' | 'failed' | null>(null);
+  return (
+    <div className="space-y-1 rounded border border-emerald-200 bg-emerald-50 p-2 text-[11px] dark:border-emerald-900/40 dark:bg-emerald-900/20">
+      <div className="flex items-center justify-between gap-1.5">
+        <span className="rounded bg-emerald-200 px-1 py-0.5 text-[10px] font-medium text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-200">
+          {kind} · active
+        </span>
+        <span className="tabular-nums text-slate-600 dark:text-slate-400">
+          {sizeMb} MB
+        </span>
+      </div>
+      <div className="break-all font-mono text-[10px] text-slate-700 dark:text-slate-300">
+        {path || name}
+      </div>
+      <div className="flex items-center justify-between gap-1.5">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={async () => {
+            const result = await revealPath(path || name);
+            setNote(result === 'revealed' ? null : result);
+          }}
+          className="h-6 gap-1 text-[11px]"
+          title={
+            isAbsolute
+              ? 'Show in Finder / Explorer'
+              : 'Browser security: no absolute path. Copies the basename to clipboard.'
+          }
+        >
+          <ExternalLinkIcon className="h-3 w-3" /> Show
+        </Button>
+        {note === 'copied' && (
+          <span className="text-[10px] text-emerald-700 dark:text-emerald-400">
+            Copied to clipboard
+          </span>
+        )}
+        {note === 'failed' && (
+          <span className="text-[10px] text-red-700 dark:text-red-400">
+            Couldn’t reveal or copy
+          </span>
+        )}
       </div>
     </div>
   );
