@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Settings, FileDown, Trash2, Camera, FolderOpen, KeyRound, CheckCircle2, XCircle, Cpu, HardDrive } from 'lucide-react';
+import { Settings, FileDown, Trash2, Camera, FolderOpen, KeyRound, CheckCircle2, XCircle, Cpu, HardDrive, ZoomIn } from 'lucide-react';
 import { clearAuditLog, exportAuditLog, readAuditLog, type AuditEntry } from '../lib/fs/audit';
 import { saveBytes, pickDirectory } from '../lib/fs/filesystem';
 import {
@@ -210,6 +210,19 @@ export function SettingsPanel() {
             they're in the slow path.
           */}
           <WasmIsolationStatus />
+
+          {/*
+            v0.8.4 — pinch / wheel zoom sensitivity. The wheel handler
+            in Viewer.tsx reads these prefs every event so adjustments
+            apply immediately without a remount. Sensitivity is a
+            multiplier on the base 0.0015 (mouse wheel) / 0.003
+            (trackpad pinch) factors. Inverted flips zoom direction.
+          */}
+          <PinchSensitivitySection
+            sensitivity={prefs.pinchSensitivity}
+            inverted={prefs.pinchInverted}
+            onChange={(patch) => setPrefs(patch)}
+          />
 
           {/*
             v0.7.8 — restore the dismissable "No upload" header badge.
@@ -485,6 +498,68 @@ function HuggingFaceTokenSection({
  * Policy: credentialless`. On the PWA path under Chrome/Firefox/Edge
  * with proper COOP/COEP headers it's true.
  */
+/**
+ * v0.8.4 — pinch / wheel zoom sensitivity + direction toggle.
+ *
+ * The Viewer.tsx wheel handler reads `prefs.pinchSensitivity` and
+ * `prefs.pinchInverted` synchronously on every wheel event so changes
+ * here apply immediately. Default 1.0 ≈ the v0.7.5 base behaviour.
+ * Range 0.25..3 is wide enough to cover the typical "I have a 4K
+ * trackpad and it's too aggressive" → "I'm using a Logitech mouse and
+ * it barely zooms" spread.
+ */
+function PinchSensitivitySection({
+  sensitivity,
+  inverted,
+  onChange,
+}: {
+  sensitivity: number;
+  inverted: boolean;
+  onChange: (patch: { pinchSensitivity?: number; pinchInverted?: boolean }) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        <ZoomIn className="h-3 w-3" /> Pinch / wheel zoom
+      </div>
+      <div className="space-y-1">
+        <label className="block text-[11px] text-slate-600 dark:text-slate-300">
+          Sensitivity:{' '}
+          <span className="font-mono tabular-nums">{sensitivity.toFixed(2)}×</span>
+        </label>
+        <input
+          type="range"
+          min={0.25}
+          max={3}
+          step={0.05}
+          value={sensitivity}
+          onChange={(e) => onChange({ pinchSensitivity: Number(e.target.value) })}
+          className="w-full"
+          aria-label="Pinch / wheel zoom sensitivity multiplier"
+        />
+        <div className="flex justify-between text-[10px] text-slate-500">
+          <span>0.25× (slow)</span>
+          <span>1× (default)</span>
+          <span>3× (fast)</span>
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-[11px] text-slate-700 dark:text-slate-300">
+        <input
+          type="checkbox"
+          checked={inverted}
+          onChange={(e) => onChange({ pinchInverted: e.target.checked })}
+          className="h-3.5 w-3.5 rounded border-slate-300 text-tamias-accent focus:ring-2 focus:ring-tamias-accent/20"
+        />
+        Reverse zoom direction (pinch-out → zoom out)
+      </label>
+      <div className="text-[11px] text-slate-500">
+        Applies to mouse wheel + trackpad pinch. Trackpad gesture
+        always uses 2× the wheel multiplier.
+      </div>
+    </div>
+  );
+}
+
 function WasmIsolationStatus() {
   const isolated =
     typeof window !== 'undefined' && (window as Window & { crossOriginIsolated?: boolean }).crossOriginIsolated === true;

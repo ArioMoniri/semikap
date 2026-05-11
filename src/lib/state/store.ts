@@ -291,6 +291,19 @@ export interface UserPrefs {
    */
   modelDownloadDirHandle: FileSystemDirectoryHandle | null;
   modelDownloadDirName: string | null;
+  /**
+   * v0.8.4 — wheel/pinch zoom sensitivity multiplier. 1.0 = default;
+   * 0.5 = half-speed; 2.0 = double-speed. Applied on top of the base
+   * factor (0.003 for trackpad pinch, 0.0015 for mouse wheel).
+   */
+  pinchSensitivity: number;
+  /**
+   * v0.8.4 — flip pinch direction. False (default) = pinch-out zooms
+   * in; true = pinch-out zooms out. For users with "natural" trackpad
+   * scrolling reversed at the OS level or who prefer the opposite
+   * mental model.
+   */
+  pinchInverted: boolean;
 }
 
 /**
@@ -550,5 +563,7 @@ function defaultPrefs(): UserPrefs {
     modelDownloadDirName: null,
     dismissedNoUploadBanner: false,
     huggingfaceToken: '',
+    pinchSensitivity: 1,
+    pinchInverted: false,
   };
 }

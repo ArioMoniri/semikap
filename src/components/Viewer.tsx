@@ -68,16 +68,27 @@ export interface ViewerHandle {
   setRadiologicalConvention(on: boolean): void;
   // ── Radiology tools ──
   setDragMode(mode: 'none' | 'contrast' | 'measurement' | 'pan'): void;
+  /** v0.8.4 — read current drag mode without subscribing. */
+  getDragMode(): 'none' | 'contrast' | 'measurement' | 'pan';
   setMaskOutlineOnly(on: boolean): void;
   resetView(): void;
   zoomBy(factor: number): void;
   /** Capture the canvas as a PNG; null when the GL context isn't ready. */
   takeScreenshot(): Promise<Blob | null>;
+  /** v0.8.4 — capture only one MPR tile (axial / coronal / sagittal /
+   *  3D render). Returns null when the requested tile isn't visible
+   *  (e.g. user is in single-plane sliceMode). */
+  takeScreenshotOfTile(
+    axis: 'axial' | 'coronal' | 'sagittal' | '3d'
+  ): Promise<Blob | null>;
   // ── Angle measurement (3-click) ──
   setAngleMode(on: boolean): void;
   isAngleMode(): boolean;
   addAnglePoint(mm: [number, number, number]): void;
   clearAnglePoints(): void;
+  /** v0.8.4 — synchronous getter; lets the pointer-up handler decide
+   *  whether to commit without subscribing+unsubbing per click. */
+  getAngleState(): AngleState;
   onAngleUpdate(cb: (state: AngleState) => void): () => void;
   // ── SAM helpers ──
   /** Pull the current axial slice as Float32 grayscale + dims, for SAM
@@ -133,6 +144,36 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       lastMm = reading ? reading.mm : null;
     });
 
+    /*
+     * v0.8.4 — distance ruler persistence.
+     *
+     * NiiVue's measurement mode (dragMode='measurement') draws a line
+     * between the pointer-down position and the current pointer
+     * position during drag, then erases it on pointer-up — by design,
+     * it's a single-shot measurement. The user reported "when a
+     * distance is measured it does not persist." We capture the
+     * pointer-down mm (start) and the pointer-up mm (end) and push a
+     * `kind: 'distance'` measurement into the persistent store. The
+     * MeasurementsOverlay SVG layer (v0.7.8) then re-paints them
+     * across slice navigations, zooms, etc.
+     *
+     * `measureStartMm` is set on pointer-down only when dragMode
+     * happens to be 'measurement' at that moment — checked by
+     * reading the wrapper's `getDragMode()` snapshot. It's cleared
+     * after every pointer-up so a subsequent click in default mode
+     * doesn't accidentally produce a stray segment.
+     */
+    let measureStartMm: [number, number, number] | null = null;
+    const onPointerDown = () => {
+      const nv = viewerRef.current;
+      if (nv?.getDragMode?.() === 'measurement' && lastMm) {
+        measureStartMm = lastMm.slice() as [number, number, number];
+      } else {
+        measureStartMm = null;
+      }
+    };
+    canvas.addEventListener('pointerdown', onPointerDown);
+
     const onPointerUp = (e: PointerEvent) => {
       // Brush propagation to 3D mesh.
       viewerRef.current?.refreshDrawing();
@@ -142,44 +183,81 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       // worse, it made W/L feel "stuck" because the angle tool also
       // reset some internal state. Restricting to button 0 keeps the
       // right-drag W/L behaviour live while Angle is selected.
+      const nv = viewerRef.current;
       if (
         e.button === 0 &&
-        viewerRef.current?.isAngleMode() &&
+        nv?.isAngleMode() &&
         lastMm
       ) {
-        viewerRef.current.addAnglePoint(lastMm);
-        // v0.7.8 — auto-commit when the third point lands. The
-        // wrapper notifies via onAngleUpdate; here we read the
-        // post-add state synchronously and, if complete, push the
-        // measurement to the persistent store + clear the in-progress
-        // points so the next angle starts fresh. This replaces the
-        // pre-v0.7.8 manual "Reset" workflow.
-        const nv = viewerRef.current;
-        if (nv) {
-          // We can't read state synchronously from the wrapper
-          // without subscribing — but the wrapper has a public
-          // snapshot helper via onAngleUpdate.
-          const unsub = nv.onAngleUpdate((s) => {
-            unsub();
-            if (s.points.length === 3 && s.degrees !== null) {
-              const id =
-                typeof crypto !== 'undefined' && 'randomUUID' in crypto
-                  ? crypto.randomUUID()
-                  : `m-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-              useAppStore.getState().addMeasurement({
-                id,
-                kind: 'angle',
-                vertex: s.points[0]!,
-                arm1: s.points[1]!,
-                arm2: s.points[2]!,
-                degrees: s.degrees,
-                addedAt: new Date().toISOString(),
-              });
-              nv.clearAnglePoints();
-            }
+        nv.addAnglePoint(lastMm);
+        /*
+         * v0.8.4 — auto-commit when the 3rd point lands.
+         *
+         * Pre-v0.8.4 used `onAngleUpdate(cb)` registered AFTER
+         * `addAnglePoint()` and unsub'd on first fire. The wrapper
+         * fires new subscribers IMMEDIATELY with current state, so
+         * the unsub-on-first-fire trick raced with the click that
+         * triggered it: the immediate fire hit `unsub()` before any
+         * subsequent click could trigger the listener, and the
+         * third click never auto-committed. The user reported "can't
+         * click second point for angle" / measurements not persisting.
+         *
+         * Fixed by switching to the synchronous `getAngleState()`
+         * getter — no subscriber dance. Read state right after
+         * mutating it, commit when complete.
+         */
+        const s = nv.getAngleState();
+        if (s.points.length === 3 && s.degrees !== null) {
+          const id =
+            typeof crypto !== 'undefined' && 'randomUUID' in crypto
+              ? crypto.randomUUID()
+              : `m-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          useAppStore.getState().addMeasurement({
+            id,
+            kind: 'angle',
+            vertex: s.points[0]!,
+            arm1: s.points[1]!,
+            arm2: s.points[2]!,
+            degrees: s.degrees,
+            addedAt: new Date().toISOString(),
+          });
+          nv.clearAnglePoints();
+        }
+      }
+
+      /*
+       * v0.8.4 — commit a distance measurement when measurement-mode
+       * pointer-up lands on a point that's a non-trivial distance
+       * from the pointer-down. Threshold (2 mm) filters accidental
+       * stationary clicks; below that we just cleared the
+       * measureStartMm without committing.
+       */
+      if (
+        e.button === 0 &&
+        measureStartMm &&
+        lastMm &&
+        nv?.getDragMode?.() === 'measurement'
+      ) {
+        const dx = lastMm[0] - measureStartMm[0];
+        const dy = lastMm[1] - measureStartMm[1];
+        const dz = lastMm[2] - measureStartMm[2];
+        const distanceMm = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (distanceMm >= 2) {
+          const id =
+            typeof crypto !== 'undefined' && 'randomUUID' in crypto
+              ? crypto.randomUUID()
+              : `m-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          useAppStore.getState().addMeasurement({
+            id,
+            kind: 'distance',
+            a: measureStartMm,
+            b: lastMm.slice() as [number, number, number],
+            distanceMm,
+            addedAt: new Date().toISOString(),
           });
         }
       }
+      measureStartMm = null;
     };
     canvas.addEventListener('pointerup', onPointerUp);
 
@@ -226,13 +304,23 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
      */
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      // Larger deltas (factor 0.003) for trackpad pinch (which fires
-      // smaller events at a higher rate); smaller (0.0015) for mouse
-      // wheel. ctrlKey flag is the standard "this came from a pinch
-      // gesture" hint browsers set on synthesized wheel events.
-      const factor = e.ctrlKey ? 0.003 : 0.0015;
-      const ratio = Math.exp(-e.deltaY * factor);
-      // Clamp so a single fast pinch can't blow up the scale.
+      /*
+       * v0.8.4 — read pinch sensitivity + direction from prefs every
+       * event so the user's Settings tweak applies immediately. No
+       * useState mirror needed; getState is cheap.
+       *
+       * `pinchSensitivity` is a multiplier (0.5 = half the default,
+       * 2.0 = double). `pinchInverted` flips the sign so users with
+       * "natural" trackpad scrolling reversed (or who prefer the
+       * opposite mental model) can swap in/out.
+       */
+      const prefs = useAppStore.getState().prefs;
+      const sens = prefs.pinchSensitivity ?? 1;
+      const inverted = prefs.pinchInverted ?? false;
+      // Trackpad pinch (ctrlKey:true) gets 2× factor vs mouse wheel.
+      const baseFactor = e.ctrlKey ? 0.003 : 0.0015;
+      const sign = inverted ? -1 : 1;
+      const ratio = Math.exp(-e.deltaY * baseFactor * sens * sign);
       const clamped = Math.max(0.5, Math.min(2, ratio));
       viewerRef.current?.zoomBy(clamped);
     };
@@ -241,6 +329,7 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
     return () => {
       window.removeEventListener('resize', onResize);
       canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('wheel', onWheel);
       probeUnsub?.();
       canvas.removeEventListener('webglcontextlost', onContextLost, false);
@@ -340,6 +429,9 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       setDragMode(mode) {
         viewerRef.current?.setDragMode(mode);
       },
+      getDragMode() {
+        return viewerRef.current?.getDragMode() ?? 'none';
+      },
       setMaskOutlineOnly(on) {
         viewerRef.current?.setMaskOutlineOnly(on);
       },
@@ -352,6 +444,9 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       async takeScreenshot() {
         return (await viewerRef.current?.takeScreenshot()) ?? null;
       },
+      async takeScreenshotOfTile(axis) {
+        return (await viewerRef.current?.takeScreenshotOfTile(axis)) ?? null;
+      },
       setAngleMode(on) {
         viewerRef.current?.setAngleMode(on);
       },
@@ -363,6 +458,11 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       clearAnglePoints() {
         viewerRef.current?.clearAnglePoints();
+      },
+      getAngleState() {
+        return (
+          viewerRef.current?.getAngleState() ?? { points: [], degrees: null }
+        );
       },
       onAngleUpdate(cb) {
         if (!viewerRef.current) return () => undefined;

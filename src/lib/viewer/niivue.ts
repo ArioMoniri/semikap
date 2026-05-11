@@ -695,6 +695,20 @@ export class NiivueViewer {
     this.nv.drawScene();
   }
 
+  /** v0.8.4 — synchronous getter for the current drag mode. Used by
+   *  the Viewer's pointer-down/up handlers to decide whether to
+   *  capture a distance measurement. */
+  getDragMode(): 'none' | 'contrast' | 'measurement' | 'pan' {
+    const opts = (this.nv as unknown as { opts: { dragMode: number } }).opts;
+    return opts.dragMode === 1
+      ? 'contrast'
+      : opts.dragMode === 2
+        ? 'measurement'
+        : opts.dragMode === 3
+          ? 'pan'
+          : 'none';
+  }
+
   /**
    * Reset the viewport: zoom 1.0, crosshair to volume centre, default
    * window/level. Equivalent to NiiVue's built-in reset behaviour but
@@ -721,10 +735,32 @@ export class NiivueViewer {
    * canvas or numerical overflow.
    */
   zoomBy(factor: number): void {
-    const nv = this.nv as unknown as { scene?: { volScaleMultiplier?: number } };
-    const cur = nv.scene?.volScaleMultiplier ?? 1;
-    const next = Math.max(0.25, Math.min(16, cur * factor));
+    const nv = this.nv as unknown as {
+      scene?: { volScaleMultiplier?: number };
+      opts?: { pan2Dxyzmm?: number[] };
+    };
+    const curScale = nv.scene?.volScaleMultiplier ?? 1;
+    const next = Math.max(0.25, Math.min(16, curScale * factor));
     if (nv.scene) nv.scene.volScaleMultiplier = next;
+    /*
+     * v0.8.4 — also update `pan2Dxyzmm[3]`, NiiVue 0.44's independent
+     * 2D zoom factor. Pre-v0.8.4 the toolbar zoom buttons + the
+     * mouse-wheel handler only updated `volScaleMultiplier`, which
+     * affects the 3D render but is increasingly out-of-sync with the
+     * 2D MPR tiles in NiiVue 0.44 — the 2D tiles use `pan2Dxyzmm[3]`
+     * as their per-tile zoom. Result: the user reported "zoom in/out
+     * only works on the 3D version, not the others." We now scale
+     * BOTH so 2D + 3D stay in lockstep.
+     *
+     * `pan2Dxyzmm` is `[panX, panY, panZ, zoom]` (mm-space pan + a
+     * unitless 2D zoom multiplier). Default 1.0; clamp same range as
+     * the 3D scale so the bar stays consistent.
+     */
+    const opts = nv.opts;
+    if (opts?.pan2Dxyzmm) {
+      const cur2D = opts.pan2Dxyzmm[3] ?? 1;
+      opts.pan2Dxyzmm[3] = Math.max(0.25, Math.min(16, cur2D * factor));
+    }
     this.nv.drawScene();
   }
 
@@ -743,6 +779,44 @@ export class NiivueViewer {
     return new Promise((resolve) => {
       canvas.toBlob((b) => resolve(b), 'image/png');
     });
+  }
+
+  /**
+   * v0.8.4 — capture only one MPR tile (axial / coronal / sagittal /
+   * 3D render) by clipping the full canvas to the tile's bounding
+   * rectangle from `getScreenSlices()`. Used by the screenshot panel
+   * picker so the user can copy *just* the axial pane into a slide
+   * deck without the surrounding tiles.
+   *
+   * Returns null when:
+   *   - NiiVue's `screenSlices` doesn't include the requested axis
+   *     (e.g. the user is in single-plane sliceMode).
+   *   - The full-canvas screenshot fails (no GL context, tainted
+   *     texture).
+   */
+  async takeScreenshotOfTile(
+    axis: 'axial' | 'coronal' | 'sagittal' | '3d'
+  ): Promise<Blob | null> {
+    const tiles = this.getScreenSlices();
+    const tile = tiles.find((t) => t.axis === axis);
+    if (!tile) return null;
+    const fullBlob = await this.takeScreenshot();
+    if (!fullBlob) return null;
+    // Decode the PNG, clip with an offscreen canvas, re-encode.
+    const bitmap = await createImageBitmap(fullBlob);
+    const [x, y, w, h] = tile.rect;
+    // The canvas runs at devicePixelRatio for sharpness; tile rect is
+    // already in canvas pixel coords (NiiVue stores it that way), so
+    // no DPR adjustment needed here.
+    const off = new OffscreenCanvas(Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+    const ctx = off.getContext('2d');
+    if (!ctx) {
+      bitmap.close?.();
+      return null;
+    }
+    ctx.drawImage(bitmap, x, y, w, h, 0, 0, w, h);
+    bitmap.close?.();
+    return off.convertToBlob({ type: 'image/png' });
   }
 
   /**
@@ -1043,6 +1117,23 @@ export class NiivueViewer {
   clearAnglePoints(): void {
     this.anglePoints = [];
     this.notifyAngle();
+  }
+
+  /**
+   * v0.8.4 — synchronous getter for the current angle state. Used by
+   * the Viewer's pointer-up handler so it can decide "did this click
+   * complete the 3-point angle?" without registering a new
+   * `onAngleUpdate` subscriber every click. The pre-v0.8.4 pattern
+   * (register subscriber, unsub on first fire) raced badly with the
+   * fact that `onAngleUpdate` fires the new subscriber **immediately**
+   * with current state — on the first click the immediate fire
+   * cancelled the subscriber before any subsequent click could trigger
+   * it, so the third click never auto-committed and the user reported
+   * "can't click second point for angle" / measurements not
+   * persisting.
+   */
+  getAngleState(): AngleState {
+    return this.snapshotAngle();
   }
 
   /** Subscribe to angle-state updates. Returns an unsubscribe fn. */

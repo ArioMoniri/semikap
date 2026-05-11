@@ -6,6 +6,47 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.4] — Angle/distance fixes · 2D zoom · screenshot panel picker · pinch sensitivity
+
+### Fixed — Critical measurement bugs
+
+- 🎯 **Angle tool: "can't click second point" + measurements never persisted.** Root cause: the v0.7.8 auto-commit logic registered a fresh `onAngleUpdate(cb)` subscriber after every `addAnglePoint()` call, then called `unsub()` inside the callback after first fire. The wrapper fires new subscribers IMMEDIATELY with current state — so the immediate fire hit `unsub()` before any subsequent click could trigger the listener. The third click's `addAnglePoint` then notified only the original subscribers (overlay + Tools panel) and the auto-commit-and-clear branch was never reached. Fixed by adding a synchronous `getAngleState()` getter on the wrapper and calling it directly after `addAnglePoint`. No subscriber dance.
+- 📏 **Distance ruler didn't persist.** NiiVue's `dragMode='measurement'` is single-shot by design: the line is drawn during drag and erased on pointer-up. The v0.7.8 measurements store + SVG overlay existed but nothing fed it. New `pointerdown`/`pointerup` capture in Viewer.tsx — when `getDragMode() === 'measurement'`, mm at pointerdown is stored, mm at pointerup is read, and (if distance ≥ 2 mm) a `kind: 'distance'` measurement is pushed to the store. The MeasurementsOverlay SVG layer then re-paints across slice navigations, zooms, etc.
+
+### Fixed — Zoom only affected 3D
+
+- 🔍 **`zoomBy()` now updates BOTH `volScaleMultiplier` (3D) and `pan2Dxyzmm[3]` (2D).** Pre-v0.8.4 only the first was set, so toolbar Zoom +/− buttons and the wheel handler appeared to do nothing on the 2D MPR tiles. Researcher pass against NiiVue 0.44 internals confirmed the split. Both clamps are 0.25..16; `resetView()` already resets both to defaults.
+
+### Added — Screenshot panel picker
+
+- 📸 **Pick which panel to capture.** PNG button now opens a chooser with Axial / Coronal / Sagittal / 3D render / All panels. The per-tile capture uses `getScreenSlices()` to find the tile's canvas-pixel bounds, then clips the full canvas via OffscreenCanvas + re-encodes as PNG. Buttons for tiles that aren't currently visible (e.g. single-plane sliceMode) are disabled.
+- 🪪 **Save behaviour preserved**: 'ask' mode prompts for a path each time; 'auto' mode writes to the user's chosen screenshot folder with silent fallback to 'ask' if the handle is stale. Default = 'ask' (user reported "if the user hasn't set the screenshot path... it should ask where to save it").
+
+### Added — Pinch / wheel sensitivity in Settings
+
+- 🎚️ **Sensitivity slider** (0.25× — 3×, default 1×) and **Reverse zoom direction** toggle. The Viewer.tsx wheel handler reads these prefs synchronously on every event so adjustments apply immediately (no remount). The previous hard-coded factors (0.0015 wheel, 0.003 trackpad pinch) become the base; the slider multiplies them.
+
+### Internal
+
+- `src/lib/viewer/niivue.ts` — new `getAngleState()`, `getDragMode()`, `takeScreenshotOfTile()`. `zoomBy()` extended to drive both 3D + 2D zoom factors.
+- `src/components/Viewer.tsx` — added `pointerdown` listener for measurement-start capture; pointer-up handler simplified to use `getAngleState()` + `getDragMode()` directly. Wheel handler reads `prefs.pinchSensitivity` + `prefs.pinchInverted`.
+- `src/components/ToolsPanel.tsx` — new `ScreenshotPicker` sub-component; PNG button now toggles the picker rather than capturing immediately.
+- `src/components/SettingsPanel.tsx` — new `PinchSensitivitySection`.
+- `src/lib/state/store.ts` — `UserPrefs.pinchSensitivity` (default 1) + `UserPrefs.pinchInverted` (default false).
+
+### Deferred to v0.8.5
+
+- 🪟 **Per-pane crosshair lock** (click on axial pane only changes Z, leaves X/Y alone). Researcher confirmed NiiVue 0.44 enforces tile constraint only during DRAG via `clickedTile`, not during single clicks. Fixing this needs a Settings toggle + non-trivial rewrite of the click→navigate path.
+- 📁 **Settings → Files browser with reveal-in-finder.** Tauri 2.x supports `shell.open()` / `revealItemInDir()` via `tauri-plugin-shell`; needs a new permission + Settings UI listing OPFS/user-folder contents.
+- 📐 **100% zoom = real-life voxel/pixel size.** Needs DPI math + tile-pixel-per-voxel calc; investigating.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 8s (35 precache entries, 5493 KiB).
+
 ## [0.8.3] — Monotonic progress bar · sticky-determinate
 
 ### Fixed

@@ -108,42 +108,70 @@ export function ToolsPanel({ viewerRef }: Props) {
   const handleZoomOut = useCallback(() => viewerRef.current?.zoomBy(0.8), [viewerRef]);
 
   /**
-   * Capture the current canvas (overlay + crosshair + 3D render composited)
-   * as a PNG and save. Honours the user's `screenshotMode` preference
-   * from Settings:
-   *   - 'ask'  → prompt for a save location each time.
-   *   - 'auto' → write straight to the directory the user picked in
-   *              Settings. Falls back to 'ask' if no directory handle
-   *              is currently active (e.g. on first load before re-pick).
+   * v0.8.4 — screenshot panel picker. Opens a small chooser over the
+   * Tools card with one button per visible MPR tile (axial / coronal
+   * / sagittal / 3D) plus an "All panels" button that captures the
+   * full canvas.
+   *
+   * The user reported: "after capture ss button is clicked it should
+   * show which panel it should take a screenshot and or take from all
+   * of them and if the user hasn't set the screenshot path in the
+   * settings (add it) it should ask where to save it." Pre-v0.8.4 the
+   * button always took the full canvas.
+   *
+   * Save behaviour preserved from v0.7.x:
+   *   - 'ask'  → prompt for save location each time (default).
+   *   - 'auto' → write straight to the user-picked screenshot folder;
+   *              falls back to 'ask' if the handle is stale.
+   *
+   * The capture itself uses `getScreenSlices()` to find each tile's
+   * canvas-pixel rectangle, then `takeScreenshotOfTile()` clips the
+   * full canvas into an OffscreenCanvas and re-encodes as PNG.
    */
-  const handleScreenshot = useCallback(async () => {
-    const blob = await viewerRef.current?.takeScreenshot();
-    if (!blob) return;
-    const buf = await blob.arrayBuffer();
-    const bytes = asBytes(new Uint8Array(buf));
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `tamias-screenshot-${ts}.png`;
-    const prefs = useAppStore.getState().prefs;
-    let mode: 'ask' | 'auto' = prefs.screenshotMode;
-    let ok = false;
-    if (mode === 'auto' && prefs.screenshotDirHandle) {
-      ok = await saveBytesToDirectory(prefs.screenshotDirHandle, bytes, filename);
-      if (!ok) {
+  const [screenshotPicker, setScreenshotPicker] = useState(false);
+  const captureScreenshot = useCallback(
+    async (target: 'all' | 'axial' | 'coronal' | 'sagittal' | '3d') => {
+      setScreenshotPicker(false);
+      const v = viewerRef.current;
+      if (!v) return;
+      const blob =
+        target === 'all'
+          ? await v.takeScreenshot()
+          : await v.takeScreenshotOfTile(target);
+      if (!blob) return;
+      const buf = await blob.arrayBuffer();
+      const bytes = asBytes(new Uint8Array(buf));
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `tamias-${target}-${ts}.png`;
+      const prefs = useAppStore.getState().prefs;
+      let mode: 'ask' | 'auto' = prefs.screenshotMode;
+      let ok = false;
+      if (mode === 'auto' && prefs.screenshotDirHandle) {
+        ok = await saveBytesToDirectory(prefs.screenshotDirHandle, bytes, filename);
+        if (!ok) {
+          mode = 'ask';
+          ok = await saveBytes(bytes, filename, 'PNG screenshot', '.png');
+        }
+      } else {
         mode = 'ask';
         ok = await saveBytes(bytes, filename, 'PNG screenshot', '.png');
       }
-    } else {
-      mode = 'ask';
-      ok = await saveBytes(bytes, filename, 'PNG screenshot', '.png');
-    }
-    if (ok) {
-      void appendAudit({
-        kind: 'export',
-        message: `Screenshot saved: ${filename}`,
-        details: { mode },
-      });
-    }
-  }, [viewerRef]);
+      if (ok) {
+        void appendAudit({
+          kind: 'export',
+          message: `Screenshot (${target}) saved: ${filename}`,
+          details: { mode, target },
+        });
+      }
+    },
+    [viewerRef]
+  );
+
+  // v0.8.4 — backwards-compat with the existing PNG button: clicking
+  // it opens the picker. Pre-v0.8.4 it captured the whole canvas.
+  const handleScreenshot = useCallback(() => {
+    setScreenshotPicker((prev) => !prev);
+  }, []);
 
   return (
     <Card>
@@ -214,11 +242,18 @@ export function ToolsPanel({ viewerRef }: Props) {
             <ToolBtn
               label="PNG"
               icon={<Camera className="h-3.5 w-3.5" />}
-              active={false}
+              active={screenshotPicker}
               onClick={handleScreenshot}
-              hint="Save canvas screenshot"
+              hint="Pick which panel to capture"
             />
           </div>
+          {/* v0.8.4 — screenshot panel picker. Reads `getScreenSlices()`
+              so we only show buttons for tiles that are actually
+              visible (e.g. single-plane sliceMode hides the others).
+              "All panels" always available for the full composite. */}
+          {screenshotPicker && (
+            <ScreenshotPicker viewerRef={viewerRef} onPick={captureScreenshot} />
+          )}
         </div>
 
         {/* Angle measurement (3-click, mm-space). Vertex first, then the
@@ -282,6 +317,76 @@ export function ToolsPanel({ viewerRef }: Props) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * v0.8.4 — screenshot panel picker. Reads which MPR tiles are visible
+ * via the wrapper's `getScreenSlices()` so the user only sees buttons
+ * for panels that exist on the canvas right now (single-plane
+ * sliceMode hides the others). "All panels" is always available for
+ * the full composite.
+ *
+ * Re-queries on mount; the SamPanel's existing slice-mode buttons
+ * trigger a tile re-layout so a quick pop-and-pop should always show
+ * the current set.
+ */
+function ScreenshotPicker({
+  viewerRef,
+  onPick,
+}: {
+  viewerRef: React.MutableRefObject<ViewerHandle | null>;
+  onPick: (target: 'all' | 'axial' | 'coronal' | 'sagittal' | '3d') => void;
+}) {
+  const tiles = viewerRef.current?.getScreenSlices() ?? [];
+  const visible = new Set(tiles.map((t) => t.axis));
+  return (
+    <div className="space-y-1.5 rounded border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-900">
+      <div className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+        Capture which panel?
+      </div>
+      <div className="grid grid-cols-2 gap-1">
+        <ToolBtn
+          label="All panels"
+          icon={<Camera className="h-3 w-3" />}
+          active={false}
+          onClick={() => onPick('all')}
+          hint="Capture the full composite (all visible panels)"
+        />
+        <ToolBtn
+          label="Axial"
+          icon={<Camera className="h-3 w-3" />}
+          active={false}
+          onClick={() => onPick('axial')}
+          disabled={!visible.has('axial')}
+          hint="Capture only the axial pane"
+        />
+        <ToolBtn
+          label="Coronal"
+          icon={<Camera className="h-3 w-3" />}
+          active={false}
+          onClick={() => onPick('coronal')}
+          disabled={!visible.has('coronal')}
+          hint="Capture only the coronal pane"
+        />
+        <ToolBtn
+          label="Sagittal"
+          icon={<Camera className="h-3 w-3" />}
+          active={false}
+          onClick={() => onPick('sagittal')}
+          disabled={!visible.has('sagittal')}
+          hint="Capture only the sagittal pane"
+        />
+        <ToolBtn
+          label="3D render"
+          icon={<Camera className="h-3 w-3" />}
+          active={false}
+          onClick={() => onPick('3d')}
+          disabled={!visible.has('3d')}
+          hint="Capture only the 3D render"
+        />
+      </div>
+    </div>
   );
 }
 
