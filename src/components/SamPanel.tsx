@@ -14,6 +14,7 @@ import {
   Check,
 } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
+import { useThrottledBusy } from '../lib/ui/useThrottledBusy';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -692,7 +693,16 @@ export function SamPanel({ viewerRef }: Props) {
           </div>
         </CardHeader>
         <CardContent className="space-y-3 text-xs">
-          {sam.busy && <BusyView busy={sam.busy} />}
+          {/*
+            v0.8.1 — same flash fix as InferencePanel. SAM encode +
+            decode on a cached WebGPU session can finish in <100 ms,
+            making the BusyView strobe on screen. We throttle the
+            visibility (skip if <150 ms; once shown stay ≥400 ms) and
+            mirror the latest non-null `sam.busy` into local state so
+            we have something to render during the hide-delay window
+            after the store's busy flag has cleared.
+          */}
+          <ThrottledSamBusyView busy={sam.busy} />
 
           {!sam.modelLoaded && !sam.busy && (
             <>
@@ -778,6 +788,36 @@ export function SamPanel({ viewerRef }: Props) {
       </Card>
     </>
   );
+}
+
+/**
+ * v0.8.1 — wrapper that throttles BusyView visibility to avoid the
+ * sub-150ms flash on cached WebGPU encode/decode runs.
+ *
+ * `busy` from the store goes (null → non-null → null) sometimes within
+ * <100 ms (cached SAM 2.1 Tiny + small slice). Plain conditional
+ * rendering would mount + unmount BusyView in the same animation
+ * frame; the user sees a strobe.
+ *
+ * We hold the most-recent non-null busy value in local state so that
+ * during the hide-delay window (when the store has already cleared
+ * busy but the throttled-visibility flag is still true) we have
+ * something meaningful to render. After the hide-delay fires, both
+ * flags drop and BusyView unmounts cleanly.
+ */
+function ThrottledSamBusyView({
+  busy,
+}: {
+  busy: ReturnType<typeof useAppStore.getState>['sam']['busy'];
+}) {
+  const visible = useThrottledBusy(!!busy);
+  const [snapshot, setSnapshot] = useState(busy);
+  useEffect(() => {
+    if (busy) setSnapshot(busy);
+  }, [busy]);
+  const toRender = busy ?? snapshot;
+  if (!visible || !toRender) return null;
+  return <BusyView busy={toRender} />;
 }
 
 function BusyView({ busy }: { busy: NonNullable<ReturnType<typeof useAppStore.getState>['sam']['busy']> }) {

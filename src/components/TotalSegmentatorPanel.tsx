@@ -7,6 +7,7 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Progress } from './ui/Progress';
 import { ExternalLink } from './ExternalLink';
+import { useThrottledBusy } from '../lib/ui/useThrottledBusy';
 import {
   PRESET_TOTALSEG_MODELS,
   buildCustomTotalSegManifest,
@@ -202,7 +203,9 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
         </div>
       </CardHeader>
       <CardContent className="space-y-3 text-xs">
-        {busy && <BusyView busy={busy} />}
+        {/* v0.8.1 — throttled-visibility wrapper avoids the
+            sub-150ms BusyView flash on cached / fast operations. */}
+        <ThrottledBusyView busy={busy} />
 
         {!modelLoaded && !busy && (
           <div className="space-y-2">
@@ -404,15 +407,29 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
   );
 }
 
+type TotalSegBusy = {
+  stage: string;
+  label: string;
+  bytesLoaded: number;
+  bytesTotal?: number;
+};
+
+/** v0.8.1 — same throttle pattern as SamPanel.ThrottledSamBusyView. */
+function ThrottledBusyView({ busy }: { busy: TotalSegBusy | null }) {
+  const visible = useThrottledBusy(!!busy);
+  const [snapshot, setSnapshot] = useState<TotalSegBusy | null>(busy);
+  useEffect(() => {
+    if (busy) setSnapshot(busy);
+  }, [busy]);
+  const toRender = busy ?? snapshot;
+  if (!visible || !toRender) return null;
+  return <BusyView busy={toRender} />;
+}
+
 function BusyView({
   busy,
 }: {
-  busy: {
-    stage: string;
-    label: string;
-    bytesLoaded: number;
-    bytesTotal?: number;
-  };
+  busy: TotalSegBusy;
 }) {
   let pct = -1;
   if (busy.stage === 'fetching' && busy.bytesTotal) {

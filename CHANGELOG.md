@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.1] — Progress-bar flash fix
+
+### Fixed
+
+- ⚡ **Inference progress bar flashed on fast operations.** Cached-WebGPU SAM encode + decode often complete in <100 ms. The `progress.active` flag flipped true → false within a single frame; the bar mounted, drew at some intermediate fraction, then unmounted before the user could register it had been there. UX was a brief strobe, not a "complete" state.
+
+### Added
+
+- 🎚️ **`src/lib/ui/useThrottledBusy.ts`** — generic hook with two thresholds:
+  - **`showAfter` (150 ms default)** — only render the busy UI if the underlying flag stays true that long. Sub-150 ms ops feel instant; no spinner, no bar, no flash.
+  - **`hideAfter` (400 ms default)** — once shown, stay on screen for at least this long after the flag flips back to false. The progress bar visibly fills to 100% (since the store holds `fraction: 1` post-success) before yielding to the success badge.
+- Applied to:
+  - `InferencePanel` — the panel the user reported the flash on (regular ONNX inference).
+  - `SamPanel.BusyView` (via new `ThrottledSamBusyView` wrapper) — same pattern (cached SAM encode/decode).
+  - `TotalSegmentatorPanel.BusyView` (via new `ThrottledBusyView` wrapper) — same pattern (Pyodide pre-warm + cached model loads).
+- Each consumer mirrors the latest non-null `busy` snapshot in local state so we have something meaningful to render during the hide-delay window after the store's flag has cleared.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 7.7s (35 precache entries, 5484 KiB).
+
 ## [0.8.0] — SAM 3 one-tap · HuggingFace token · ONNX external-data · WASM isolation transparency
 
 ### Added — SAM 3 ships as a one-tap preset

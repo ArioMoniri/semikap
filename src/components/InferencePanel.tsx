@@ -8,6 +8,7 @@ import { Button } from './ui/Button';
 import { Progress } from './ui/Progress';
 import { Badge } from './ui/Badge';
 import { appendAudit } from '../lib/fs/audit';
+import { useThrottledBusy } from '../lib/ui/useThrottledBusy';
 
 interface Props {
   onResultMask(mask: Uint8Array, dims: [number, number, number], spacing: [number, number, number]): Promise<void> | void;
@@ -22,6 +23,22 @@ export function InferencePanel({ onResultMask }: Props) {
   const pushError = useAppStore((s) => s.pushError);
 
   const ready = !!volume && !!model && !progress.active;
+
+  /**
+   * v0.8.1 — smooth out the progress bar so fast inferences (cached
+   * WebGPU encode, small model) don't flash the bar on screen for
+   * <100 ms. The hook only renders the bar after `active` has stayed
+   * true for 150 ms, and once shown keeps it on screen for 400 ms
+   * after `active` flips back to false. The result: sub-150 ms
+   * inferences feel instant (no spinner at all), and the longer
+   * runs end with the bar visibly filling to 100% before yielding
+   * to the success badge.
+   *
+   * The `ready` flag above still uses `progress.active` directly so
+   * the Run button stays disabled for the actual duration of work,
+   * not the throttled visible window.
+   */
+  const showBar = useThrottledBusy(progress.active);
 
   const setRunMeta = useAppStore((s) => s.setRunMeta);
 
@@ -108,7 +125,16 @@ export function InferencePanel({ onResultMask }: Props) {
         </Button>
       </CardHeader>
       <CardContent className="space-y-2">
-        {progress.active ? (
+        {/*
+          v0.8.1 — render the progress bar based on `showBar` (throttled),
+          not `progress.active` (raw). When the inference completes within
+          the show-delay window, the bar never mounts and the user sees
+          a clean transition straight to the success badge — no flash.
+          When the bar IS shown, it renders at the latest fraction (which
+          is 1.0 once active flips false with stage='done') so the user
+          watches the bar fill to 100% before the hide-delay fires.
+        */}
+        {showBar ? (
           <>
             <div className="text-xs text-slate-500">
               {progress.stage}
