@@ -359,20 +359,60 @@ export function createOsdViewer(opts: OsdViewerOptions): OsdViewer {
   });
   tracker.setTracking(true);
 
+  /*
+   * v0.8.8 — suppress the browser's right-click context menu on the
+   * OSD canvas. The user reported "in right click the dropdown menu
+   * appears" while trying to use distance/brush tools. The native
+   * menu interrupts every drag tool because the browser's menu
+   * steals focus + suspends pointer events while it's open.
+   *
+   * We listen on `viewer.element` (the OSD container) so all three
+   * canvases (image, drawing, overlay) are covered. `preventDefault`
+   * + `stopPropagation` are both needed because OSD's own handlers
+   * may also try to consume the event.
+   */
+  const suppressContextMenu = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  viewer.element.addEventListener('contextmenu', suppressContextMenu);
+
   return {
     raw: viewer,
     meta,
     setDragMode(mode) {
       dragMode = mode;
-      // Built-in OSD panning is suppressed in every drag-tool mode so
-      // the user's drag drives the tool, not the viewport.
-      // `panHorizontal` / `panVertical` are valid OSD viewer fields but
-      // missing from @types/openseadragon, so we cast.
+      /*
+       * v0.8.8 — disable ALL OSD canvas-level mouse navigation (not
+       * just pan) when in a tool mode.
+       *
+       * Pre-v0.8.8 we set `panHorizontal/panVertical` to false but
+       * OSD's click-to-zoom + double-click-to-zoom-in handlers were
+       * STILL active — they ran instead of (or alongside) our outer
+       * MouseTracker. Net effect:
+       *   - distance mode: click-down didn't deposit a measureStart
+       *     because OSD swallowed the press as a zoom-target
+       *   - brush mode: same — OSD's click-to-zoom won, brushBuffer
+       *     never got painted
+       *   - right-click: browser context menu still surfaced because
+       *     OSD wasn't owning the click stream
+       * The user reported all three on v0.8.7.
+       *
+       * `setMouseNavEnabled(false)` is OSD's canonical "let someone
+       * else handle the mouse on the canvas" switch. Our
+       * MouseTracker is attached to `viewer.element` (outer
+       * container) and listens at the element level — it still fires
+       * for press / move / release after this. Re-enable on pan-mode
+       * so OSD's drag-to-pan + scroll-to-zoom keep working.
+       */
+      const allowPan = mode === 'pan';
+      viewer.setMouseNavEnabled(allowPan);
+      // Keep the legacy panHorizontal/Vertical override too — older
+      // OSD builds used these for the same effect.
       const v = viewer as unknown as {
         panHorizontal: boolean;
         panVertical: boolean;
       };
-      const allowPan = mode === 'pan';
       v.panHorizontal = allowPan;
       v.panVertical = allowPan;
       // Reset any in-flight measurement when leaving distance mode.
@@ -502,6 +542,9 @@ export function createOsdViewer(opts: OsdViewerOptions): OsdViewer {
     },
     destroy() {
       window.removeEventListener('resize', onResize);
+      // v0.8.8 — clean up the right-click suppressor we attached
+      // alongside the MouseTracker.
+      viewer.element.removeEventListener('contextmenu', suppressContextMenu);
       tracker.destroy();
       try {
         viewer.destroy();

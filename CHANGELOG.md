@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.8] — Pathology tools unblocked: distance, brush, MPP-less inference
+
+### Fixed
+
+- 🛑 **Pathology distance + brush did nothing.** Pre-v0.8.8 we set `panHorizontal/panVertical = false` on the OSD viewer when a tool mode was active, but OSD's click-to-zoom + double-click-to-zoom-in handlers were still alive and **stole the press event** before our outer MouseTracker could see it. So:
+  - distance click never deposited a `measureStart`
+  - brush press never fired the brush handler
+  - the right-click menu still surfaced (browser context menu)
+  Fix: `viewer.setMouseNavEnabled(false)` whenever the user enters distance / brush / eraser mode, re-enable on pan. OSD's canonical "let someone else handle the mouse" switch — our MouseTracker on `viewer.element` keeps firing because it lives one level outside the disabled-nav layer.
+- 🛑 **Right-click context menu** appeared on top of the slide and stole focus from any drag tool. Added a `contextmenu` listener on `viewer.element` that calls `preventDefault + stopPropagation`. Cleanup hook in `destroy()` removes the listener. Suppresses the menu in pan mode too — pathology workstations never use it.
+- 🟢 **MPP-missing inference now allowed** with a softer warning. Pre-v0.8.8 the Run button was hard-disabled if the slide lacked PhysicalSizeX/Y in its OME-TIFF header — blocking inference on slides exported by older scanners or anonymisers. v0.8.8: button stays enabled, warning text reframed as informational ("output may be at an unexpected magnification — for calibrated results, convert to OME-TIFF with PhysicalSizeX/Y filled in"). The user accepts the limitation by clicking Run.
+
+### Internal
+
+- `src/lib/pathology/osd-viewer.ts` — `setDragMode()` now toggles `viewer.setMouseNavEnabled` per-mode; one-time `contextmenu` suppressor on `viewer.element` with cleanup in `destroy()`.
+- `src/components/pathology/PathologyInferencePanel.tsx` — `ready` flag drops the `!missingMpp` gate; warning text rephrased.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 9s (36 precache entries, 5511 KiB).
+
 ## [0.8.7] — Pathology TDZ fix · slice-chip overlap · "Currently loaded" in Files browser
 
 ### Fixed

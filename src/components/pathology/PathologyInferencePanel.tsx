@@ -44,7 +44,23 @@ export function PathologyInferencePanel({
     setMissingMpp(!!meta && (meta.mppX === null || meta.mppY === null));
   }, [meta]);
 
-  const ready = !!slide && !!model && !!meta && !active && !missingMpp;
+  /*
+   * v0.8.8 — allow inference WITHOUT MPP.
+   *
+   * Pre-v0.8.8 the run button was hard-disabled when the slide
+   * lacked PhysicalSizeX/Y in its OME-TIFF header. The user
+   * reported this blocked them from running inference on any slide
+   * exported by older scanners or stripped by anonymisers.
+   *
+   * Reality: most pathology models DO want a known MPP for
+   * down-sampling, but the user can still get a useful result by
+   * running at the slide's native resolution and inspecting the
+   * output. The MPP becomes informational rather than blocking.
+   * The amber warning below stays so the user knows the spatial
+   * calibration is missing — they accept the limitation by clicking
+   * Run anyway.
+   */
+  const ready = !!slide && !!model && !!meta && !active;
 
   const handleRun = useCallback(async () => {
     if (!slide || !model || !meta) return;
@@ -112,8 +128,10 @@ export function PathologyInferencePanel({
       <CardContent className="space-y-2">
         {missingMpp ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-            Slide is missing MPP metadata. Inference is disabled until the
-            slide is converted to OME-TIFF with PhysicalSizeX/Y filled in.
+            Slide is missing MPP (PhysicalSizeX/Y) metadata. Inference will
+            run at the slide&apos;s native resolution — output may be at
+            an unexpected magnification. For calibrated results, convert to
+            OME-TIFF with PhysicalSizeX/Y filled in.
           </div>
         ) : null}
 
