@@ -8,7 +8,7 @@
 import * as ort from 'onnxruntime-web';
 import { configureOrt, type Provider } from '../inference/ort';
 import type { Bytes } from '../../types';
-import type { SamPrompt } from './types';
+import type { SamExternalDataBlob, SamPrompt } from './types';
 
 export interface SamEncoderSession {
   session: ort.InferenceSession;
@@ -32,20 +32,43 @@ const FALLBACK_CHAIN: Provider[] = ['webgpu', 'webnn', 'wasm'];
 
 async function tryProvider(
   bytes: Bytes,
-  provider: Provider
+  provider: Provider,
+  externalData?: SamExternalDataBlob
 ): Promise<ort.InferenceSession | null> {
   try {
-    return await ort.InferenceSession.create(bytes, {
+    /**
+     * v0.8.0 — pass external-data to ORT-Web when present. The runtime
+     * reads the graph's `external_data_location` references and resolves
+     * them against the in-memory `data` blob keyed by `path` (filename).
+     * Filename match is exact; onnx-community exports always use the
+     * basename of the sidecar URL (e.g. `vision_encoder_q4f16.onnx_data`).
+     *
+     * Type-cast: the `externalData` field is in the public ORT-Web
+     * `SessionOptions` since 1.18 but not all `@types/onnxruntime-web`
+     * versions track it. The cast keeps us forward-compatible without
+     * pinning a specific @types version.
+     */
+    const opts: Record<string, unknown> = {
       executionProviders: [provider],
       graphOptimizationLevel: 'all',
-    });
+    };
+    if (externalData) {
+      opts.externalData = [
+        { path: externalData.filename, data: externalData.data },
+      ];
+    }
+    return await ort.InferenceSession.create(bytes, opts as ort.InferenceSession.SessionOptions);
   } catch (err) {
     console.warn(`[SAM] EP "${provider}" unavailable:`, err);
     return null;
   }
 }
 
-async function createWithFallback(bytes: Bytes, preferred: Provider | 'auto'): Promise<{
+async function createWithFallback(
+  bytes: Bytes,
+  preferred: Provider | 'auto',
+  externalData?: SamExternalDataBlob
+): Promise<{
   session: ort.InferenceSession;
   provider: Provider;
 }> {
@@ -55,7 +78,7 @@ async function createWithFallback(bytes: Bytes, preferred: Provider | 'auto'): P
       ? FALLBACK_CHAIN
       : [preferred, ...FALLBACK_CHAIN.filter((p) => p !== preferred)];
   for (const provider of chain) {
-    const session = await tryProvider(bytes, provider);
+    const session = await tryProvider(bytes, provider, externalData);
     if (session) return { session, provider };
   }
   throw new Error(`Failed to create SAM session on any provider (tried ${chain.join(', ')}).`);
@@ -63,9 +86,14 @@ async function createWithFallback(bytes: Bytes, preferred: Provider | 'auto'): P
 
 export async function createSamEncoderSession(
   encoderBytes: Bytes,
-  preferred: Provider | 'auto' = 'webgpu'
+  preferred: Provider | 'auto' = 'webgpu',
+  externalData?: SamExternalDataBlob
 ): Promise<SamEncoderSession> {
-  const { session, provider } = await createWithFallback(encoderBytes, preferred);
+  const { session, provider } = await createWithFallback(
+    encoderBytes,
+    preferred,
+    externalData
+  );
   return {
     session,
     provider,
@@ -76,9 +104,14 @@ export async function createSamEncoderSession(
 
 export async function createSamDecoderSession(
   decoderBytes: Bytes,
-  preferred: Provider | 'auto' = 'webgpu'
+  preferred: Provider | 'auto' = 'webgpu',
+  externalData?: SamExternalDataBlob
 ): Promise<SamDecoderSession> {
-  const { session, provider } = await createWithFallback(decoderBytes, preferred);
+  const { session, provider } = await createWithFallback(
+    decoderBytes,
+    preferred,
+    externalData
+  );
   return {
     session,
     provider,

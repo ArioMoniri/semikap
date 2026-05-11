@@ -65,9 +65,32 @@ export interface SamManifest {
 export interface SamModelSpec {
   /** Where the bytes live. `null` means "user will pick from disk". */
   url: string | null;
+  /**
+   * v0.8.0 — sidecar URL for ONNX **external-data format**. When the
+   * encoder/decoder weights live in a separate `.onnx_data` file
+   * alongside the `.onnx` graph (the convention `onnx-community` uses
+   * for SAM 3 and many large multi-GB exports), point this at the
+   * sidecar URL. The loader fetches both files; the worker passes the
+   * sidecar bytes to ORT-Web via the `externalData` session option so
+   * the runtime can resolve the graph's external-data references.
+   *
+   * Leave undefined for single-file `.onnx` exports (the SAM 2.1 / MedSAM
+   * presets, which is the v0.7.x default). Filename matching:
+   * - If `externalDataFilename` is set → use it.
+   * - Else default to the basename of `externalDataUrl`.
+   * - The graph's external-data references must use the same filename;
+   *   onnx-community exports always do.
+   */
+  externalDataUrl?: string;
+  /** Override the filename ORT looks for. Almost never needed — defaults
+   *  to the basename of `externalDataUrl`. Only set if the graph's
+   *  external-data references don't match the filename on the URL. */
+  externalDataFilename?: string;
   /** Optional SHA-256 — when present we verify the cached bytes against it
    *  before creating an InferenceSession. */
   sha256?: string;
+  /** Optional SHA-256 of the external-data sidecar (when used). */
+  externalDataSha256?: string;
   /** Documentation only — encoder input shape, decoder doesn't need this. */
   inputShape?: number[];
   /** Documentation only — encoder embedding shape. */
@@ -75,6 +98,21 @@ export interface SamModelSpec {
   /** Decoder output names, in the order the wrapper reads them. Defaults to
    *  `["masks", "iou_predictions"]` (Xenova / onnx-community convention). */
   outputs?: string[];
+}
+
+/**
+ * v0.8.0 — paired external-data payload. Shipped alongside the encoder /
+ * decoder bytes when a manifest declares `externalDataUrl`. The worker
+ * passes this to `ort.InferenceSession.create()` via the `externalData`
+ * session option.
+ */
+export interface SamExternalDataBlob {
+  /** Filename ORT should resolve external_data_location references with —
+   *  must match the graph's references (typically the basename of the
+   *  sidecar URL, e.g. `vision_encoder_q4f16.onnx_data`). */
+  filename: string;
+  /** The raw sidecar bytes. */
+  data: Uint8Array;
 }
 
 export type SamPromptKind = 'point' | 'box' | 'text';
@@ -147,6 +185,9 @@ export interface SamEncodeRequest {
   kind: 'encode';
   manifest: SamManifest;
   encoderBytes: Bytes;
+  /** v0.8.0 — external-data sidecar for the encoder (optional, only set
+   *  when the manifest declares `encoder.externalDataUrl`). */
+  encoderExternalData?: SamExternalDataBlob;
   /**
    * Source pixels. Width/height describe the SOURCE-image dims (the
    * worker's preprocessor handles bilinear-resize to the encoder's
@@ -186,6 +227,8 @@ export interface SamDecodeRequest {
   kind: 'decode';
   manifest: SamManifest;
   decoderBytes: Bytes;
+  /** v0.8.0 — external-data sidecar for the decoder (optional). */
+  decoderExternalData?: SamExternalDataBlob;
   embedding: Bytes;
   prompts: SamPrompt[];
   /** Original slice dims so we can up-sample the 256² mask back. */

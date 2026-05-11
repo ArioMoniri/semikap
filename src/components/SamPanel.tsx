@@ -64,6 +64,13 @@ export function SamPanel({ viewerRef }: Props) {
   const removePrompt = useAppStore((s) => s.removeSamPrompt);
   const clearPrompts = useAppStore((s) => s.clearSamPrompts);
   const pushError = useAppStore((s) => s.pushError);
+  /**
+   * v0.8.0 — HuggingFace personal access token from Settings. Empty
+   * string = none; loader skips the Authorization header. Required
+   * only for gated repos (Meta SAM 3 mirrors, research-licensed
+   * checkpoints).
+   */
+  const huggingfaceToken = useAppStore((s) => s.prefs.huggingfaceToken);
 
   const [activeMode, setActiveMode] = useState<'point' | 'box' | 'text' | 'off'>('off');
   const [textValue, setTextValue] = useState('');
@@ -138,31 +145,44 @@ export function SamPanel({ viewerRef }: Props) {
         setSam({
           busy: { stage: 'fetching', label: 'Downloading encoder…', bytesLoaded: 0 },
         });
-        const bytes = await loadSamModel(preset.manifest, (p: SamLoadProgress) => {
-          setSam({
-            busy: {
-              stage: 'fetching',
-              label:
-                p.stage === 'encoder'
-                  ? 'Downloading encoder…'
-                  : p.stage === 'decoder'
-                  ? 'Downloading decoder…'
-                  : p.stage === 'verify'
-                  ? 'Verifying…'
-                  : p.stage === 'cache'
-                  ? 'Caching to OPFS…'
-                  : 'Done',
-              bytesLoaded: p.bytesLoaded,
-              ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
-            },
-          });
-        });
+        const bytes = await loadSamModel(
+          preset.manifest,
+          (p: SamLoadProgress) => {
+            setSam({
+              busy: {
+                stage: 'fetching',
+                label:
+                  p.stage === 'encoder'
+                    ? 'Downloading encoder…'
+                    : p.stage === 'encoder-data'
+                    ? 'Downloading encoder weights (sidecar)…'
+                    : p.stage === 'decoder'
+                    ? 'Downloading decoder…'
+                    : p.stage === 'decoder-data'
+                    ? 'Downloading decoder weights (sidecar)…'
+                    : p.stage === 'verify'
+                    ? 'Verifying…'
+                    : p.stage === 'cache'
+                    ? 'Caching to OPFS…'
+                    : 'Done',
+                bytesLoaded: p.bytesLoaded,
+                ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
+              },
+            });
+          },
+          // v0.8.0 — pass the HF token (empty = no Authorization header).
+          { huggingfaceToken }
+        );
         setSam({
           modelLoaded: true,
           modelName: preset.manifest.name,
           manifest: preset.manifest,
           encoderBytes: bytes.encoderBytes,
           decoderBytes: bytes.decoderBytes,
+          // v0.8.0 — store external-data sidecars so the worker can pass
+          // them to ORT-Web on every encode / decode call.
+          encoderExternalData: bytes.encoderExternalData ?? null,
+          decoderExternalData: bytes.decoderExternalData ?? null,
           embedding: null,
           preview: null,
           prompts: [],
@@ -185,7 +205,7 @@ export function SamPanel({ viewerRef }: Props) {
     // also memoised on `[setSam, pushError]`, so adding it would create a
     // declaration-order forward-reference without any behavioural change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [setSam, pushError]
+    [setSam, pushError, huggingfaceToken]
   );
 
   /**
@@ -237,31 +257,42 @@ export function SamPanel({ viewerRef }: Props) {
         setSam({
           busy: { stage: 'fetching', label: 'Downloading encoder…', bytesLoaded: 0 },
         });
-        const bytes = await loadSamModel(manifest, (p: SamLoadProgress) => {
-          setSam({
-            busy: {
-              stage: 'fetching',
-              label:
-                p.stage === 'encoder'
-                  ? 'Downloading encoder…'
-                  : p.stage === 'decoder'
-                  ? 'Downloading decoder…'
-                  : p.stage === 'verify'
-                  ? 'Verifying…'
-                  : p.stage === 'cache'
-                  ? 'Caching to OPFS…'
-                  : 'Done',
-              bytesLoaded: p.bytesLoaded,
-              ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
-            },
-          });
-        });
+        const bytes = await loadSamModel(
+          manifest,
+          (p: SamLoadProgress) => {
+            setSam({
+              busy: {
+                stage: 'fetching',
+                label:
+                  p.stage === 'encoder'
+                    ? 'Downloading encoder…'
+                    : p.stage === 'encoder-data'
+                    ? 'Downloading encoder weights (sidecar)…'
+                    : p.stage === 'decoder'
+                    ? 'Downloading decoder…'
+                    : p.stage === 'decoder-data'
+                    ? 'Downloading decoder weights (sidecar)…'
+                    : p.stage === 'verify'
+                    ? 'Verifying…'
+                    : p.stage === 'cache'
+                    ? 'Caching to OPFS…'
+                    : 'Done',
+                bytesLoaded: p.bytesLoaded,
+                ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
+              },
+            });
+          },
+          // v0.8.0 — pass HF token + propagate external-data to store.
+          { huggingfaceToken }
+        );
         setSam({
           modelLoaded: true,
           modelName: name.trim(),
           manifest,
           encoderBytes: bytes.encoderBytes,
           decoderBytes: bytes.decoderBytes,
+          encoderExternalData: bytes.encoderExternalData ?? null,
+          decoderExternalData: bytes.decoderExternalData ?? null,
           embedding: null,
           preview: null,
           prompts: [],
@@ -282,7 +313,7 @@ export function SamPanel({ viewerRef }: Props) {
         setSam({ busy: null });
       }
     },
-    [customUrlForm, closeCustomUrlForm, setSam, pushError]
+    [customUrlForm, closeCustomUrlForm, setSam, pushError, huggingfaceToken]
   );
 
   const handlePickLocal = useCallback(async () => {
@@ -313,6 +344,11 @@ export function SamPanel({ viewerRef }: Props) {
         manifest,
         encoderBytes: enc.bytes,
         decoderBytes: dec.bytes,
+        // v0.8.0 — local picks don't carry external-data sidecars (the
+        // user would need to pick three files instead of two; deferred
+        // until SAM 3 BYO-from-disk is asked for explicitly).
+        encoderExternalData: null,
+        decoderExternalData: null,
         embedding: null,
         preview: null,
         prompts: [],
@@ -352,6 +388,11 @@ export function SamPanel({ viewerRef }: Props) {
         kind: 'encode',
         manifest: sam.manifest,
         encoderBytes: sam.encoderBytes,
+        // v0.8.0 — forward external-data to the worker so ORT-Web can
+        // resolve the SAM 3 graph's external_data_location refs.
+        ...(sam.encoderExternalData
+          ? { encoderExternalData: sam.encoderExternalData }
+          : {}),
         pixels: slice.pixels,
         inputMode: 'gray',
         width: slice.width,
@@ -394,6 +435,9 @@ export function SamPanel({ viewerRef }: Props) {
         kind: 'decode',
         manifest: sam.manifest,
         decoderBytes: sam.decoderBytes,
+        ...(sam.decoderExternalData
+          ? { decoderExternalData: sam.decoderExternalData }
+          : {}),
         embedding: sam.embedding.bytes,
         prompts: sam.prompts,
         width: slice.width,
@@ -529,6 +573,9 @@ export function SamPanel({ viewerRef }: Props) {
             kind: 'encode',
             manifest: sam.manifest,
             encoderBytes: sam.encoderBytes,
+            ...(sam.encoderExternalData
+              ? { encoderExternalData: sam.encoderExternalData }
+              : {}),
             pixels: slice.pixels,
             inputMode: 'gray',
             width: slice.width,
@@ -538,6 +585,9 @@ export function SamPanel({ viewerRef }: Props) {
             kind: 'decode',
             manifest: sam.manifest,
             decoderBytes: sam.decoderBytes,
+            ...(sam.decoderExternalData
+              ? { decoderExternalData: sam.decoderExternalData }
+              : {}),
             embedding: enc.embedding,
             prompts: [
               { kind: 'box', xyxy: [prevBox.x0, prevBox.y0, prevBox.x1, prevBox.y1] },
@@ -591,6 +641,8 @@ export function SamPanel({ viewerRef }: Props) {
       manifest: null,
       encoderBytes: null,
       decoderBytes: null,
+      encoderExternalData: null,
+      decoderExternalData: null,
       embedding: null,
       preview: null,
       prompts: [],

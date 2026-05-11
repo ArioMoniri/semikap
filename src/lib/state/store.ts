@@ -175,6 +175,11 @@ export interface SamState {
   manifest: SamManifest | null;
   encoderBytes: Bytes | null;
   decoderBytes: Bytes | null;
+  /** v0.8.0 — external-data sidecars for ONNX exports that ship as
+   *  graph + weight-blob pairs (SAM 3, large multi-GB exports). Worker
+   *  passes these to ORT-Web's `externalData` session option. */
+  encoderExternalData: { filename: string; data: Uint8Array } | null;
+  decoderExternalData: { filename: string; data: Uint8Array } | null;
   /** Cache of the most recently encoded slice, keyed by axis+index, so
    *  re-running the decoder with new prompts skips the encoder. */
   embedding: { axis: 'axial' | 'coronal' | 'sagittal'; index: number; bytes: Bytes } | null;
@@ -242,6 +247,27 @@ export interface UserPrefs {
    * privacy banner". Defaults to false (banner shown).
    */
   dismissedNoUploadBanner: boolean;
+  /**
+   * v0.8.0 — HuggingFace personal access token.
+   *
+   * Optional — only needed for **gated repos** (Meta SAM 3 mirrors,
+   * research-licensed checkpoints, hospital-internal HF Spaces). Token
+   * is read once at the start of `loadSamModel()` and attached as
+   * `Authorization: Bearer …` ONLY on requests against `huggingface.co`
+   * (not the redirected Xet/CDN hosts — those carry their own pre-signed
+   * query params).
+   *
+   * Storage: localStorage, same path as the rest of UserPrefs.
+   * Trade-off: localStorage is readable by any same-origin script — but
+   * since we run with a strict CSP (`script-src 'self' 'wasm-unsafe-eval'`)
+   * and don't load any third-party JS, the only paths that could read
+   * the token are paths we control. Acceptable for an MVP; OPFS-backed
+   * encrypted storage is a follow-up.
+   *
+   * Empty string = no token set (loader sends no Authorization header).
+   * The Settings UI never echoes the token back to the DOM after entry.
+   */
+  huggingfaceToken: string;
 }
 
 /**
@@ -329,6 +355,8 @@ export const useAppStore = create<AppState>((set) => ({
     manifest: null,
     encoderBytes: null,
     decoderBytes: null,
+    encoderExternalData: null,
+    decoderExternalData: null,
     embedding: null,
     preview: null,
     busy: null,
@@ -461,5 +489,6 @@ function defaultPrefs(): UserPrefs {
     screenshotDirName: null,
     screenshotDirHandle: null,
     dismissedNoUploadBanner: false,
+    huggingfaceToken: '',
   };
 }

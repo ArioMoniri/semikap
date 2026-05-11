@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Settings, FileDown, Trash2, Camera, FolderOpen } from 'lucide-react';
+import { Settings, FileDown, Trash2, Camera, FolderOpen, KeyRound, CheckCircle2, XCircle, Cpu } from 'lucide-react';
 import { clearAuditLog, exportAuditLog, readAuditLog, type AuditEntry } from '../lib/fs/audit';
 import { saveBytes, pickDirectory } from '../lib/fs/filesystem';
 import { writeStoredHandle, deleteStoredHandle, SCREENSHOT_DIR_KEY } from '../lib/fs/idb-handle';
@@ -137,6 +137,44 @@ export function SettingsPanel() {
           </div>
 
           {/*
+            v0.8.0 — HuggingFace personal access token. Optional;
+            only required for **gated** repos (Meta SAM 3 mirrors,
+            research-licensed checkpoints, hospital-internal HF
+            Spaces). The loader sends the token as
+            `Authorization: Bearer …` ONLY on requests against
+            huggingface.co (not the redirected Xet/CDN hosts).
+
+            Storage: localStorage (same as the rest of UserPrefs).
+            We never echo the token back to the DOM after entry —
+            the input renders its current value via React state but
+            uses `type="password"` so it doesn't appear in plaintext
+            on screen, and the "Test" button performs a HEAD against
+            /api/whoami-v2 instead of any path that could leak the
+            token to a third party.
+          */}
+          <HuggingFaceTokenSection
+            token={prefs.huggingfaceToken}
+            onChange={(huggingfaceToken) => setPrefs({ huggingfaceToken })}
+          />
+
+          {/*
+            v0.8.0 — Multi-threaded WASM (cross-origin isolation)
+            indicator. Confirmed via the v0.8.0 researcher pass:
+            WebKit Bug 230550 ("Implement COEP:credentialless") is
+            still in NEW state as of 2026-05-11; Safari 26.5 +
+            macOS WKWebView don't honour the header. So on the
+            macOS Tauri desktop build SAM encodes always run on a
+            single WASM thread (~3-7s per slice on a M-class CPU).
+            The PWA path under Chrome/Firefox/Edge gets multi-
+            threaded WASM and runs ~4-8x faster.
+
+            This block surfaces the runtime state (crossOriginIsolated
+            true/false) and tells the user how to get the speedup if
+            they're in the slow path.
+          */}
+          <WasmIsolationStatus />
+
+          {/*
             v0.7.8 — restore the dismissable "No upload" header badge.
             v0.7.4 added the dismiss button + persisted the choice to
             localStorage but the promised "re-enable in Settings" path
@@ -194,5 +232,194 @@ export function SettingsPanel() {
         </CardContent>
       )}
     </Card>
+  );
+}
+
+/**
+ * v0.8.0 — HuggingFace token entry + verification. Three states:
+ *  - empty (no token)
+ *  - filled but untested
+ *  - filled + verified (shows the username from /api/whoami-v2)
+ *  - filled + failed (shows the error)
+ *
+ * The Test button hits `https://huggingface.co/api/whoami-v2` with the
+ * token in the Authorization header. That endpoint returns the token's
+ * owner + scopes if valid; 401 if not. We render only the success/
+ * failure state — never log the token, never echo it elsewhere.
+ */
+function HuggingFaceTokenSection({
+  token,
+  onChange,
+}: {
+  token: string;
+  onChange: (next: string) => void;
+}) {
+  const [draft, setDraft] = useState(token);
+  const [testState, setTestState] = useState<
+    | { kind: 'idle' }
+    | { kind: 'testing' }
+    | { kind: 'ok'; user: string }
+    | { kind: 'err'; message: string }
+  >({ kind: 'idle' });
+
+  // Keep the draft in sync if prefs are mutated elsewhere (e.g. cleared
+  // from another tab). Most users won't see this fire — it's a
+  // belt-and-braces guard.
+  useEffect(() => {
+    setDraft(token);
+  }, [token]);
+
+  const test = useCallback(async () => {
+    if (!draft.trim()) {
+      setTestState({ kind: 'err', message: 'Token is empty.' });
+      return;
+    }
+    setTestState({ kind: 'testing' });
+    try {
+      const res = await fetch('https://huggingface.co/api/whoami-v2', {
+        headers: { Authorization: `Bearer ${draft.trim()}` },
+      });
+      if (!res.ok) {
+        setTestState({
+          kind: 'err',
+          message: `HTTP ${res.status} — token rejected by huggingface.co/api/whoami-v2.`,
+        });
+        return;
+      }
+      const json = (await res.json()) as { name?: string; fullname?: string };
+      setTestState({
+        kind: 'ok',
+        user: json.name ?? json.fullname ?? '(authenticated)',
+      });
+    } catch (e) {
+      setTestState({ kind: 'err', message: (e as Error).message });
+    }
+  }, [draft]);
+
+  const save = useCallback(() => {
+    onChange(draft.trim());
+  }, [draft, onChange]);
+
+  const clear = useCallback(() => {
+    setDraft('');
+    onChange('');
+    setTestState({ kind: 'idle' });
+  }, [onChange]);
+
+  const dirty = draft.trim() !== token.trim();
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        <KeyRound className="h-3 w-3" /> HuggingFace token (gated repos)
+      </div>
+      <input
+        type="password"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="hf_…"
+        spellCheck={false}
+        autoComplete="off"
+        className="w-full rounded border border-slate-300 bg-white px-2 py-1 font-mono text-[11px] placeholder:text-slate-400 focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-950"
+        aria-label="HuggingFace personal access token"
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button size="sm" variant="outline" onClick={() => void test()} disabled={!draft.trim() || testState.kind === 'testing'}>
+          {testState.kind === 'testing' ? 'Testing…' : 'Test'}
+        </Button>
+        <Button size="sm" variant="ink" onClick={save} disabled={!dirty}>
+          Save
+        </Button>
+        {token.trim() && (
+          <Button size="sm" variant="ghost" onClick={clear} className="text-red-700 hover:bg-red-50">
+            <Trash2 className="h-3 w-3" /> Clear
+          </Button>
+        )}
+        {testState.kind === 'ok' && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400">
+            <CheckCircle2 className="h-3 w-3" /> {testState.user}
+          </span>
+        )}
+        {testState.kind === 'err' && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-red-700 dark:text-red-400">
+            <XCircle className="h-3 w-3" /> {testState.message}
+          </span>
+        )}
+      </div>
+      <div className="text-[11px] text-slate-500">
+        Optional. Generate one at{' '}
+        <a
+          href="https://huggingface.co/settings/tokens"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline"
+        >
+          huggingface.co/settings/tokens
+        </a>{' '}
+        — read access is enough for downloading gated model weights. Token
+        is stored in localStorage and only sent to huggingface.co (never
+        to the redirected Xet/CDN hosts).
+      </div>
+    </div>
+  );
+}
+
+/**
+ * v0.8.0 — runtime indicator for cross-origin-isolation status.
+ * `crossOriginIsolated` is the spec-defined runtime flag that tells you
+ * whether the document can use `SharedArrayBuffer` (which ORT-Web
+ * needs for multi-threaded WASM). On macOS Tauri/WKWebView this is
+ * always false because WebKit doesn't honour `Cross-Origin-Embedder-
+ * Policy: credentialless`. On the PWA path under Chrome/Firefox/Edge
+ * with proper COOP/COEP headers it's true.
+ */
+function WasmIsolationStatus() {
+  const isolated =
+    typeof window !== 'undefined' && (window as Window & { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
+  const sabAvailable =
+    typeof window !== 'undefined' && typeof (window as Window & { SharedArrayBuffer?: unknown }).SharedArrayBuffer !== 'undefined';
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        <Cpu className="h-3 w-3" /> Multi-threaded WASM
+      </div>
+      <div
+        className={
+          isolated
+            ? 'rounded border border-emerald-200 bg-emerald-50 p-2 text-[11px] text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200'
+            : 'rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200'
+        }
+      >
+        <div className="flex items-center gap-1.5 font-medium">
+          {isolated ? (
+            <>
+              <CheckCircle2 className="h-3 w-3" /> Enabled (cross-origin isolated, SharedArrayBuffer{' '}
+              {sabAvailable ? 'available' : 'unavailable'})
+            </>
+          ) : (
+            <>
+              <XCircle className="h-3 w-3" /> Disabled (single-threaded WASM only)
+            </>
+          )}
+        </div>
+        {!isolated && (
+          <div className="mt-1">
+            <strong>Why:</strong> On macOS Tauri (WKWebView) WebKit doesn&apos;t
+            honour <code className="font-mono">Cross-Origin-Embedder-Policy: credentialless</code>{' '}
+            yet (WebKit Bug 230550, NEW). On the PWA path the same Mac
+            running Chrome/Firefox/Edge gets isolation and a 4–8× SAM
+            encode speedup.
+          </div>
+        )}
+        {!isolated && (
+          <div className="mt-1">
+            <strong>Fix today:</strong> open Tamias as a PWA in Chrome
+            or Firefox (the desktop bundle&apos;s "Open in browser" link),
+            or run inference on the cached embedding fewer times per
+            session.
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

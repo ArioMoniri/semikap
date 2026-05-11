@@ -6,6 +6,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.0] — SAM 3 one-tap · HuggingFace token · ONNX external-data · WASM isolation transparency
+
+### Added — SAM 3 ships as a one-tap preset
+
+- 🎯 **`SAM 3 (q4f16)`** is now a one-tap preset alongside SAM 2.1 / MedSAM. Source: `onnx-community/sam3-tracker-ONNX` (the Transformers.js-compatible export of Meta's SAM 3 tracker). Quantization: `q4f16` (~296 MB sidecar) — the smallest variant that fits in WebGPU memory on a 4 GB MacBook GPU without thrashing. Decoder: ~22 MB single-file ONNX. The original "SAM 3 (BYO URL)" entry stays in the list as the permanent escape hatch for community mirrors and lab-internal builds.
+
+### Added — ONNX external-data format support in the SAM loader
+
+- 📦 **External-data sidecar (`.onnx_data`) loading.** Pre-v0.8.0 the loader could only fetch single-file `.onnx` models — which is why SAM 3 had to live in the BYO panel. SAM 3's `vision_encoder_q4f16.onnx` is just the graph; the 296 MB of weights live in a sibling `vision_encoder_q4f16.onnx_data` file referenced via ONNX's `external_data_location` mechanism. The loader now fetches both files in sequence with separate progress reporting (`encoder-data` / `decoder-data` stages), caches both in OPFS keyed by sha256, and passes the sidecar bytes to ORT-Web via the `externalData: [{ path, data }]` session option. Schema additions on `SamModelSpec`: `externalDataUrl`, `externalDataFilename` (defaults to URL basename), `externalDataSha256`.
+
+### Added — HuggingFace personal access token for gated repos
+
+- 🔐 **HF token field in Settings** (Settings → "HuggingFace token"). Token is stored in `localStorage` (same path as the rest of `UserPrefs`), `type="password"` input + `autoComplete="off"` so it doesn't appear in plaintext on screen, never echoed back to the DOM after entry. Loader attaches it as `Authorization: Bearer …` ONLY on requests against `huggingface.co` — explicitly **not** on the redirected Xet/CDN hosts (those carry their own pre-signed query params and don't need the token; sending it would only widen the blast radius if Xet ever logs request headers). `Test` button hits `https://huggingface.co/api/whoami-v2` to verify the token's owner. `Clear` button wipes both the input and the persisted value.
+- 🛑 **401 / 403 errors now suggest the token path.** Pre-v0.8.0 a gated-repo failure surfaced as `Fetch … failed: HTTP 401` with no actionable hint. Now: "This may be a gated repo — set a HuggingFace personal access token in Settings and retry." (or, if a token IS set, "Your HuggingFace token may lack access to this gated repo — check the repo page in a browser and request access.")
+
+### Added — Multi-threaded WASM transparency (the WebKit COI question)
+
+- 🧠 **Settings → "Multi-threaded WASM"** indicator. Reads `crossOriginIsolated` + `typeof SharedArrayBuffer` at runtime and surfaces:
+  - Green: "Enabled (cross-origin isolated, SharedArrayBuffer available)" — typical PWA path under Chrome/Firefox/Edge.
+  - Amber: "Disabled (single-threaded WASM only)" — typical macOS Tauri (WKWebView) path.
+- For the amber case we explain **why** (WebKit Bug 230550 "Implement COEP:credentialless" still in NEW state as of 2026-05-11; researcher-confirmed, no movement since 2025-12-12) and **what to do** (open Tamias as a PWA in Chrome/Firefox for the 4–8× SAM-encode speedup). This replaces the v0.7.9 "deferred to v0.8.x" note with **honest user-facing transparency**, which is the best we can do until WebKit ships the spec.
+
+### Notes on the resolved v0.7.9 deferred items
+
+| Item | Status | Resolution |
+|---|---|---|
+| HF OAuth/token field for gated repos | ✅ Shipped | Settings input + scoped Authorization header in loader |
+| ONNX external-data loader → SAM 3 one-tap | ✅ Shipped | Schema + loader + ORT-Web session + SAM 3 preset |
+| macOS WKWebView COI | ⚠️ Surfaced honestly | Researcher-confirmed: WebKit hasn't shipped credentialless and has no Rust-side CORP injection. Best fix is runtime-detected indicator + workaround instructions in Settings — both shipped. |
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 7.72s (35 precache entries, 5484 KiB).
+
 ## [0.7.9] — Xet CSP fix · IPC dev unblock · SAM 3 URL pointers · Retry chip · honest TotalSeg messaging
 
 ### Fixed — Critical: HuggingFace Xet migration broke every model download

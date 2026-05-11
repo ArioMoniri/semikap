@@ -67,7 +67,11 @@ const api: SamApi = {
       old?.release?.();
       encoderSession = await createSamEncoderSession(
         req.encoderBytes,
-        req.manifest.preferredEP ?? 'webgpu'
+        req.manifest.preferredEP ?? 'webgpu',
+        // v0.8.0 — pass the external-data sidecar (.onnx_data) when the
+        // manifest declared one (SAM 3 / large multi-GB exports). The
+        // session helper forwards it to ORT-Web's `externalData` option.
+        req.encoderExternalData
       );
       encoderBytesId = newId;
     }
@@ -116,7 +120,8 @@ const api: SamApi = {
       old?.release?.();
       decoderSession = await createSamDecoderSession(
         req.decoderBytes,
-        req.manifest.preferredEP ?? 'webgpu'
+        req.manifest.preferredEP ?? 'webgpu',
+        req.decoderExternalData
       );
       decoderBytesId = newId;
     }
