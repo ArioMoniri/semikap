@@ -155,24 +155,42 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
    * case (SAM panel forces the active pane to axial when in box /
    * point mode), so the approximation is faithful in practice.
    */
+  /*
+   * v0.8.12 — project a source-axial voxel coord to overlay-CSS-px
+   * using the REAL axial tile bounds from
+   * `viewerRef.current?.getScreenSlices()`. Pre-v0.8.12 we
+   * approximated the axial pane as filling the entire overlay rect
+   * — correct for single-plane sliceMode but in multiplane mode the
+   * axial pane is one quadrant, so markers landed at the wrong
+   * canvas position (typically off-pane). User reported "the + sign
+   * appears in pinch roi but cant see while selecting".
+   *
+   * Math:
+   *   1. Find the axial tile in `screenSlices` (axCorSag === 0).
+   *   2. tile.rect is in canvas backing-store pixels (= CSS × DPR).
+   *      Divide by DPR to get CSS pixels.
+   *   3. Map source voxel (vx, vy) ∈ [0, X) × [0, Y) to
+   *      (rectX + vx/X · rectW, rectY + vy/Y · rectH).
+   * Returns null when there's no visible axial tile (e.g. user in
+   * 3D-render-only sliceMode) — markers simply don't paint.
+   */
   const projectVoxel = (
     vx: number,
     vy: number
   ): { x: number; y: number } | null => {
-    const overlay = overlayRef.current;
-    if (!overlay) return null;
-    const rect = overlay.getBoundingClientRect();
     const v = useAppStore.getState().volume;
     if (!v) return null;
     const [X, Y] = v.meta.dims;
     if (!X || !Y) return null;
-    // Axial slice in NiiVue typically fills a quadrant. We can't
-    // know which without polling getScreenSlices(); approximate by
-    // assuming the overlay rect IS the axial pane (true for
-    // single-pane sliceMode + multiplane top-left tile).
+    const tiles = viewerRef.current?.getScreenSlices?.() ?? [];
+    const axial = tiles.find((t) => t.axis === 'axial');
+    if (!axial) return null;
+    const dpr =
+      (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const [tx, ty, tw, th] = axial.rect;
     return {
-      x: (vx / X) * rect.width,
-      y: (vy / Y) * rect.height,
+      x: tx / dpr + (vx / X) * (tw / dpr),
+      y: ty / dpr + (vy / Y) * (th / dpr),
     };
   };
 

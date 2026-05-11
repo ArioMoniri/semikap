@@ -6,6 +6,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.12] — SAM 3 dims · Prompt placement on HiDPI · "Whole volume" propagation
+
+### Fixed — SAM 3 inference run-time error
+
+- 🛑 **`Got invalid dimensions for input: pixel_values: Got 1024 Expected 1008`** — SAM 3 expects a **1008×1008** input (patch size 16 × 63 patches per side), not 1024×1024 like SAM 1 / 2.1. The v0.8.0 SAM 3 preset was copy-pasted from the SAM 2.1 entry with the wrong dims. Updated `inputShape` to `[1, 3, 1008, 1008]`, `embeddingShape` to `[1, 256, 63, 63]`, and `size.input` to `[1008, 1008]` so the preprocessor resizes to the right grid.
+
+### Fixed — SAM prompt markers landed at wrong position on HiDPI
+
+- 🎯 **Two coordinate-system bugs converged** to make the v0.8.11 marker overlay land in the wrong place — user reported "+ sign appears in pinch roi but cant see while selecting":
+  1. **Click→voxel mapping ignored DPR.** `canvasToAxialVoxel(x, y)` passed CSS pixels to NiiVue's `tileMM`, which expects backing-store pixels (CSS × `devicePixelRatio`). On a 2× retina screen every click landed at half the intended canvas position; tileMM either returned wrong mm coords or null. Fix: scale up by DPR inside the wrapper.
+  2. **Marker projection assumed full-overlay axial pane.** v0.8.11's `projectVoxel` mapped voxel→overlay-rect, which is correct only in single-plane sliceMode. In multiplane mode the axial pane is one quadrant — markers landed off-pane. Fix: query `getScreenSlices()` for the actual axial tile bounds (also DPR-aware) and project into THAT.
+
+### Added — "Whole volume" SAM propagation button + plain-language explainer
+
+- 🌐 **New "Whole volume" button** alongside ±5 / ±15. Walks every slice in the Z range (capped at ±200 ≈ 400 total) reusing the prior mask's bbox as a box prompt for each neighbour. Stops automatically when the propagated mask becomes empty (object boundary). User reported "encoding happens for only one slice and not the whole input" — SAM is 2D by design, but this completes the workflow for full-volume masking.
+- 📝 **Plain-language explainer** above the propagation buttons: "SAM is 2D — encodes one slice. Commit + propagate to grow the mask across the volume; each new slice reuses the prior mask's bbox as a prompt." Resolves the "what does Phase D mean" confusion that the previous "Propagate (Phase D)" label caused.
+
+### Internal
+
+- `src/lib/sam/loader.ts` — SAM 3 preset gets `inputShape: [1, 3, 1008, 1008]`, `embeddingShape: [1, 256, 63, 63]`, `size.input: [1008, 1008]` plus a maintainer comment explaining the 1008-not-1024 detail.
+- `src/lib/viewer/niivue.ts` — `canvasToAxialVoxel()` scales `(canvasX, canvasY)` by `devicePixelRatio` before calling `tileMM` so HiDPI clicks resolve correctly.
+- `src/components/SamPromptOverlay.tsx` — `projectVoxel()` now reads the axial tile's `[x, y, w, h]` from `getScreenSlices()` and divides by DPR for CSS-px coords; correct in both single-plane and multiplane modes.
+- `src/components/SamPanel.tsx` — propagation block restructured into three buttons (±5 / ±15 / Whole volume) with per-button tooltip + explainer line above.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 9s (36 precache entries, 5516 KiB).
+
 ## [0.8.11] — SAM prompt visibility · Encode-button guard · Real model sizes
 
 ### Added — SAM prompt visualisation

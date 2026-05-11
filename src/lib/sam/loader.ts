@@ -223,8 +223,21 @@ export const PRESET_SAM_MODELS: Array<{
         url: 'https://huggingface.co/onnx-community/sam3-tracker-ONNX/resolve/main/onnx/vision_encoder_q4f16.onnx',
         externalDataUrl:
           'https://huggingface.co/onnx-community/sam3-tracker-ONNX/resolve/main/onnx/vision_encoder_q4f16.onnx_data',
-        inputShape: [1, 3, 1024, 1024],
-        embeddingShape: [1, 256, 64, 64],
+        /*
+         * v0.8.12 — SAM 3 expects a 1008×1008 input (patch size 16
+         * × 63 patches per side), NOT 1024×1024 like SAM 1 / 2.1.
+         *
+         * Pre-v0.8.12 we used 1024 (copy-pasted from the SAM 2.1
+         * preset) and the user got:
+         *   "ERROR_MESSAGE: Got invalid dimensions for input:
+         *    pixel_values for the following indices index: 2 Got:
+         *    1024 Expected: 1008 index: 3 Got: 1024 Expected: 1008"
+         *
+         * The `size.input` field below also flips to 1008×1008 so
+         * the preprocessor resizes the slice to the right grid.
+         */
+        inputShape: [1, 3, 1008, 1008],
+        embeddingShape: [1, 256, 63, 63],
       },
       decoder: {
         url: 'https://huggingface.co/onnx-community/sam3-tracker-ONNX/resolve/main/onnx/prompt_encoder_mask_decoder.onnx',
@@ -234,7 +247,8 @@ export const PRESET_SAM_MODELS: Array<{
       // Still gated in the UI by the worker — see SamPanel ModeBtn(disabled).
       prompts: { supports: ['point', 'box', 'text'], expectsNegativePoints: true },
       preferredEP: 'webgpu',
-      size: { input: [1024, 1024], preprocessing: 'imagenet' },
+      // v0.8.12 — 1008×1008 (see encoder note).
+      size: { input: [1008, 1008], preprocessing: 'imagenet' },
     },
   },
   {

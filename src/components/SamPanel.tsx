@@ -1270,30 +1270,50 @@ function ReadyView(props: {
                   <XIcon className="h-3.5 w-3.5" /> Cancel
                 </Button>
               </div>
-              {/* Phase D — cross-slice propagation. Two presets: ±5 for
-                  a quick check, ±15 for a typical organ run. The loop
-                  shows progress in the busy bar. */}
-              <div className="space-y-1 border-t border-emerald-200 pt-1.5 dark:border-emerald-800/50">
+              {/* Phase D — cross-slice propagation. SAM is 2D by
+                  design — encodes one slice at a time. To get a
+                  full-volume mask, commit a slice and propagate
+                  outward; each neighbour reuses the prior mask's
+                  bbox as its box prompt. v0.8.12 — added an
+                  explainer + a "Whole volume" button that
+                  propagates ±N where N covers the entire Z range
+                  (capped at 200 slices to keep the UI responsive). */}
+              <div className="space-y-1.5 border-t border-emerald-200 pt-1.5 dark:border-emerald-800/50">
                 <div className="text-[11px] font-medium uppercase tracking-wide text-emerald-900/70 dark:text-emerald-300/80">
-                  Propagate (Phase D)
+                  Propagate to neighbours
                 </div>
-                <div className="flex gap-1.5">
+                <div className="text-[10px] text-emerald-900/60 dark:text-emerald-300/60">
+                  SAM is 2D — encodes one slice. Commit + propagate
+                  to grow the mask across the volume; each new slice
+                  reuses the prior mask&apos;s bbox as a prompt.
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => onPropagate(5)}
-                    className="flex-1 gap-1.5"
-                    title="Encode ±5 neighbour slices and use the prior mask's bbox as a box prompt"
+                    className="gap-1.5"
+                    title="Encode ±5 neighbour slices (~10 total)"
                   >
-                    <Sparkles className="h-3.5 w-3.5" /> ±5 slices
+                    <Sparkles className="h-3.5 w-3.5" /> ±5
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => onPropagate(15)}
-                    className="flex-1 gap-1.5"
+                    className="gap-1.5"
+                    title="Encode ±15 neighbour slices (~30 total)"
                   >
-                    <Sparkles className="h-3.5 w-3.5" /> ±15 slices
+                    <Sparkles className="h-3.5 w-3.5" /> ±15
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ink"
+                    onClick={() => onPropagate(200)}
+                    className="gap-1.5"
+                    title="Encode every slice in the Z range (capped at ±200; ~400 total). Stops automatically when the mask becomes empty."
+                  >
+                    <Sparkles className="h-3.5 w-3.5" /> Whole volume
                   </Button>
                 </div>
               </div>

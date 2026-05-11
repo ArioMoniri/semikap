@@ -1083,10 +1083,19 @@ export class NiivueViewer {
       sliceTypeAxial?: number;
       tileMM?(canvasX: number, canvasY: number): [number, number, number] | null;
     };
-    // NiiVue 0.44 exposes a private `tileMM` helper that converts canvas
-    // coords to source-mm — use it when available; otherwise fall back to
-    // null so the caller falls back to a centre-click default.
-    const mm = nv.tileMM?.(canvasX, canvasY);
+    /*
+     * v0.8.12 — NiiVue's `tileMM(x, y)` expects coordinates in canvas
+     * BACKING-STORE pixels (= CSS × devicePixelRatio). Callers (like
+     * SamPromptOverlay's pointerdown handler) pass CSS pixels via
+     * `clientX - rect.left`, so on HiDPI screens the click landed at
+     * half the intended canvas position and tileMM returned wrong /
+     * null mm coords. The user reported "the + sign appears in pinch
+     * roi but cant see while selecting" + box prompts being placed
+     * at wrong positions. Fix: scale up here.
+     */
+    const dpr =
+      (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const mm = nv.tileMM?.(canvasX * dpr, canvasY * dpr);
     if (!mm) return null;
     const frac = nv.mm2frac?.(mm);
     if (!frac) return null;
