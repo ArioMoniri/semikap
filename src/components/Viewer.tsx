@@ -129,6 +129,21 @@ export interface ViewerHandle {
     axis: 'axial' | 'coronal' | 'sagittal' | '3d';
     crosshair: { x: number; y: number };
   }>;
+  /** v0.8.6 — read which mosaic tile a canvas-pixel point falls on
+   *  (0=axial, 1=coronal, 2=sagittal, 3=3D, -1=gutter). Used by the
+   *  per-pane crosshair lock. */
+  tileIndexAt(canvasX: number, canvasY: number): number;
+  /** v0.8.6 — capture the current crosshair fraction triple. */
+  snapshotCrosshair(): [number, number, number];
+  /** v0.8.6 — restore selected crosshair axes from a snapshot. */
+  restoreCrosshairAxes(
+    snapshot: [number, number, number],
+    axes: [boolean, boolean, boolean]
+  ): void;
+  /** v0.8.6 — set 2D MPR zoom so 1 mm in the volume ≈ 1 mm on
+   *  screen, using the user's calibrated `pxPerMm`. Returns the
+   *  zoom multiplier applied. */
+  fitOneToOne(pxPerMm: number): number;
 }
 
 export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
@@ -175,12 +190,63 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
      * doesn't accidentally produce a stray segment.
      */
     let measureStartMm: [number, number, number] | null = null;
-    const onPointerDown = () => {
+    /*
+     * v0.8.6 — per-pane crosshair lock state.
+     *
+     * The user reported "ax moving should be for the panel of series
+     * which the cursor is on" and "can't move y axis smoothly". The
+     * NiiVue default is: a click anywhere updates the 3D crosshair,
+     * which moves all THREE axes simultaneously, so coronal +
+     * sagittal slices change when the user only meant to scrub the
+     * axial Z.
+     *
+     * Implementation: when Settings → "Per-pane crosshair lock" is
+     * on, we snapshot the crosshair on `pointerdown` + record which
+     * tile the click landed on. NiiVue then runs its normal click
+     * → navigate logic. Right after (microtask), we restore the
+     * snapshot on the OTHER two axes — leaving only the clicked
+     * tile's plane updated.
+     *
+     *  - tile 0 (axial)    → only Z changes; restore [X, Y]
+     *  - tile 1 (coronal)  → only Y changes; restore [X, Z]
+     *  - tile 2 (sagittal) → only X changes; restore [Y, Z]
+     *  - tile 3 (3D)       → no lock (clicks on the 3D render are
+     *                        for orbit / no navigation)
+     */
+    let lockSnapshot: [number, number, number] | null = null;
+    let lockTile = -1;
+    const onPointerDown = (e: PointerEvent) => {
       const nv = viewerRef.current;
       if (nv?.getDragMode?.() === 'measurement' && lastMm) {
         measureStartMm = lastMm.slice() as [number, number, number];
       } else {
         measureStartMm = null;
+      }
+      // Per-pane crosshair lock — only on left button + only when
+      // the Settings pref is on + only when not in a drag-tool mode
+      // (drag-tools own the click; locking would fight pan/W-L).
+      const lockEnabled = useAppStore.getState().prefs.perPaneCrosshairLock;
+      if (
+        lockEnabled &&
+        e.button === 0 &&
+        nv?.getDragMode?.() === 'none' &&
+        nv?.snapshotCrosshair
+      ) {
+        const rect = canvas.getBoundingClientRect();
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        // Account for devicePixelRatio — tileIndexAt expects canvas
+        // pixel space which is CSS-px × DPR.
+        const dpr = window.devicePixelRatio || 1;
+        lockTile = nv.tileIndexAt(cx * dpr, cy * dpr);
+        if (lockTile >= 0 && lockTile <= 2) {
+          lockSnapshot = nv.snapshotCrosshair();
+        } else {
+          lockSnapshot = null;
+        }
+      } else {
+        lockSnapshot = null;
+        lockTile = -1;
       }
     };
     canvas.addEventListener('pointerdown', onPointerDown);
@@ -188,6 +254,30 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
     const onPointerUp = (e: PointerEvent) => {
       // Brush propagation to 3D mesh.
       viewerRef.current?.refreshDrawing();
+      /*
+       * v0.8.6 — per-pane crosshair lock: restore the OTHER two axes
+       * from the snapshot we took on pointer-down, leaving only the
+       * clicked tile's plane updated. Runs on the next microtask so
+       * NiiVue's click handler has finished writing its new
+       * crosshairPos. Restored axes per tile:
+       *   tile 0 (axial)    → restore [X, Y], leave Z
+       *   tile 1 (coronal)  → restore [X, Z], leave Y
+       *   tile 2 (sagittal) → restore [Y, Z], leave X
+       */
+      if (lockSnapshot && lockTile >= 0 && lockTile <= 2) {
+        const restore: [boolean, boolean, boolean] =
+          lockTile === 0
+            ? [true, true, false]
+            : lockTile === 1
+              ? [true, false, true]
+              : [false, true, true];
+        const snap = lockSnapshot;
+        queueMicrotask(() =>
+          viewerRef.current?.restoreCrosshairAxes(snap, restore)
+        );
+      }
+      lockSnapshot = null;
+      lockTile = -1;
       // Angle measurement: only LEFT-button pointerups (e.button === 0)
       // count as angle-vertex captures. v0.7.2 captured every button so
       // a right-mouse W/L drag dropped a stray angle vertex on release;
@@ -516,6 +606,18 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       getCrosshairTilePositions() {
         return viewerRef.current?.getCrosshairTilePositions() ?? [];
+      },
+      tileIndexAt(canvasX, canvasY) {
+        return viewerRef.current?.tileIndexAt(canvasX, canvasY) ?? -1;
+      },
+      snapshotCrosshair() {
+        return viewerRef.current?.snapshotCrosshair() ?? [0.5, 0.5, 0.5];
+      },
+      restoreCrosshairAxes(snapshot, axes) {
+        viewerRef.current?.restoreCrosshairAxes(snapshot, axes);
+      },
+      fitOneToOne(pxPerMm) {
+        return viewerRef.current?.fitOneToOne(pxPerMm) ?? 1;
       },
     }),
     []

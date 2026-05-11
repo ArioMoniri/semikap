@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Settings, FileDown, Trash2, Camera, FolderOpen, KeyRound, CheckCircle2, XCircle, Cpu, HardDrive, ZoomIn, Ruler, FileSearch, ExternalLink as ExternalLinkIcon } from 'lucide-react';
+import { Settings, FileDown, Trash2, Camera, FolderOpen, KeyRound, CheckCircle2, XCircle, Cpu, HardDrive, ZoomIn, Ruler, FileSearch, ExternalLink as ExternalLinkIcon, Maximize2 } from 'lucide-react';
 import { clearAuditLog, exportAuditLog, readAuditLog, type AuditEntry } from '../lib/fs/audit';
 import { saveBytes, pickDirectory } from '../lib/fs/filesystem';
 import {
@@ -250,6 +250,36 @@ export function SettingsPanel() {
             />
             Axis-coloured crosshair (X=red · Y=green · Z=blue)
           </label>
+
+          {/*
+            v0.8.6 — per-pane crosshair lock. When ON, clicking on
+            the axial pane only changes Z; coronal click only Y;
+            sagittal only X. Implementation snapshots crosshairPos
+            on pointerdown + restores the OTHER two axes via
+            microtask in pointerup so NiiVue's click handler runs
+            first.
+          */}
+          <label className="flex items-center gap-2 text-[11px] text-slate-700 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={prefs.perPaneCrosshairLock}
+              onChange={(e) => setPrefs({ perPaneCrosshairLock: e.target.checked })}
+              className="h-3.5 w-3.5 rounded border-slate-300 text-tamias-accent focus:ring-2 focus:ring-tamias-accent/20"
+            />
+            Per-pane crosshair lock (click axial → only Z changes)
+          </label>
+
+          {/*
+            v0.8.6 — DPI calibration. Drives the Tools panel
+            "Fit 1:1 (real size)" button so 1 mm in the volume ≈
+            1 mm on the user's screen. Default 3.78 ≈ the 96 DPI
+            CSS-pixel convention; recalibrate by measuring a
+            known-length on screen.
+          */}
+          <DpiCalibrationSection
+            pxPerMm={prefs.pxPerMm}
+            onChange={(pxPerMm) => setPrefs({ pxPerMm })}
+          />
 
           {/*
             v0.8.5 — Files browser. Lists every cached SAM blob the
@@ -716,6 +746,14 @@ function DistanceUnitSection({
  */
 function FilesBrowserSection() {
   const userDir = useAppStore((s) => s.prefs.modelDownloadDirHandle);
+  // v0.8.6 — also surface the recent-files history (imported images,
+  // dropped DICOMs, loaded inference models). Browser FSA doesn't
+  // expose absolute paths — `path` is the basename in PWA mode and
+  // an absolute path only on Tauri (when we eventually wire the
+  // Tauri file picker). Show button uses `revealPath()` which falls
+  // back to clipboard when the path isn't absolute.
+  const recentFiles = useAppStore((s) => s.recentFiles);
+  const clearRecentFiles = useAppStore((s) => s.clearRecentFiles);
   const [files, setFiles] = useState<
     { sha256: string; bytes: number; backend: 'user-folder' | 'opfs' }[]
   >([]);
@@ -857,6 +895,163 @@ function FilesBrowserSection() {
             </div>
           );
         })}
+
+      {/*
+        v0.8.6 — recent-files history. Captures every image / model /
+        mask the user has loaded (browser FSA can't expose absolute
+        paths, so `path` is the basename in PWA mode; Tauri picker
+        absolute paths are picked up automatically when wired).
+        Show button calls `revealPath()` which falls back to
+        clipboard copy when the path isn't absolute.
+      */}
+      {recentFiles.length > 0 && (
+        <div className="pt-2 space-y-1.5">
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <FileSearch className="h-3 w-3" /> Recent files (imported)
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => clearRecentFiles()}
+              className="h-6 text-[11px] text-red-700 hover:bg-red-50"
+            >
+              Clear
+            </Button>
+          </div>
+          {recentFiles.slice(0, 20).map((f) => {
+            const sizeMb = (f.bytes / (1024 * 1024)).toFixed(2);
+            const isAbsolute = f.path.startsWith('/') || /^[a-zA-Z]:\\/.test(f.path);
+            const note = revealState[`recent-${f.id}`];
+            return (
+              <div
+                key={f.id}
+                className="space-y-1 rounded border border-slate-200 bg-slate-50 p-2 text-[11px] dark:border-slate-800 dark:bg-slate-900"
+              >
+                <div className="flex items-center justify-between gap-1.5">
+                  <span className="rounded bg-blue-100 px-1 py-0.5 text-[10px] font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                    {f.kind}
+                  </span>
+                  <span className="tabular-nums text-slate-500">{sizeMb} MB</span>
+                </div>
+                <div className="break-all font-mono text-[10px] text-slate-600 dark:text-slate-400">
+                  {f.path || f.name}
+                </div>
+                <div className="flex items-center justify-between gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      const result = await revealPath(f.path || f.name);
+                      setRevealState((prev) => ({
+                        ...prev,
+                        [`recent-${f.id}`]: result === 'revealed' ? null : result,
+                      }));
+                    }}
+                    className="h-6 gap-1 text-[11px]"
+                    title={
+                      isAbsolute
+                        ? 'Show in Finder / Explorer'
+                        : 'No absolute path on browser — copies the name to clipboard'
+                    }
+                  >
+                    <ExternalLinkIcon className="h-3 w-3" /> Show
+                  </Button>
+                  {note === 'copied' && (
+                    <span className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                      Copied to clipboard
+                    </span>
+                  )}
+                  {note === 'failed' && (
+                    <span className="text-[10px] text-red-700 dark:text-red-400">
+                      Couldn’t reveal or copy
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {recentFiles.length > 20 && (
+            <div className="text-[10px] text-slate-500">
+              Showing the most recent 20 of {recentFiles.length}.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/**
+ * v0.8.6 — DPI calibration. Drives the Tools panel "Fit 1:1
+ * (real size)" button so 1 mm in the volume ≈ 1 mm on the screen.
+ *
+ * Default 3.78 ≈ the 96 DPI CSS-pixel convention; user can
+ * recalibrate by:
+ *   1. Open a system ruler app or hold up a physical ruler.
+ *   2. In TAMIAS, click "Fit 1:1" with the default 3.78.
+ *   3. Measure how many millimeters a known-length object occupies
+ *      on screen vs in the volume header. The ratio is the new
+ *      pxPerMm.
+ *
+ * Range 1..20 covers laptop retina down to typical non-HiDPI
+ * desktop monitors. Step 0.01 lets the user dial in a precise
+ * calibration.
+ */
+function DpiCalibrationSection({
+  pxPerMm,
+  onChange,
+}: {
+  pxPerMm: number;
+  onChange: (next: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(pxPerMm));
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        <Maximize2 className="h-3 w-3" /> Screen calibration (px/mm)
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <input
+          type="number"
+          min={1}
+          max={20}
+          step={0.01}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          className="w-24 rounded border border-slate-300 bg-white px-2 py-1 text-xs tabular-nums focus:border-tamias-accent focus:outline-none focus:ring-2 focus:ring-tamias-accent/20 dark:border-slate-700 dark:bg-slate-950"
+          aria-label="Screen pixels per millimeter"
+        />
+        <Button
+          size="sm"
+          variant="ink"
+          onClick={() => {
+            const n = Number(draft);
+            if (n >= 1 && n <= 20) onChange(n);
+          }}
+        >
+          Save
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setDraft('3.78');
+            onChange(3.78);
+          }}
+          className="text-slate-700"
+        >
+          Reset (3.78)
+        </Button>
+      </div>
+      <div className="text-[11px] text-slate-500">
+        Drives the Tools panel <strong>Fit 1:1 (real size)</strong> button.
+        Default 3.78 = the 96 DPI CSS-pixel convention. Recalibrate by
+        measuring a known length (e.g. a physical ruler held to your
+        screen vs the same length in your volume) — divide screen-pixels
+        by mm to get the new value.
+      </div>
     </div>
   );
 }

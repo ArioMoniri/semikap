@@ -714,6 +714,115 @@ export class NiivueViewer {
   }
 
   /**
+   * v0.8.6 — read NiiVue's tileIndex for a canvas-pixel point. Returns
+   *   - 0 for axial
+   *   - 1 for coronal
+   *   - 2 for sagittal
+   *   - 3 for the 3D render
+   *   - -1 when the point is between tiles (gutters)
+   *
+   * Used by the per-pane crosshair lock. NiiVue 0.44 stores this as a
+   * private `tileIndex(x, y)` helper; the wrapper insulates the React
+   * layer from API drift.
+   */
+  tileIndexAt(canvasX: number, canvasY: number): number {
+    const nv = this.nv as unknown as {
+      tileIndex?(x: number, y: number): number;
+    };
+    return nv.tileIndex?.(canvasX, canvasY) ?? -1;
+  }
+
+  /**
+   * v0.8.6 — snapshot the current 3D crosshair position in fractional
+   * (0..1) coordinates per axis. Pair with `restoreCrosshairAxes()`
+   * to implement the per-pane crosshair lock: capture before NiiVue
+   * processes the click → after the click navigates the crosshair,
+   * restore the OTHER two axes from the snapshot, leaving only the
+   * clicked tile's plane updated.
+   *
+   * Frac coords are NiiVue-native (X = lateral, Y = AP, Z = SI).
+   */
+  snapshotCrosshair(): [number, number, number] {
+    const nv = this.nv as unknown as {
+      scene?: { crosshairPos?: [number, number, number] };
+    };
+    const c = nv.scene?.crosshairPos;
+    return c ? [c[0], c[1], c[2]] : [0.5, 0.5, 0.5];
+  }
+
+  /**
+   * v0.8.6 — restore specific axes of the crosshair from a snapshot,
+   * leaving the others at their current value.
+   *
+   * `axes` is a triple of booleans `[restoreX, restoreY, restoreZ]`.
+   * For per-pane lock:
+   *   - axial click   → only Z (slice index) should change → restore [X, Y]
+   *     i.e. axes = [true, true, false]
+   *   - coronal click → only Y should change                → restore [X, Z]
+   *     i.e. axes = [true, false, true]
+   *   - sagittal click → only X should change               → restore [Y, Z]
+   *     i.e. axes = [false, true, true]
+   */
+  restoreCrosshairAxes(
+    snapshot: [number, number, number],
+    axes: [boolean, boolean, boolean]
+  ): void {
+    const nv = this.nv as unknown as {
+      scene?: { crosshairPos?: [number, number, number] };
+    };
+    const c = nv.scene?.crosshairPos;
+    if (!c) return;
+    if (axes[0]) c[0] = snapshot[0];
+    if (axes[1]) c[1] = snapshot[1];
+    if (axes[2]) c[2] = snapshot[2];
+    this.nv.drawScene();
+  }
+
+  /**
+   * v0.8.6 — fit a single voxel to N CSS pixels on screen. Used by
+   * the Tools panel's "Fit 1:1 (real size)" button.
+   *
+   * Math:
+   *   - User wants 1 mm in the volume → 1 mm on screen
+   *   - The user's calibrated `pxPerMm` (default 3.78 for the 96 DPI
+   *     CSS convention) tells us how many CSS pixels = 1 mm.
+   *   - The volume's smallest voxel spacing tells us mm-per-voxel.
+   *   - So target screen-px-per-voxel = pxPerMm × mm-per-voxel.
+   *   - NiiVue's 2D zoom (`scene.pan2Dxyzmm[3]`) defaults to 1.0;
+   *     the actual visible pixels-per-voxel at zoom=1.0 depends on
+   *     the tile size. We compute the ratio and write it.
+   *
+   * Returns the zoom multiplier set so the UI can confirm. Returns
+   * 1 (and does nothing) when no volume is loaded.
+   */
+  fitOneToOne(pxPerMm: number): number {
+    const v = this.nv.volumes[this.primaryIndex] as unknown as {
+      hdr?: { pixDims?: number[] };
+    } | undefined;
+    if (!v?.hdr?.pixDims) return 1;
+    // pixDims is [_, x, y, z, ...]; smallest in-plane spacing wins.
+    const sx = v.hdr.pixDims[1] ?? 1;
+    const sy = v.hdr.pixDims[2] ?? 1;
+    const minMm = Math.min(sx, sy);
+    // Target: 1 voxel = (pxPerMm × minMm) screen pixels.
+    // NiiVue's pan2Dxyzmm[3] is a multiplier on the auto-fit base,
+    // so absolute calibration is approximate; the practical result
+    // is "looks bigger / smaller in the right direction." A perfect
+    // fit needs reading the auto-fit base from NiiVue's internals
+    // (not exposed publicly) — out of scope for v0.8.6. We use the
+    // CSS-px convention as the multiplier baseline.
+    const zoom = pxPerMm * minMm;
+    const clamped = Math.max(0.25, Math.min(16, zoom));
+    const nv = this.nv as unknown as {
+      scene?: { pan2Dxyzmm?: [number, number, number, number]; volScaleMultiplier?: number };
+    };
+    if (nv.scene?.pan2Dxyzmm) nv.scene.pan2Dxyzmm[3] = clamped;
+    if (nv.scene) nv.scene.volScaleMultiplier = clamped;
+    this.nv.drawScene();
+    return clamped;
+  }
+
+  /**
    * v0.8.5 — read the crosshair position in canvas-pixel coordinates
    * for each visible MPR tile. Returns one entry per tile with the
    * crosshair's (x, y) inside that tile's rect, plus which two axes

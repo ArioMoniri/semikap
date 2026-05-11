@@ -26,6 +26,29 @@ export interface ModelRecord {
   manifest: ModelManifest;
 }
 
+/**
+ * v0.8.6 — one entry in the recent-files history. Logged each time
+ * the user loads an image / model / mask, so the Settings → Files
+ * browser can list them with their path (when available) and a
+ * "Show in Finder" button.
+ */
+export interface RecentFile {
+  /** Stable id (timestamp + hash). */
+  id: string;
+  /** What this file is — drives the Settings panel grouping. */
+  kind: 'image' | 'mask' | 'model' | 'sam-model';
+  /** Display name (always present) — typically the filename. */
+  name: string;
+  /** Absolute path when available (Tauri file picker, drag-and-drop
+   *  on Tauri). Empty string in PWA mode where the browser doesn't
+   *  expose absolute paths for security reasons. */
+  path: string;
+  /** Size in bytes — informational. */
+  bytes: number;
+  /** ISO timestamp when the file was loaded. */
+  loadedAt: string;
+}
+
 export interface ProgressState {
   active: boolean;
   stage: string;
@@ -63,6 +86,26 @@ interface AppState {
 
   model: ModelRecord | null;
   setModel(m: ModelRecord | null): void;
+
+  /**
+   * v0.8.6 — recent-files history. Captures every image / model /
+   * mask the user has loaded this session (and across reloads via
+   * localStorage), so the Settings → Files browser can list them
+   * with whatever path/name we have.
+   *
+   * Fundamental constraint: browsers don't expose absolute paths for
+   * files picked via <input type="file"> or drag-and-drop — only
+   * the basename. So in PWA mode the `path` field is the basename;
+   * in Tauri mode (where the Tauri file picker DOES return absolute
+   * paths) the `path` is fully resolved.
+   *
+   * Bytes are NEVER persisted — only metadata (name, kind, size,
+   * timestamp). The actual content lives in the active `volume` /
+   * `model` slot until the user closes it.
+   */
+  recentFiles: RecentFile[];
+  addRecentFile(f: RecentFile): void;
+  clearRecentFiles(): void;
 
   result: RunResult | null;
   setResult(r: RunResult | null): void;
@@ -331,6 +374,26 @@ export interface UserPrefs {
    * behaviour). Default true.
    */
   axisColoredCrosshair: boolean;
+  /**
+   * v0.8.6 — per-pane crosshair lock. When true, clicking on the
+   * axial pane only changes Z; coronal click only Y; sagittal click
+   * only X. The other two axes stay frozen at their pre-click
+   * position. Default false (NiiVue's standard 3D-crosshair-
+   * everywhere behaviour). Implementation snapshots crosshairPos on
+   * pointerdown + restores the OTHER two axes via microtask in
+   * pointerup.
+   */
+  perPaneCrosshairLock: boolean;
+  /**
+   * v0.8.6 — calibrated screen pixels per millimeter. Used by the
+   * Tools panel's "Fit 1:1 (real size)" button to set the 2D MPR
+   * zoom so 1 mm in the volume ≈ 1 mm on the screen. Default 3.78
+   * (the 96 DPI CSS-pixel convention); user can recalibrate by
+   * measuring a known length on screen and entering the actual
+   * value. Range 1..20 covers laptop retina down to typical
+   * non-HiDPI desktop monitors.
+   */
+  pxPerMm: number;
 }
 
 /**
@@ -361,10 +424,75 @@ export const useAppStore = create<AppState>((set) => ({
   setBackend: (b) => set({ backend: b }),
 
   volume: null,
-  setVolume: (v) => set({ volume: v, result: null }),
+  setVolume: (v) => {
+    // v0.8.6 — log to recent-files history when a real volume lands.
+    // Browser FSA doesn't expose absolute paths, so `path` ends up as
+    // the basename hint. Tauri picker returns absolute paths in
+    // future; this code is path-agnostic and will pick those up.
+    if (v?.source) {
+      const f: RecentFile = {
+        id: `${Date.now()}-${(v.source.name ?? '?').slice(-12)}`,
+        kind: 'image',
+        name: v.source.name ?? '(unnamed)',
+        path: v.source.hint ?? v.source.name ?? '',
+        bytes: v.source.bytes?.byteLength ?? 0,
+        loadedAt: new Date().toISOString(),
+      };
+      useAppStore.setState((s) => {
+        const filtered = s.recentFiles.filter(
+          (x) => !(x.kind === f.kind && x.name === f.name && x.bytes === f.bytes)
+        );
+        const next = [f, ...filtered].slice(0, 50);
+        saveRecentFiles(next);
+        return { recentFiles: next };
+      });
+    }
+    set({ volume: v, result: null });
+  },
 
   model: null,
-  setModel: (m) => set({ model: m, result: null }),
+  setModel: (m) => {
+    if (m?.source) {
+      const f: RecentFile = {
+        id: `${Date.now()}-${(m.source.name ?? '?').slice(-12)}`,
+        kind: 'model',
+        name: m.source.name ?? '(unnamed)',
+        path: m.source.hint ?? m.source.name ?? '',
+        bytes: m.bytes?.byteLength ?? 0,
+        loadedAt: new Date().toISOString(),
+      };
+      useAppStore.setState((s) => {
+        const filtered = s.recentFiles.filter(
+          (x) => !(x.kind === f.kind && x.name === f.name && x.bytes === f.bytes)
+        );
+        const next = [f, ...filtered].slice(0, 50);
+        saveRecentFiles(next);
+        return { recentFiles: next };
+      });
+    }
+    set({ model: m, result: null });
+  },
+
+  /*
+   * v0.8.6 — recent-files history. Initialised from localStorage on
+   * load; capped at 50 entries (LRU on add). Bytes never persisted.
+   */
+  recentFiles: loadRecentFiles(),
+  addRecentFile: (f) =>
+    set((s) => {
+      // Dedup by name+kind+bytes — re-loading the same file twice
+      // bumps the existing entry to the top instead of duplicating.
+      const filtered = s.recentFiles.filter(
+        (x) => !(x.kind === f.kind && x.name === f.name && x.bytes === f.bytes)
+      );
+      const next = [f, ...filtered].slice(0, 50);
+      saveRecentFiles(next);
+      return { recentFiles: next };
+    }),
+  clearRecentFiles: () => {
+    saveRecentFiles([]);
+    return set({ recentFiles: [] });
+  },
 
   result: null,
   setResult: (r) => set({ result: r }),
@@ -489,6 +617,39 @@ export const useAppStore = create<AppState>((set) => ({
 // degrade to safe defaults.
 
 const PREFS_KEY = 'tamias.userPrefs.v1';
+/** v0.8.6 — recent-files history persistence key. Bumped to v2
+ *  whenever the RecentFile shape changes. */
+const RECENT_KEY = 'tamias.recentFiles.v1';
+
+function loadRecentFiles(): RecentFile[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    // Defensive shape check — drop anything that doesn't look right
+    // so a corrupt entry can't break the panel.
+    return (parsed as Partial<RecentFile>[]).filter(
+      (x): x is RecentFile =>
+        typeof x?.id === 'string' &&
+        typeof x?.kind === 'string' &&
+        typeof x?.name === 'string' &&
+        typeof x?.bytes === 'number'
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentFiles(list: RecentFile[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {
+    /* quota / privacy mode */
+  }
+}
 
 // Phase E.2 — rehydrate the screenshot directory handle from IDB once the
 // store is set up. The store creator can't await IDB synchronously so
@@ -594,5 +755,7 @@ function defaultPrefs(): UserPrefs {
     pinchInverted: false,
     distanceUnit: 'mm',
     axisColoredCrosshair: true,
+    perPaneCrosshairLock: false,
+    pxPerMm: 3.78,
   };
 }

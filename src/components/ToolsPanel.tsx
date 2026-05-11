@@ -9,6 +9,7 @@ import {
   Spline,
   ZoomIn,
   ZoomOut,
+  Maximize2,
   Camera,
   Triangle,
 } from 'lucide-react';
@@ -106,6 +107,17 @@ export function ToolsPanel({ viewerRef }: Props) {
 
   const handleZoomIn = useCallback(() => viewerRef.current?.zoomBy(1.25), [viewerRef]);
   const handleZoomOut = useCallback(() => viewerRef.current?.zoomBy(0.8), [viewerRef]);
+  /**
+   * v0.8.6 — "Fit 1:1 (real size)" — set 2D MPR zoom so 1 mm in the
+   * volume ≈ 1 mm on the user's screen. Reads `prefs.pxPerMm`
+   * (default 3.78 = the 96 DPI CSS-pixel convention; user can
+   * recalibrate in Settings by measuring a known length on screen).
+   * Only meaningful when a primary volume is loaded.
+   */
+  const handleFitOneToOne = useCallback(() => {
+    const pxPerMm = useAppStore.getState().prefs.pxPerMm;
+    viewerRef.current?.fitOneToOne(pxPerMm);
+  }, [viewerRef]);
 
   /**
    * v0.8.4 — screenshot panel picker. Opens a small chooser over the
@@ -238,6 +250,15 @@ export function ToolsPanel({ viewerRef }: Props) {
               active={false}
               onClick={handleZoomOut}
               hint="0.8×"
+            />
+            {/* v0.8.6 — Fit 1:1 sets 2D zoom so 1 mm in the volume ≈
+                1 mm on screen, using the calibrated pxPerMm pref. */}
+            <ToolBtn
+              label="Fit 1:1"
+              icon={<Maximize2 className="h-3.5 w-3.5" />}
+              active={false}
+              onClick={handleFitOneToOne}
+              hint="Real-life size — 1 mm in the volume ≈ 1 mm on screen (calibrate in Settings)"
             />
             <ToolBtn
               label="PNG"

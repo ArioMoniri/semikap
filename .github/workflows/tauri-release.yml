@@ -16,7 +16,53 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # v0.8.6 — single-job draft creation. Pre-v0.8.6 each matrix
+  # platform job called tauri-action with `releaseDraft: true`, and
+  # tauri-action's "find or create" race window let two parallel
+  # platforms each create their own draft for the same tag (the
+  # v0.8.4 incident: 6 Linux assets in one draft, 10 mac+windows in
+  # another). This serialises draft creation into ONE pre-step job
+  # whose output (release_id) every matrix build then targets via
+  # tauri-action's `releaseId` parameter. No race possible.
+  #
+  # If the draft already exists (workflow re-run after a flake), we
+  # reuse it instead of creating a duplicate.
+  create-draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+    steps:
+      - name: Find or create draft release
+        id: create
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          # First: is there already a draft for this tag? (Re-run case.)
+          RELEASE_ID=$(gh api "repos/$REPO/releases?per_page=50" \
+            --jq "[.[] | select(.tag_name==\"$TAG\")] | sort_by(.created_at) | reverse | .[0].id // empty")
+          if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ]; then
+            echo "Reusing existing release id $RELEASE_ID for tag $TAG"
+          else
+            echo "Creating new draft for $TAG..."
+            RELEASE_ID=$(gh api -X POST "repos/$REPO/releases" \
+              -f tag_name="$TAG" \
+              -f name="🐿️ TAMIAS $TAG" \
+              -f body="Build in progress — see CHANGELOG.md for what's in this release." \
+              -F draft=true \
+              -F prerelease=false \
+              --jq '.id')
+            echo "Created release id $RELEASE_ID"
+          fi
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: create-draft
     strategy:
       fail-fast: false
       matrix:
@@ -111,6 +157,13 @@ jobs:
           # WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           # WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
+          # v0.8.6 — point tauri-action at the existing draft created
+          # by the `create-draft` job. With `releaseId` set,
+          # tauri-action uploads to the existing release instead of
+          # going through its racy "find by tagName, else create"
+          # path. tagName + releaseName are kept for tauri-action
+          # body-update fallback when releaseId is empty.
+          releaseId: ${{ needs.create-draft.outputs.release_id }}
           tagName: ${{ github.ref_name }}
           releaseName: '🐿️ TAMIAS ${{ github.ref_name }}'
           releaseBody: |

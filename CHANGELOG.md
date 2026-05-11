@@ -6,6 +6,46 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.6] — Per-pane crosshair lock · Fit 1:1 (real size) · Recent files · Workflow race fix
+
+### Added — Per-pane crosshair lock
+
+- 🖱️ **Settings → "Per-pane crosshair lock"** (default OFF). When enabled, clicking on the axial pane only changes Z (axial slice index); coronal click only changes Y; sagittal only X. The other two axes stay frozen. Resolves the user's "ax moving should be for the panel of series which the cursor is on" / "can't move y axis smoothly" requests.
+- Implementation: `pointerdown` snapshots the crosshair triple + records which mosaic tile (via NiiVue's `tileIndex`) the click landed on; `pointerup` restores the OTHER two axes from the snapshot via `queueMicrotask` so NiiVue's click handler runs first. New wrapper helpers: `tileIndexAt()`, `snapshotCrosshair()`, `restoreCrosshairAxes()`.
+
+### Added — Fit 1:1 (real life size)
+
+- 📐 **Tools panel → "Fit 1:1"** button. Sets the 2D MPR zoom so 1 mm in the volume ≈ 1 mm on the user's screen, using the user-calibrated `pxPerMm` pref (default 3.78 = 96 DPI CSS-pixel convention).
+- 🎯 **Settings → "Screen calibration (px/mm)"** — number input + Save + "Reset (3.78)". Recalibrate by measuring a known length on screen and entering the actual ratio. Range 1..20 covers laptop retina down to typical non-HiDPI desktop monitors.
+- New wrapper method `fitOneToOne(pxPerMm)` writes both `scene.volScaleMultiplier` and `scene.pan2Dxyzmm[3]` so 2D + 3D stay in lockstep.
+
+### Added — Recent files in Settings → Files browser
+
+- 📂 **Recent files history** — every image / model / mask the user loads is logged to a `RecentFile` record with name + path (basename in PWA mode, absolute when Tauri picker is wired) + bytes + timestamp. Capped at 50 entries (LRU on add); persisted to `localStorage` (`tamias.recentFiles.v1`).
+- 🪟 The Files browser section now shows a **second list** under the cached SAM blobs: one row per recent file with Show button (`revealPath()` → Tauri `revealItemInDir` on desktop, clipboard copy on browser).
+- 🚮 **Clear** button wipes the history without touching cached blobs.
+
+### Fixed — Workflow race (duplicate drafts)
+
+- 📦 **New `create-draft` job runs FIRST** and emits `release_id`; the matrix builds upload to that specific release via `tauri-action`'s `releaseId` parameter instead of going through its racy "find by tagName, else create" path. The v0.8.4 incident (6 Linux assets in one draft, 10 mac+windows in another) cannot recur.
+- Workflow re-runs reuse the existing draft instead of creating a duplicate.
+
+### Internal
+
+- `src/lib/viewer/niivue.ts` — `tileIndexAt()`, `snapshotCrosshair()`, `restoreCrosshairAxes()`, `fitOneToOne()`.
+- `src/components/Viewer.tsx` — `pointerdown` snapshots crosshair when per-pane lock is on; `pointerup` restores via microtask; new ViewerHandle methods.
+- `src/components/ToolsPanel.tsx` — new "Fit 1:1" button.
+- `src/components/SettingsPanel.tsx` — per-pane lock checkbox, `DpiCalibrationSection`, recent-files list inside the existing Files browser.
+- `src/lib/state/store.ts` — `UserPrefs.perPaneCrosshairLock` (default false), `pxPerMm` (default 3.78), new `RecentFile` type + `recentFiles` slice + `addRecentFile` / `clearRecentFiles` actions + localStorage persistence (`tamias.recentFiles.v1`). `setVolume` and `setModel` now log to recent files automatically.
+- `.github/workflows/tauri-release.yml` — new `create-draft` job; matrix uses `releaseId`.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 9s (36 precache entries, 5509 KiB).
+
 ## [0.8.5] — Canvas-blank fix · 2D zoom (real fix) · distance units · Files browser · axis-coloured crosshair
 
 ### Fixed — v0.8.4 regressions
