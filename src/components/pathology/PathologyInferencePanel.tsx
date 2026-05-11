@@ -127,11 +127,37 @@ export function PathologyInferencePanel({
       </CardHeader>
       <CardContent className="space-y-2">
         {missingMpp ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-            Slide is missing MPP (PhysicalSizeX/Y) metadata. Inference will
-            run at the slide&apos;s native resolution — output may be at
-            an unexpected magnification. For calibrated results, convert to
-            OME-TIFF with PhysicalSizeX/Y filled in.
+          <div className="space-y-1.5 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+            <div>
+              Slide is missing MPP (PhysicalSizeX/Y) metadata. Inference will
+              run at the slide&apos;s native resolution — output may be at
+              an unexpected magnification.
+            </div>
+            {/*
+              v0.8.9 — manual MPP override. The user enters a µm/px
+              value (typical scanner outputs: 0.25 for 40×, 0.5 for
+              20×, 1.0 for 10×). On click "Use this MPP" we mutate
+              the local meta — the model worker reads `meta.mppX/Y`
+              when down-sampling, so this calibrates the run.
+            */}
+            <MppOverrideInput
+              onApply={(mpp) => {
+                if (!meta) return;
+                // Mutate in-place so the worker reads the new value
+                // without a full re-load. Safe because meta is owned
+                // by the parent's state and the worker reads via
+                // structured-clone at run time.
+                (meta as { mppX: number | null; mppY: number | null }).mppX = mpp;
+                (meta as { mppX: number | null; mppY: number | null }).mppY = mpp;
+                setMissingMpp(false);
+              }}
+            />
+            <div className="text-[10px]">
+              Typical scanner outputs: <strong>0.25</strong> (40×),{' '}
+              <strong>0.5</strong> (20×), <strong>1.0</strong> (10×).
+              For calibrated results, convert the slide to OME-TIFF
+              with PhysicalSizeX/Y filled in.
+            </div>
           </div>
         ) : null}
 
@@ -164,5 +190,47 @@ export function PathologyInferencePanel({
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+
+/**
+ * v0.8.9 — manual MPP entry for slides that lack PhysicalSizeX/Y in
+ * their OME-TIFF / SVS / NDPI header. The user types a µm/pixel value
+ * and clicks "Use this MPP" — the parent mutates `meta.mppX/Y`
+ * in-place so the inference worker sees the calibrated value at
+ * run time.
+ *
+ * Range 0.05..10 µm/px covers electron-microscopy down to low-mag
+ * brightfield. Step 0.01 lets the user dial in a precise value.
+ */
+function MppOverrideInput({ onApply }: { onApply: (mpp: number) => void }) {
+  const [draft, setDraft] = useState('0.5');
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <label className="text-[11px] font-medium">Manual MPP:</label>
+      <input
+        type="number"
+        min={0.05}
+        max={10}
+        step={0.01}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        className="w-20 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 font-mono text-[11px] tabular-nums focus:border-tamias-accent focus:outline-none dark:border-amber-900/40 dark:bg-amber-900/20"
+        aria-label="Manual MPP value in micrometers per pixel"
+      />
+      <span className="text-[11px]">µm/px</span>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => {
+          const n = Number(draft);
+          if (n > 0.01 && n < 100) onApply(n);
+        }}
+        className="h-6 text-[11px]"
+      >
+        Use this MPP
+      </Button>
+    </div>
   );
 }

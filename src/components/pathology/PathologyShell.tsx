@@ -4,6 +4,7 @@ import { Badge } from '../ui/Badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { CollapsibleSection } from '../ui/Collapsible';
+import { useAppStore } from '../../lib/state/store';
 import { PathologySlidePicker } from './PathologySlidePicker';
 import {
   PathologyModelPicker,
@@ -75,6 +76,22 @@ export function PathologyShell({ sidebarWidth, sidebarCollapsed, onToggleSidebar
     async (s: PickedSlide) => {
       setError(null);
       setSlide(s);
+      /*
+       * v0.8.9 — log to the global recent-files history so the
+       * Settings → Files browser surfaces pathology slides too.
+       * Pre-v0.8.9 only radiology images + inference models went
+       * through the store's setVolume / setModel and got logged;
+       * pathology used local React state and was invisible to the
+       * Files browser. Now both modalities feed the same history.
+       */
+      useAppStore.getState().addRecentFile({
+        id: `${Date.now()}-slide-${s.name.slice(-12)}`,
+        kind: 'image',
+        name: s.name,
+        path: s.hint || s.name,
+        bytes: s.bytes?.byteLength ?? 0,
+        loadedAt: new Date().toISOString(),
+      });
       try {
         const v = viewerRef.current;
         if (!v) return;
@@ -119,6 +136,28 @@ export function PathologyShell({ sidebarWidth, sidebarCollapsed, onToggleSidebar
     []
   );
 
+  /*
+   * v0.8.9 — wrap setModel to also log the model to the recent-files
+   * history. Wired to both PathologyModelPicker.onLoaded and the
+   * PathologyExamplesPanel.onModel pathways.
+   */
+  const handleModelLoaded = useCallback(
+    (m: PathologyModelRecord | null) => {
+      setModel(m);
+      if (m) {
+        useAppStore.getState().addRecentFile({
+          id: `${Date.now()}-pathmodel-${(m.source.name ?? '?').slice(-12)}`,
+          kind: 'model',
+          name: m.source.name ?? '(unnamed)',
+          path: m.source.hint ?? m.source.name ?? '',
+          bytes: m.bytes?.byteLength ?? 0,
+          loadedAt: new Date().toISOString(),
+        });
+      }
+    },
+    []
+  );
+
   // Cleanup on unmount.
   useEffect(() => {
     return () => {
@@ -148,13 +187,13 @@ export function PathologyShell({ sidebarWidth, sidebarCollapsed, onToggleSidebar
         >
           <PathologyExamplesPanel
             onSlide={handleSlide}
-            onModel={setModel}
+            onModel={handleModelLoaded}
             onError={setError}
           />
         </CollapsibleSection>
 
         <CollapsibleSection title="Model" defaultOpen trailing={model ? 'ready' : 'pick'}>
-          <PathologyModelPicker onLoaded={setModel} current={model} />
+          <PathologyModelPicker onLoaded={handleModelLoaded} current={model} />
         </CollapsibleSection>
 
         <CollapsibleSection title="Inference" defaultOpen>

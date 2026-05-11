@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.9] — Pathology in Files browser · Manual MPP override
+
+### Added — Pathology slides + models in the recent-files history
+
+- 📂 **Pathology slides + pathology models now log to the global recent-files history.** Pre-v0.8.9 the radiology image/model loaders went through `setVolume` / `setModel` which the v0.8.6 patch had wrapped to feed the `RecentFile` history — but pathology used local React state in `PathologyShell` and was invisible to the Settings → Files browser. Now both modalities feed the same history (`kind: 'image'` for slides, `kind: 'model'` for pathology models). The Files browser surfaces them with the same Show / Delete affordances.
+
+### Added — Manual MPP override on PathologyInferencePanel
+
+- 🎯 **MPP entry input** appears inline in the amber "missing MPP" warning. Pre-v0.8.9 the user had to convert the slide externally to OME-TIFF with PhysicalSizeX/Y filled in; v0.8.8 unblocked the run but didn't give the user a way to actually calibrate it. Now: type a µm/pixel value (typical scanner outputs: 0.25 for 40×, 0.5 for 20×, 1.0 for 10×), click "Use this MPP", and the in-memory `meta.mppX/Y` is set so the inference worker reads the calibrated value at run time. Range 0.05..10 µm/px (electron microscopy down to low-mag brightfield); step 0.01 for precision dial-in.
+
+### Internal
+
+- `src/components/pathology/PathologyShell.tsx` — `handleSlide` + new `handleModelLoaded` wrappers call `useAppStore.getState().addRecentFile()` so both slide + pathology-model loads feed the global recent-files history. PathologyExamplesPanel and PathologyModelPicker rewired to `handleModelLoaded`.
+- `src/components/pathology/PathologyInferencePanel.tsx` — new `MppOverrideInput` sub-component; warning block restructured to include the input + the "Use this MPP" button; helpful magnification-to-MPP cheat sheet inline.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 9s (36 precache entries, 5513 KiB).
+
 ## [0.8.8] — Pathology tools unblocked: distance, brush, MPP-less inference
 
 ### Fixed
