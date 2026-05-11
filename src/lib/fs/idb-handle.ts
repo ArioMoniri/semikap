@@ -95,3 +95,8 @@ export async function requestHandlePermission(
 }
 
 export const SCREENSHOT_DIR_KEY = 'screenshotDirHandle';
+/** v0.8.2 — model download directory chosen by the user in Settings.
+ *  When set, SAM weights (graph + sidecar) go to <dir>/sam-cache/ instead
+ *  of the invisible OPFS cache. Same IDB-backed persistence pattern as
+ *  the screenshot folder; same permission re-prompt after reload. */
+export const MODEL_DIR_KEY = 'modelDownloadDirHandle';

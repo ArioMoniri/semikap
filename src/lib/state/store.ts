@@ -268,6 +268,29 @@ export interface UserPrefs {
    * The Settings UI never echoes the token back to the DOM after entry.
    */
   huggingfaceToken: string;
+  /**
+   * v0.8.2 — directory the user picked in Settings for model downloads.
+   *
+   * When set, the SAM loader writes downloaded weights (graph .onnx +
+   * external-data .onnx_data sidecar) to `<dir>/sam-cache/<sha256>.bin`
+   * instead of the invisible OPFS cache. The user can browse to those
+   * files in Finder/Explorer, free disk space without re-launching the
+   * app, copy weights between machines, etc.
+   *
+   * When null (default), OPFS is used — frictionless one-tap downloads
+   * but invisible to the user.
+   *
+   * Storage parity with `screenshotDirHandle`:
+   *   - The handle itself goes to IDB (FSA handles are structured-
+   *     cloneable but not JSON-serialisable).
+   *   - The display name goes to localStorage so the Settings panel
+   *     can show "Last used: <name>" before the post-reload permission
+   *     re-prompt clears.
+   *   - The handle stays null on first render after reload until
+   *     `requestHandlePermission()` succeeds.
+   */
+  modelDownloadDirHandle: FileSystemDirectoryHandle | null;
+  modelDownloadDirName: string | null;
 }
 
 /**
@@ -435,17 +458,41 @@ const PREFS_KEY = 'tamias.userPrefs.v1';
 (async () => {
   if (typeof window === 'undefined' || typeof indexedDB === 'undefined') return;
   try {
-    const { readStoredHandle, requestHandlePermission, SCREENSHOT_DIR_KEY } =
-      await import('../fs/idb-handle');
-    const handle = await readStoredHandle(SCREENSHOT_DIR_KEY);
-    if (!handle) return;
-    // Probe permission silently — don't prompt the user yet. The first
-    // screenshot capture will request permission if needed.
-    const ok = await requestHandlePermission(handle).catch(() => false);
-    if (!ok) return;
-    useAppStore.setState((s) => ({
-      prefs: { ...s.prefs, screenshotDirHandle: handle, screenshotDirName: handle.name },
-    }));
+    const {
+      readStoredHandle,
+      requestHandlePermission,
+      SCREENSHOT_DIR_KEY,
+      MODEL_DIR_KEY,
+    } = await import('../fs/idb-handle');
+
+    // Screenshot dir handle.
+    const screenshotHandle = await readStoredHandle(SCREENSHOT_DIR_KEY);
+    if (screenshotHandle) {
+      const ok = await requestHandlePermission(screenshotHandle).catch(() => false);
+      if (ok) {
+        useAppStore.setState((s) => ({
+          prefs: {
+            ...s.prefs,
+            screenshotDirHandle: screenshotHandle,
+            screenshotDirName: screenshotHandle.name,
+          },
+        }));
+      }
+    }
+    // v0.8.2 — model download dir handle (mirror of the screenshot path).
+    const modelHandle = await readStoredHandle(MODEL_DIR_KEY);
+    if (modelHandle) {
+      const ok = await requestHandlePermission(modelHandle).catch(() => false);
+      if (ok) {
+        useAppStore.setState((s) => ({
+          prefs: {
+            ...s.prefs,
+            modelDownloadDirHandle: modelHandle,
+            modelDownloadDirName: modelHandle.name,
+          },
+        }));
+      }
+    }
   } catch {
     /* IDB read failed — falls back to user re-pick */
   }
@@ -463,7 +510,10 @@ function loadPrefs(): UserPrefs {
     return {
       ...defaultPrefs(),
       ...parsed,
+      // FSA handles never round-trip through localStorage. The IDB
+      // rehydrate IIFE above patches them in once permission is granted.
       screenshotDirHandle: null,
+      modelDownloadDirHandle: null,
     };
   } catch {
     return defaultPrefs();
@@ -473,10 +523,18 @@ function loadPrefs(): UserPrefs {
 function savePrefs(p: UserPrefs): void {
   if (typeof window === 'undefined') return;
   try {
-    // Strip the live handle before serialising — it'd JSON-stringify to
-    // `{}` and confuse the load path.
-    const { screenshotDirHandle: _omit, ...persistable } = p;
-    void _omit;
+    // Strip the live handles before serialising — they'd JSON-stringify
+    // to `{}` and confuse the load path. The display-name companions
+    // (`screenshotDirName`, `modelDownloadDirName`) DO persist so the
+    // Settings panel can show "Last used: …" before the post-reload
+    // permission re-prompt clears.
+    const {
+      screenshotDirHandle: _o1,
+      modelDownloadDirHandle: _o2,
+      ...persistable
+    } = p;
+    void _o1;
+    void _o2;
     window.localStorage.setItem(PREFS_KEY, JSON.stringify(persistable));
   } catch {
     /* quota / privacy mode — silently ignore */
@@ -488,6 +546,8 @@ function defaultPrefs(): UserPrefs {
     screenshotMode: 'ask',
     screenshotDirName: null,
     screenshotDirHandle: null,
+    modelDownloadDirHandle: null,
+    modelDownloadDirName: null,
     dismissedNoUploadBanner: false,
     huggingfaceToken: '',
   };

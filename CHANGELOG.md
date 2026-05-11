@@ -6,6 +6,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.2] — User-chosen model download folder · Saved-to path visibility
+
+### Added — Settings → Model download folder
+
+- 📁 **User-pickable download folder.** Until v0.8.2 the SAM cache lived in **OPFS** (origin-private filesystem) — frictionless one-tap downloads but invisible to the user (can't browse the files, can't copy between machines, can't free disk space without DevTools). Settings now has a "Model download folder" section that lets you pick a real OS folder; downloads land in `<folder>/sam-cache/<sha256>.bin` instead. Same `pickDirectory()` + IDB-handle-persistence pattern as the existing screenshot folder, with a permission re-prompt after each reload.
+- 📍 **Always-visible "Next download goes to:" target.** The Settings card renders the resolved write path via `describeWritePath()` so you know — before clicking Download in the SAM panel — whether the next blob goes to your folder or to OPFS. Works even with a stale handle (post-reload before the permission re-grant): we explicitly say "OPFS" so you're not surprised.
+- 🛟 **Silent fallback to OPFS** when the user-folder write fails (permission denied, disk full, handle stale post-reload). Stops a stale handle from blocking downloads.
+
+### Added — SamPanel "Saved to:" chip
+
+- 🧾 **Cache write paths surfaced inline.** Every `loadSamModel()` call now returns `writePaths: { path, backend }[]` listing every blob it wrote (or hit from cache). The SAM panel renders these in a small monospaced chip under the model-loaded indicator: *"Saved to (your folder): MyModels/sam-cache/abc…123.bin"* or *"Saved to (browser private storage): OPFS:/sam/abc…123.bin"*. One row per file (encoder, encoder-data sidecar, decoder, decoder-data sidecar).
+- 🚦 **Accurate busy-bar label** during the cache stage: *"Saving to MyModels/sam-cache…"* when a folder is picked, *"Caching to OPFS…"* when not. Replaces the v0.8.1 always-OPFS text that lied when a folder was picked.
+
+### Internal
+
+- `src/lib/sam/cache.ts` — `readSamBlob()` / `writeSamBlob()` / `deleteSamBlob()` / `listSamBlobs()` accept an optional `userDir?: FileSystemDirectoryHandle | null` and dispatch read+write to the user folder when set, OPFS otherwise. Reads check the user folder FIRST so a model the user explicitly downloaded "to disk" wins over a stale OPFS copy. Writes attempt user folder, fall back to OPFS on any error.
+- `src/lib/sam/loader.ts` — `LoadSamOptions.downloadDir` plumbing; `SamModelBytes.writePaths` populated.
+- `src/lib/state/store.ts` — `UserPrefs.modelDownloadDirHandle` + `modelDownloadDirName`. Handle persists in IDB (`MODEL_DIR_KEY`); display name persists in localStorage. Same handle-rehydrate IIFE as the existing screenshot folder.
+- `src/lib/fs/idb-handle.ts` — new exported `MODEL_DIR_KEY` constant.
+- `src/components/SettingsPanel.tsx` — new `ModelDownloadFolderSection` component.
+- `src/components/SamPanel.tsx` — reads `modelDownloadDirHandle` from prefs, threads through both `loadSamModel()` call sites, captures and renders `writePaths`.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 8.37s (35 precache entries, 5488 KiB).
+
 ## [0.8.1] — Progress-bar flash fix
 
 ### Fixed

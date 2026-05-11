@@ -20,6 +20,12 @@ export interface SamModelBytes {
    *  can resolve the graph's external_data_location references. */
   encoderExternalData?: SamExternalDataBlob;
   decoderExternalData?: SamExternalDataBlob;
+  /** v0.8.2 — list of paths the loader wrote to (or read from cache).
+   *  Surfaced in the SAM panel as "Saved to: <path>" so the user knows
+   *  where the bytes ended up — OPFS pseudo-path or the user-picked
+   *  download folder. Order matches the load sequence (encoder, then
+   *  encoder-data sidecar, then decoder, then decoder-data sidecar). */
+  writePaths?: { path: string; backend: 'user-folder' | 'opfs' }[];
 }
 
 export interface SamLoadProgress {
@@ -385,6 +391,19 @@ export interface LoadSamOptions {
   /** Personal access token from https://huggingface.co/settings/tokens.
    *  Read access is sufficient for downloading gated model weights. */
   huggingfaceToken?: string;
+  /**
+   * v0.8.2 — user-chosen download directory. When set, bytes go to
+   * `<dir>/sam-cache/<sha256>.bin` AND surfaced via `writePaths` on
+   * the return value so the SAM panel can show "Saved to: …". When
+   * unset, OPFS is used (default — invisible but frictionless).
+   *
+   * The user picks this folder once in Settings; we re-prompt for
+   * permission on first post-reload use, after which the handle is
+   * usable for the session. Falls back to OPFS silently when the
+   * user-folder write fails so a stale handle doesn't break the
+   * download.
+   */
+  downloadDir?: FileSystemDirectoryHandle | null;
 }
 
 export async function loadSamModel(
@@ -393,6 +412,10 @@ export async function loadSamModel(
   opts: LoadSamOptions = {}
 ): Promise<SamModelBytes> {
   const token = opts.huggingfaceToken?.trim() || undefined;
+  const userDir = opts.downloadDir ?? null;
+  // v0.8.2 — collect every cache write (or hit) so the caller can
+  // surface "Saved to: <path>" in the UI. One entry per fetched blob.
+  const writePaths: { path: string; backend: 'user-folder' | 'opfs' }[] = [];
 
   // Fetch the main `.onnx` graph file (small for external-data exports).
   const fetchOne = async (
@@ -401,7 +424,7 @@ export async function loadSamModel(
     expectedBytes?: number
   ): Promise<Bytes> => {
     if (spec.sha256) {
-      const cached = await readSamBlob(spec.sha256);
+      const cached = await readSamBlob(spec.sha256, userDir);
       if (cached) {
         onProgress({ stage, fraction: 1, bytesLoaded: cached.byteLength });
         return cached;
@@ -435,7 +458,8 @@ export async function loadSamModel(
     }
     onProgress({ stage: 'cache', fraction: -1, bytesLoaded: bytes.byteLength });
     const key = spec.sha256 ?? (await sha256Hex(bytes));
-    await writeSamBlob(key, bytes);
+    const written = await writeSamBlob(key, bytes, userDir);
+    if (written) writePaths.push(written);
     return bytes;
   };
 
@@ -456,7 +480,7 @@ export async function loadSamModel(
       'model.onnx_data';
 
     if (spec.externalDataSha256) {
-      const cached = await readSamBlob(spec.externalDataSha256);
+      const cached = await readSamBlob(spec.externalDataSha256, userDir);
       if (cached) {
         onProgress({ stage, fraction: 1, bytesLoaded: cached.byteLength });
         return { filename, data: cached };
@@ -485,7 +509,8 @@ export async function loadSamModel(
       }
     }
     const key = spec.externalDataSha256 ?? (await sha256Hex(bytes));
-    await writeSamBlob(key, bytes);
+    const written = await writeSamBlob(key, bytes, userDir);
+    if (written) writePaths.push(written);
     return { filename, data: bytes };
   };
 
@@ -499,5 +524,6 @@ export async function loadSamModel(
     decoderBytes,
     ...(encoderExternalData ? { encoderExternalData } : {}),
     ...(decoderExternalData ? { decoderExternalData } : {}),
+    ...(writePaths.length > 0 ? { writePaths } : {}),
   };
 }

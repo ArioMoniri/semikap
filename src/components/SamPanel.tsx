@@ -72,6 +72,16 @@ export function SamPanel({ viewerRef }: Props) {
    * checkpoints).
    */
   const huggingfaceToken = useAppStore((s) => s.prefs.huggingfaceToken);
+  /**
+   * v0.8.2 — user-chosen download folder. When set, model downloads
+   * go to `<folder>/sam-cache/` instead of the invisible OPFS cache.
+   * The loader returns `writePaths` we surface in the model-loaded
+   * chip so the user sees exactly where the files landed.
+   */
+  const modelDownloadDir = useAppStore((s) => s.prefs.modelDownloadDirHandle);
+  const [lastWritePaths, setLastWritePaths] = useState<
+    { path: string; backend: 'user-folder' | 'opfs' }[]
+  >([]);
 
   const [activeMode, setActiveMode] = useState<'point' | 'box' | 'text' | 'off'>('off');
   const [textValue, setTextValue] = useState('');
@@ -164,15 +174,19 @@ export function SamPanel({ viewerRef }: Props) {
                     : p.stage === 'verify'
                     ? 'Verifying…'
                     : p.stage === 'cache'
-                    ? 'Caching to OPFS…'
+                    ? // v0.8.2 — accurate label depending on whether
+                      // the user picked a download folder.
+                      modelDownloadDir
+                      ? `Saving to ${modelDownloadDir.name}/sam-cache…`
+                      : 'Caching to OPFS…'
                     : 'Done',
                 bytesLoaded: p.bytesLoaded,
                 ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
               },
             });
           },
-          // v0.8.0 — pass the HF token (empty = no Authorization header).
-          { huggingfaceToken }
+          // v0.8.0 — HF token + v0.8.2 — user-chosen download dir.
+          { huggingfaceToken, downloadDir: modelDownloadDir }
         );
         setSam({
           modelLoaded: true,
@@ -191,6 +205,8 @@ export function SamPanel({ viewerRef }: Props) {
         });
         // v0.7.9 — clear the retry chip on success.
         setLastDownload(null);
+        // v0.8.2 — surface where the bytes went so the user can find them.
+        setLastWritePaths(bytes.writePaths ?? []);
         void appendAudit({
           kind: 'export',
           message: `SAM model loaded: ${preset.manifest.name}`,
@@ -206,7 +222,7 @@ export function SamPanel({ viewerRef }: Props) {
     // also memoised on `[setSam, pushError]`, so adding it would create a
     // declaration-order forward-reference without any behavioural change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [setSam, pushError, huggingfaceToken]
+    [setSam, pushError, huggingfaceToken, modelDownloadDir]
   );
 
   /**
@@ -276,15 +292,17 @@ export function SamPanel({ viewerRef }: Props) {
                     : p.stage === 'verify'
                     ? 'Verifying…'
                     : p.stage === 'cache'
-                    ? 'Caching to OPFS…'
+                    ? modelDownloadDir
+                      ? `Saving to ${modelDownloadDir.name}/sam-cache…`
+                      : 'Caching to OPFS…'
                     : 'Done',
                 bytesLoaded: p.bytesLoaded,
                 ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
               },
             });
           },
-          // v0.8.0 — pass HF token + propagate external-data to store.
-          { huggingfaceToken }
+          // v0.8.0 — HF token + v0.8.2 — user-chosen download dir.
+          { huggingfaceToken, downloadDir: modelDownloadDir }
         );
         setSam({
           modelLoaded: true,
@@ -300,6 +318,7 @@ export function SamPanel({ viewerRef }: Props) {
           busy: null,
         });
         setLastDownload(null);
+        setLastWritePaths(bytes.writePaths ?? []);
         void appendAudit({
           kind: 'export',
           message: `SAM model loaded (custom URL): ${name.trim()}`,
@@ -314,7 +333,7 @@ export function SamPanel({ viewerRef }: Props) {
         setSam({ busy: null });
       }
     },
-    [customUrlForm, closeCustomUrlForm, setSam, pushError, huggingfaceToken]
+    [customUrlForm, closeCustomUrlForm, setSam, pushError, huggingfaceToken, modelDownloadDir]
   );
 
   const handlePickLocal = useCallback(async () => {
@@ -649,6 +668,9 @@ export function SamPanel({ viewerRef }: Props) {
       prompts: [],
       busy: null,
     });
+    // v0.8.2 — wipe the displayed cache paths so the panel doesn't
+    // show stale info after the user unloads the model.
+    setLastWritePaths([]);
   }, [setSam]);
 
   /**
@@ -774,6 +796,7 @@ export function SamPanel({ viewerRef }: Props) {
               onPropagate={handlePropagate}
               maskColor={maskColor}
               setMaskColor={setMaskColor}
+              writePaths={lastWritePaths}
             />
           )}
 
@@ -946,6 +969,11 @@ function ReadyView(props: {
   /** v0.7.5 — user-selectable mask colormap (matches NiiVue overlay names). */
   maskColor: 'red' | 'green' | 'blue' | 'roi_i256';
   setMaskColor: (c: 'red' | 'green' | 'blue' | 'roi_i256') => void;
+  /** v0.8.2 — every cache path the loader wrote (or hit) for the
+   *  currently loaded model. Surfaced as a small "Saved to:" chip so
+   *  the user knows where the bytes live. Empty when the model came
+   *  from disk via Pick local. */
+  writePaths: { path: string; backend: 'user-folder' | 'opfs' }[];
 }) {
   const {
     activeMode,
@@ -968,6 +996,7 @@ function ReadyView(props: {
     onPropagate,
     maskColor,
     setMaskColor,
+    writePaths,
   } = props;
 
   return (
@@ -992,6 +1021,30 @@ function ReadyView(props: {
           <Trash2 className="h-3 w-3" />
         </button>
       </div>
+
+      {/*
+        v0.8.2 — surface the cache path so the user knows where the
+        bytes ended up. One row per file. Each row is monospaced and
+        truncated; the full path is in the title attribute. Empty
+        when the model was loaded from disk (Pick local) — the bytes
+        live wherever the user picked them, no cache write.
+      */}
+      {writePaths.length > 0 && (
+        <div className="space-y-0.5 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] dark:border-slate-800 dark:bg-slate-900">
+          <div className="font-medium text-slate-600 dark:text-slate-400">
+            Saved to ({writePaths[0]?.backend === 'user-folder' ? 'your folder' : 'browser private storage'}):
+          </div>
+          {writePaths.map((wp, i) => (
+            <div
+              key={i}
+              className="break-all font-mono text-slate-500 dark:text-slate-400"
+              title={wp.path}
+            >
+              {wp.path}
+            </div>
+          ))}
+        </div>
+      )}
 
       {!encoded && (
         <Button size="sm" variant="ink" onClick={onEncode} className="w-full gap-1.5">

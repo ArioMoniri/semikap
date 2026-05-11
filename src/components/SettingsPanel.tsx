@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Settings, FileDown, Trash2, Camera, FolderOpen, KeyRound, CheckCircle2, XCircle, Cpu } from 'lucide-react';
+import { Settings, FileDown, Trash2, Camera, FolderOpen, KeyRound, CheckCircle2, XCircle, Cpu, HardDrive } from 'lucide-react';
 import { clearAuditLog, exportAuditLog, readAuditLog, type AuditEntry } from '../lib/fs/audit';
 import { saveBytes, pickDirectory } from '../lib/fs/filesystem';
-import { writeStoredHandle, deleteStoredHandle, SCREENSHOT_DIR_KEY } from '../lib/fs/idb-handle';
+import {
+  writeStoredHandle,
+  deleteStoredHandle,
+  SCREENSHOT_DIR_KEY,
+  MODEL_DIR_KEY,
+} from '../lib/fs/idb-handle';
+import { describeWritePath } from '../lib/sam/cache';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { useAppStore } from '../lib/state/store';
@@ -152,6 +158,37 @@ export function SettingsPanel() {
             /api/whoami-v2 instead of any path that could leak the
             token to a third party.
           */}
+          {/*
+            v0.8.2 — model download folder. Default = OPFS (browser
+            private storage, invisible to the user). When the user
+            picks a folder here, SAM weights (encoder + decoder +
+            external-data sidecar) go to <folder>/sam-cache/ instead
+            so they can browse the files in Finder/Explorer, free
+            disk space, copy weights between machines, etc. Default
+            stays "no folder picked" so first-time users get a one-
+            tap download with no permission prompts.
+
+            Same persistence pattern as the screenshot folder: live
+            handle in IDB, display name in localStorage so the panel
+            shows "Last used: <name>" before the post-reload
+            permission re-prompt clears.
+          */}
+          <ModelDownloadFolderSection
+            handle={prefs.modelDownloadDirHandle}
+            name={prefs.modelDownloadDirName}
+            onPick={(handle) => {
+              void writeStoredHandle(MODEL_DIR_KEY, handle);
+              setPrefs({
+                modelDownloadDirHandle: handle,
+                modelDownloadDirName: handle.name,
+              });
+            }}
+            onForget={() => {
+              void deleteStoredHandle(MODEL_DIR_KEY);
+              setPrefs({ modelDownloadDirHandle: null, modelDownloadDirName: null });
+            }}
+          />
+
           <HuggingFaceTokenSection
             token={prefs.huggingfaceToken}
             onChange={(huggingfaceToken) => setPrefs({ huggingfaceToken })}
@@ -232,6 +269,81 @@ export function SettingsPanel() {
         </CardContent>
       )}
     </Card>
+  );
+}
+
+/**
+ * v0.8.2 — Model download folder picker. Default ("no folder picked")
+ * = OPFS / browser private storage. When the user picks a folder we
+ * persist the FSA handle to IDB and surface the active path inline.
+ *
+ * The current write target is rendered via `describeWritePath()` so
+ * the user always knows where a brand-new download will land — even
+ * if the picked-folder handle is stale (e.g. permission expired
+ * post-reload), we explicitly say "OPFS" so they're not surprised.
+ */
+function ModelDownloadFolderSection({
+  handle,
+  name,
+  onPick,
+  onForget,
+}: {
+  handle: FileSystemDirectoryHandle | null;
+  name: string | null;
+  onPick: (handle: FileSystemDirectoryHandle) => void;
+  onForget: () => void;
+}) {
+  const writeTarget = describeWritePath(handle);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        <HardDrive className="h-3 w-3" /> Model download folder
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1"
+          onClick={async () => {
+            const picked = await pickDirectory();
+            if (picked) onPick(picked);
+          }}
+        >
+          <FolderOpen className="h-3.5 w-3.5" /> Pick folder
+        </Button>
+        {handle && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="gap-1 text-red-700 hover:bg-red-50"
+            onClick={onForget}
+            title="Stop saving downloads to this folder; next download goes to browser private storage (OPFS)."
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Forget
+          </Button>
+        )}
+      </div>
+      <div className="rounded border border-slate-200 bg-slate-50 p-2 text-[11px] dark:border-slate-800 dark:bg-slate-900">
+        <div className="font-medium text-slate-700 dark:text-slate-300">
+          Next download goes to:
+        </div>
+        <div className="mt-0.5 break-all font-mono text-slate-600 dark:text-slate-400">
+          {writeTarget}
+        </div>
+        {!handle && name && (
+          <div className="mt-1 text-slate-500">
+            Last used: <span className="font-mono">{name}</span> — re-pick
+            to grant access this session.
+          </div>
+        )}
+      </div>
+      <div className="text-[11px] text-slate-500">
+        Default is browser private storage (OPFS) — invisible but
+        frictionless. Pick a folder to make weights browseable in
+        Finder/Explorer, copyable between machines, and freeable from
+        disk without re-launching Tamias.
+      </div>
+    </div>
   );
 }
 
