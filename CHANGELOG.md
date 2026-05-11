@@ -6,6 +6,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.3] — Monotonic progress bar · sticky-determinate
+
+### Fixed
+
+- ⚡ **Status bar still flashed multiple times within a single fast run.** v0.8.1 fixed the appear/disappear flash via `useThrottledBusy` (sub-150ms ops are now invisible; once shown the bar stays ≥400ms). But within a single run, the bar STILL filled-then-reset multiple times because every multi-stage loader emits per-stage progress events:
+  - **SAM model load**: encoder fetch (0→100) → encoder external-data sidecar (0→100) → verify (no Content-Length, indeterminate) → cache → decoder fetch (0→100) → decoder external-data → verify → cache. The bar visibly drops to 0% (or to indeterminate animate-pulse) between every stage.
+  - **Inference**: preprocess → infer → postprocess, each restarting at 0%.
+  - **TotalSegmentator load**: same shape as SAM.
+- The user reported v0.8.2 still had this multi-flash for fast runs, where stage transitions happen so quickly you see the bar repeatedly fill+reset within a few hundred milliseconds.
+
+### Added — `useSmoothedProgress` hook
+
+- 📈 **Monotonic + sticky-determinate progress smoothing.** New companion hook in `src/lib/ui/useThrottledBusy.ts`:
+  - **Monotonic**: the smoothed fraction is `max(seen-so-far, current)`. The bar can never decrease within a single run. Multi-stage loaders look like a single 0→100 fill instead of N separate fills.
+  - **Sticky-determinate**: once we've seen any non-negative fraction in this run, we never report indeterminate (-1) again. Stops the bar style from switching between determinate `<Progress>` and indeterminate `<animate-pulse>` when an intermediate stage like "verify" doesn't have a Content-Length.
+  - **Reset on the active edge**: when `active` flips from false to true, both the max and the determinate flag reset. Monotonicity is per-RUN, not per-app-lifetime.
+- Combined with `useThrottledBusy`'s 400ms hide-delay, the bar visibly fills to 100%, pauses at full, then yields to the success badge.
+
+### Applied
+
+- `InferencePanel` — smoothed `progress.fraction`, smoothed `hasDeterminate` flag drives the determinate/indeterminate render branch.
+- `SamPanel.ThrottledSamBusyView` — smooths the per-event `busy.bytesLoaded / busy.bytesTotal` fraction, passes `smoothedPct` + `hasDeterminate` down to `BusyView` as props (BusyView no longer computes its own pct).
+- `TotalSegmentatorPanel.ThrottledBusyView` — same pattern.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 8.0s (35 precache entries, 5489 KiB).
+
 ## [0.8.2] — User-chosen model download folder · Saved-to path visibility
 
 ### Added — Settings → Model download folder

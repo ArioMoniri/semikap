@@ -14,7 +14,7 @@ import {
   Check,
 } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
-import { useThrottledBusy } from '../lib/ui/useThrottledBusy';
+import { useSmoothedProgress, useThrottledBusy } from '../lib/ui/useThrottledBusy';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -839,22 +839,45 @@ function ThrottledSamBusyView({
     if (busy) setSnapshot(busy);
   }, [busy]);
   const toRender = busy ?? snapshot;
+  /**
+   * v0.8.3 — smooth the per-stage fraction so the bar is monotonic
+   * across the whole load (encoder fetch → encoder-data → verify →
+   * cache → decoder fetch → decoder-data → verify → cache). The raw
+   * busy state restarts at 0% every stage; smoothing keeps the bar
+   * at its peak so the user sees ONE 0→100 fill, not N flashes.
+   *
+   * Compute the raw per-event fraction here (busy.bytesLoaded /
+   * busy.bytesTotal when available, -1 otherwise) and feed it to the
+   * smoother. `!!busy` is the active flag; smoothing resets when
+   * busy goes null and then non-null again (new run).
+   */
+  const rawFraction =
+    toRender && toRender.stage === 'fetching' && toRender.bytesTotal
+      ? toRender.bytesLoaded / toRender.bytesTotal
+      : -1;
+  const smoothed = useSmoothedProgress(!!busy, rawFraction);
   if (!visible || !toRender) return null;
-  return <BusyView busy={toRender} />;
+  return <BusyView busy={toRender} smoothedPct={smoothed.fraction >= 0 ? Math.round(smoothed.fraction * 100) : -1} hasDeterminate={smoothed.hasDeterminate} />;
 }
 
-function BusyView({ busy }: { busy: NonNullable<ReturnType<typeof useAppStore.getState>['sam']['busy']> }) {
-  let pct = -1;
-  if (busy.stage === 'fetching' && busy.bytesTotal) {
-    pct = Math.round((busy.bytesLoaded / busy.bytesTotal) * 100);
-  }
+function BusyView({
+  busy,
+  smoothedPct,
+  hasDeterminate,
+}: {
+  busy: NonNullable<ReturnType<typeof useAppStore.getState>['sam']['busy']>;
+  /** v0.8.3 — pre-smoothed percent (monotonic, sticky-determinate).
+   *  When -1, render the indeterminate animate-pulse fallback. */
+  smoothedPct: number;
+  hasDeterminate: boolean;
+}) {
   return (
     <div className="space-y-1.5 rounded border border-blue-200 bg-blue-50 p-2 dark:border-blue-900 dark:bg-blue-950">
       <div className="text-[11px] font-medium text-blue-900 dark:text-blue-200">
         {busy.label}
       </div>
-      {pct >= 0 ? (
-        <Progress value={pct} />
+      {hasDeterminate && smoothedPct >= 0 ? (
+        <Progress value={smoothedPct} />
       ) : (
         <div className="h-2 w-full animate-pulse rounded-full bg-blue-200" />
       )}

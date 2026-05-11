@@ -7,7 +7,7 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Progress } from './ui/Progress';
 import { ExternalLink } from './ExternalLink';
-import { useThrottledBusy } from '../lib/ui/useThrottledBusy';
+import { useSmoothedProgress, useThrottledBusy } from '../lib/ui/useThrottledBusy';
 import {
   PRESET_TOTALSEG_MODELS,
   buildCustomTotalSegManifest,
@@ -414,7 +414,9 @@ type TotalSegBusy = {
   bytesTotal?: number;
 };
 
-/** v0.8.1 — same throttle pattern as SamPanel.ThrottledSamBusyView. */
+/** v0.8.1 — same throttle pattern as SamPanel.ThrottledSamBusyView.
+ *  v0.8.3 — also smooths the per-stage fraction so the bar fills
+ *  monotonically across the run instead of resetting per stage. */
 function ThrottledBusyView({ busy }: { busy: TotalSegBusy | null }) {
   const visible = useThrottledBusy(!!busy);
   const [snapshot, setSnapshot] = useState<TotalSegBusy | null>(busy);
@@ -422,26 +424,37 @@ function ThrottledBusyView({ busy }: { busy: TotalSegBusy | null }) {
     if (busy) setSnapshot(busy);
   }, [busy]);
   const toRender = busy ?? snapshot;
+  const rawFraction =
+    toRender && toRender.stage === 'fetching' && toRender.bytesTotal
+      ? toRender.bytesLoaded / toRender.bytesTotal
+      : -1;
+  const smoothed = useSmoothedProgress(!!busy, rawFraction);
   if (!visible || !toRender) return null;
-  return <BusyView busy={toRender} />;
+  return (
+    <BusyView
+      busy={toRender}
+      smoothedPct={smoothed.fraction >= 0 ? Math.round(smoothed.fraction * 100) : -1}
+      hasDeterminate={smoothed.hasDeterminate}
+    />
+  );
 }
 
 function BusyView({
   busy,
+  smoothedPct,
+  hasDeterminate,
 }: {
   busy: TotalSegBusy;
+  smoothedPct: number;
+  hasDeterminate: boolean;
 }) {
-  let pct = -1;
-  if (busy.stage === 'fetching' && busy.bytesTotal) {
-    pct = Math.round((busy.bytesLoaded / busy.bytesTotal) * 100);
-  }
   return (
     <div className="space-y-1.5 rounded border border-blue-200 bg-blue-50 p-2 dark:border-blue-900 dark:bg-blue-950">
       <div className="text-[11px] font-medium text-blue-900 dark:text-blue-200">
         {busy.label}
       </div>
-      {pct >= 0 ? (
-        <Progress value={pct} />
+      {hasDeterminate && smoothedPct >= 0 ? (
+        <Progress value={smoothedPct} />
       ) : (
         <div className="h-2 w-full animate-pulse rounded-full bg-blue-200" />
       )}

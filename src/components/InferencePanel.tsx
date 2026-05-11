@@ -8,7 +8,7 @@ import { Button } from './ui/Button';
 import { Progress } from './ui/Progress';
 import { Badge } from './ui/Badge';
 import { appendAudit } from '../lib/fs/audit';
-import { useThrottledBusy } from '../lib/ui/useThrottledBusy';
+import { useSmoothedProgress, useThrottledBusy } from '../lib/ui/useThrottledBusy';
 
 interface Props {
   onResultMask(mask: Uint8Array, dims: [number, number, number], spacing: [number, number, number]): Promise<void> | void;
@@ -39,6 +39,16 @@ export function InferencePanel({ onResultMask }: Props) {
    * not the throttled visible window.
    */
   const showBar = useThrottledBusy(progress.active);
+  /**
+   * v0.8.3 — smooth the progress fraction so multi-stage inferences
+   * (preprocess → infer → postprocess) appear as a single monotonic
+   * 0→100 fill instead of N separate fills. Also sticky-determinate
+   * so an intermediate stage without a Content-Length doesn't yank
+   * the bar style back to indeterminate (causing the
+   * `<Progress>` ↔ `<animate-pulse>` flash). See
+   * `useSmoothedProgress` JSDoc for the underlying issue.
+   */
+  const smoothed = useSmoothedProgress(progress.active, progress.fraction);
 
   const setRunMeta = useAppStore((s) => s.setRunMeta);
 
@@ -106,7 +116,10 @@ export function InferencePanel({ onResultMask }: Props) {
     }
   }, [volume, model, setProgress, setResult, setRunMeta, pushError, onResultMask]);
 
-  const pct = progress.fraction >= 0 ? Math.round(progress.fraction * 100) : 0;
+  // v0.8.3 — render the SMOOTHED fraction (monotonic, sticky-determinate),
+  // not the raw per-stage value, so the bar can only fill upward across
+  // the run.
+  const pct = smoothed.fraction >= 0 ? Math.round(smoothed.fraction * 100) : 0;
 
   return (
     <Card>
@@ -140,7 +153,7 @@ export function InferencePanel({ onResultMask }: Props) {
               {progress.stage}
               {progress.message ? ` · ${progress.message}` : ''}
             </div>
-            {progress.fraction >= 0 ? (
+            {smoothed.hasDeterminate ? (
               <Progress value={pct} />
             ) : (
               <div className="h-2 w-full animate-pulse rounded-full bg-slate-200" />
