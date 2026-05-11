@@ -6,6 +6,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.15] — Click-debug overlay so we can see what's actually wrong
+
+### Added
+
+- 🔴 **Unconditional click feedback on every SAM prompt-mode click** (radiology + pathology). Pre-v0.8.15 the overlay returned silently when `overlayToVoxel` / `canvasToLevel0` resolved to null (click outside any tile / outside the slide) — the user got NO visual feedback that anything had even happened. After multiple "still cant select" reports, this release converts the silent failure into actionable diagnostics:
+  1. **Red flash** at the click position for 800 ms — proves the overlay IS intercepting clicks at all.
+  2. **Persistent diagnostic chip** (bottom-left of viewer) showing the result:
+     - Green: `✓ Click registered · voxel (123, 456)` — click landed on a tile and the prompt was added.
+     - Red: `✗ Missed: click landed outside the axial pane. Switch to single-axial sliceMode (Layout → Axial) and try again.` — for radiology.
+     - Red: `✗ Missed: click landed outside the slide. Pan/zoom so the slide fills the viewer, then try again.` — for pathology.
+
+### Why the diagnostic instead of yet another "fix attempt"
+
+You've reported "cant select a box ot point" across v0.8.10 → v0.8.14, and each iteration has shipped a different theory of the bug (portal target, DPR scaling, marker visibility, axial-tile bounds). The instrumentation in v0.8.15 gives us **observable evidence** of what actually happens at click time so we can stop guessing — does the overlay receive the event at all? Does the voxel mapping resolve? If both succeed and you STILL don't see the marker, the problem is in marker rendering, not click capture. Tells us where to look next.
+
+### Internal
+
+- `src/components/SamPromptOverlay.tsx` — `clickFlash` + `lastClick` state; flash rendered as an 18 px / 6 px circle pair in the SVG layer; chip rendered as a fixed bottom-left badge (z-30).
+- `src/components/pathology/PathologySamOverlay.tsx` — same instrumentation pattern with pathology-specific text ("slide px" instead of "voxel"; pan/zoom tip instead of sliceMode tip).
+- Both overlays bumped to `z-20` (was `z-10`) so markers + flash sit reliably above NiiVue's canvas + crosshair.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 9s (36 precache entries, 5520 KiB).
+
+### Honest deferred (still)
+
+- 📝 **Text prompts for SAM 3** — needs a CLIP-style text encoder run + concat into the prompt embedding. Tracked for v0.9.x.
+- 🎬 **"Encode all slices" pre-warm** — would speed up subsequent prompting but doesn't change capability (Whole-volume propagation already exists). Tracked.
+
 ## [0.8.14] — Pathology SAM markers · Brighter radiology markers · level0ToCanvas
 
 ### Fixed

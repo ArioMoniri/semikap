@@ -88,15 +88,37 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (mode === 'off' || mode === 'text') return;
-      const v = overlayToVoxel(e.clientX, e.clientY);
-      if (!v) return;
-      e.preventDefault();
-      e.stopPropagation();
       const overlay = overlayRef.current;
       const rect = overlay?.getBoundingClientRect();
       const px = rect
         ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
         : { x: 0, y: 0 };
+      /*
+       * v0.8.15 — UNCONDITIONAL click confirmation. Pre-v0.8.15 the
+       * handler returned silently when `overlayToVoxel` came back
+       * null (click outside any MPR tile, or canvas-to-tile mapping
+       * failed) — user reported "cant select a box ot point and
+       * cant put text at all" with no indication of what was wrong.
+       *
+       * Now we ALWAYS:
+       *   1. Flash a red dot at the click position for 800ms (so the
+       *      user knows the overlay is intercepting clicks at all).
+       *   2. Stash the result of overlayToVoxel into `lastClick` so
+       *      the panel sidebar can show "Last click: voxel (123,
+       *      456)" or "Last click: missed any axial tile — try
+       *      clicking on the axial pane".
+       * This converts a silent failure into actionable diagnostics.
+       */
+      setClickFlash({ x: px.x, y: px.y, t: Date.now() });
+      const v = overlayToVoxel(e.clientX, e.clientY);
+      setLastClick(
+        v
+          ? { kind: 'ok', vox: v, px, ts: Date.now() }
+          : { kind: 'miss', px, ts: Date.now() }
+      );
+      if (!v) return;
+      e.preventDefault();
+      e.stopPropagation();
       if (mode === 'point') {
         const label: 0 | 1 = e.shiftKey ? 0 : 1;
         addPrompt({ kind: 'point', xy: [v.x, v.y], label });
@@ -108,6 +130,31 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
     },
     [mode, overlayToVoxel, addPrompt]
   );
+
+  /*
+   * v0.8.15 — click-feedback state.
+   * `clickFlash`: a red dot rendered at the click position for 800ms.
+   * `lastClick`: persistent diagnostic chip shown bottom-left of the
+   *   overlay until next interaction. Distinguishes "we got a click
+   *   that landed on the axial pane" (kind: 'ok') from "we got a
+   *   click that DIDN'T resolve to any tile" (kind: 'miss', usually
+   *   because the user clicked on the 3D render, the gutter
+   *   between MPR tiles, or NiiVue's tileMM hit a no-tile region).
+   */
+  const [clickFlash, setClickFlash] = useState<
+    { x: number; y: number; t: number } | null
+  >(null);
+  const [lastClick, setLastClick] = useState<
+    | { kind: 'ok'; vox: { x: number; y: number }; px: { x: number; y: number }; ts: number }
+    | { kind: 'miss'; px: { x: number; y: number }; ts: number }
+    | null
+  >(null);
+  // Auto-clear the flash after 800ms; the lastClick chip persists.
+  useEffect(() => {
+    if (!clickFlash) return;
+    const id = setTimeout(() => setClickFlash(null), 800);
+    return () => clearTimeout(id);
+  }, [clickFlash]);
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -278,7 +325,41 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
             }
             return null;
           })}
+          {/*
+            v0.8.15 — click-feedback flash. Pulses red for 800ms at
+            the click position so the user can verify the overlay
+            actually intercepted their click. Renders regardless of
+            whether the click resolved to a valid voxel.
+          */}
+          {clickFlash && (
+            <g>
+              <circle cx={clickFlash.x} cy={clickFlash.y} r={18} fill="#ef4444" fillOpacity={0.25} />
+              <circle cx={clickFlash.x} cy={clickFlash.y} r={6} fill="#ef4444" stroke="#000" strokeWidth={1} />
+            </g>
+          )}
         </svg>
+      )}
+      {/*
+        v0.8.15 — persistent diagnostic chip bottom-left of the
+        overlay. Tells the user EXACTLY what happened with their
+        last click — whether it landed on the axial pane and what
+        voxel it resolved to, or why it missed (clicked the 3D
+        render, gutter between tiles, no axial tile in current
+        sliceMode). Disappears with mode → 'off'.
+      */}
+      {interactive && lastClick && (
+        <div
+          className={
+            'pointer-events-none absolute left-2 bottom-2 z-30 rounded-md border px-2 py-1 font-mono text-[10px] backdrop-blur ' +
+            (lastClick.kind === 'ok'
+              ? 'border-emerald-300/60 bg-emerald-900/40 text-emerald-100'
+              : 'border-red-400/60 bg-red-900/40 text-red-100')
+          }
+        >
+          {lastClick.kind === 'ok'
+            ? `✓ Click registered · voxel (${lastClick.vox.x}, ${lastClick.vox.y})`
+            : '✗ Missed: click landed outside the axial pane. Switch to single-axial sliceMode (Layout → Axial) and try again.'}
+        </div>
       )}
     </div>
   );

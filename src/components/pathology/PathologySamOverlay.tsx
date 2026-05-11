@@ -81,15 +81,31 @@ export function PathologySamOverlay({ viewerRef, mode, onSetRoi, roi }: Props) {
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (mode === 'off' || mode === 'text') return;
-      const v = overlayToLevel0(e.clientX, e.clientY);
-      if (!v) return;
-      e.preventDefault();
-      e.stopPropagation();
       const overlay = overlayRef.current;
       const rect = overlay?.getBoundingClientRect();
       const px = rect
         ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
         : { x: 0, y: 0 };
+      /*
+       * v0.8.15 — same unconditional click feedback as the
+       * radiology overlay. Red flash for 800ms + persistent
+       * diagnostic chip telling the user whether the click
+       * landed on the slide and what level-0 pixel it resolved
+       * to. Pre-v0.8.15 the handler returned silently when
+       * canvasToLevel0 came back null (click outside the slide
+       * extents) — user reported "cant select a box ot point"
+       * with no indication of what was wrong.
+       */
+      setClickFlash({ x: px.x, y: px.y, t: Date.now() });
+      const v = overlayToLevel0(e.clientX, e.clientY);
+      setLastClick(
+        v
+          ? { kind: 'ok', lvl: v, px, ts: Date.now() }
+          : { kind: 'miss', px, ts: Date.now() }
+      );
+      if (!v) return;
+      e.preventDefault();
+      e.stopPropagation();
       if (mode === 'roi') {
         onSetRoi(v.x, v.y);
         return;
@@ -105,6 +121,23 @@ export function PathologySamOverlay({ viewerRef, mode, onSetRoi, roi }: Props) {
     },
     [mode, overlayToLevel0, addPrompt, onSetRoi]
   );
+
+  /*
+   * v0.8.15 — click feedback state (mirror of radiology overlay).
+   */
+  const [clickFlash, setClickFlash] = useState<
+    { x: number; y: number; t: number } | null
+  >(null);
+  const [lastClick, setLastClick] = useState<
+    | { kind: 'ok'; lvl: { x: number; y: number }; px: { x: number; y: number }; ts: number }
+    | { kind: 'miss'; px: { x: number; y: number }; ts: number }
+    | null
+  >(null);
+  useEffect(() => {
+    if (!clickFlash) return;
+    const id = setTimeout(() => setClickFlash(null), 800);
+    return () => clearTimeout(id);
+  }, [clickFlash]);
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -162,7 +195,7 @@ export function PathologySamOverlay({ viewerRef, mode, onSetRoi, roi }: Props) {
     <>
       <div
         ref={overlayRef}
-        className={`absolute inset-0 z-10 ${
+        className={`absolute inset-0 z-20 ${
           interactive ? 'cursor-crosshair' : 'pointer-events-none'
         }`}
         onPointerDown={interactive ? handlePointerDown : undefined}
@@ -264,7 +297,31 @@ export function PathologySamOverlay({ viewerRef, mode, onSetRoi, roi }: Props) {
               }
               return null;
             })}
+            {/* v0.8.15 — click flash (mirror of radiology). */}
+            {clickFlash && (
+              <g>
+                <circle cx={clickFlash.x} cy={clickFlash.y} r={20} fill="#ef4444" fillOpacity={0.25} />
+                <circle cx={clickFlash.x} cy={clickFlash.y} r={7} fill="#ef4444" stroke="#000" strokeWidth={1} />
+              </g>
+            )}
           </svg>
+        )}
+        {/* v0.8.15 — diagnostic chip telling the user whether the
+            last click landed on the slide and what level-0 px it
+            resolved to. */}
+        {interactive && lastClick && (
+          <div
+            className={
+              'pointer-events-none absolute left-2 bottom-2 z-30 rounded-md border px-2 py-1 font-mono text-[10px] backdrop-blur ' +
+              (lastClick.kind === 'ok'
+                ? 'border-emerald-300/60 bg-emerald-900/40 text-emerald-100'
+                : 'border-red-400/60 bg-red-900/40 text-red-100')
+            }
+          >
+            {lastClick.kind === 'ok'
+              ? `✓ Click registered · slide px (${lastClick.lvl.x}, ${lastClick.lvl.y})`
+              : '✗ Missed: click landed outside the slide. Pan/zoom so the slide fills the viewer, then try again.'}
+          </div>
         )}
       </div>
       {/* v0.8.14 — keep the level-0 ROI banner too as a numeric
