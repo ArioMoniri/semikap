@@ -35,11 +35,29 @@ export interface SamPreprocessResult {
   srcH: number;
 }
 
+/*
+ * v0.8.13 — `targetHW` argument so the output tensor matches whatever
+ * the loaded model expects. Pre-v0.8.13 the preprocess was hard-
+ * coded to 1024 — fine for SAM 1 / 2.1 / MedSAM but wrong for SAM 3
+ * (which expects 1008) and any BYO-URL model with a non-1024 input
+ * shape. The user reported "ERROR_MESSAGE: Got invalid dimensions
+ * for input: pixel_values Got: 1024 Expected: 1008" — the manifest
+ * said 1008 (v0.8.12 fix) but the preprocess output was still
+ * 1024×1024.
+ *
+ * The worker now passes `manifest.size.input[0]` directly. Default
+ * keeps the v0.7.x behaviour for any caller that hasn't been
+ * updated.
+ */
 export function preprocessSliceForSam(
   src: ArrayLike<number>,
   srcW: number,
-  srcH: number
+  srcH: number,
+  targetHW: number = SAM_INPUT_HW
 ): SamPreprocessResult {
+  // Honour the per-call target size; fall back to the legacy 1024
+  // constant for callers that don't supply one.
+  const T = targetHW;
   // Step 1 — auto-window on 1st/99th percentiles. Sample every 4th pixel
   // for the percentile estimate; cuts the sort cost 16× and is plenty
   // accurate for a windowing target.
@@ -61,17 +79,17 @@ export function preprocessSliceForSam(
 
   // Steps 3-5 fused — bilinear resize + channel replicate + normalise +
   // HWC→CHW transpose, all in one pass to avoid 3 intermediate allocations.
-  const out = new Float32Array(3 * SAM_INPUT_HW * SAM_INPUT_HW);
-  const channelStride = SAM_INPUT_HW * SAM_INPUT_HW;
-  const sx = srcW / SAM_INPUT_HW;
-  const sy = srcH / SAM_INPUT_HW;
+  const out = new Float32Array(3 * T * T);
+  const channelStride = T * T;
+  const sx = srcW / T;
+  const sy = srcH / T;
 
-  for (let y = 0; y < SAM_INPUT_HW; y++) {
+  for (let y = 0; y < T; y++) {
     const fy = y * sy;
     const y0 = Math.floor(fy);
     const y1 = Math.min(y0 + 1, srcH - 1);
     const ty = fy - y0;
-    for (let x = 0; x < SAM_INPUT_HW; x++) {
+    for (let x = 0; x < T; x++) {
       const fx = x * sx;
       const x0 = Math.floor(fx);
       const x1 = Math.min(x0 + 1, srcW - 1);
@@ -85,7 +103,7 @@ export function preprocessSliceForSam(
       const c1 = c01 * (1 - tx) + c11 * tx;
       const v = c0 * (1 - ty) + c1 * ty;
 
-      const dstIdx = y * SAM_INPUT_HW + x;
+      const dstIdx = y * T + x;
       // Replicate + normalise per channel.
       out[0 * channelStride + dstIdx] = (v - IMAGENET_MEAN[0]!) / IMAGENET_STD[0]!;
       out[1 * channelStride + dstIdx] = (v - IMAGENET_MEAN[1]!) / IMAGENET_STD[1]!;
@@ -95,8 +113,8 @@ export function preprocessSliceForSam(
 
   return {
     data: out,
-    scaleX: SAM_INPUT_HW / srcW,
-    scaleY: SAM_INPUT_HW / srcH,
+    scaleX: T / srcW,
+    scaleY: T / srcH,
     srcW,
     srcH,
   };

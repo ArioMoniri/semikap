@@ -87,15 +87,27 @@ const api: SamApi = {
     // because the discriminator and the pixel type aren't tied together.
     // The cast is safe — PathologySamPanel always passes a
     // Uint8ClampedArray RGBA tile when inputMode is 'rgb'.
+    /*
+     * v0.8.13 — thread the manifest's declared encoder input HxW
+     * into the preprocess functions so the resized tensor matches
+     * the model's expected shape. Pre-v0.8.13 the preprocess was
+     * hard-coded to 1024 — the v0.8.12 SAM 3 fix updated the
+     * manifest to 1008 but the preprocessor still produced
+     * 1024×1024, so ORT bailed with "Got: 1024 Expected: 1008".
+     *
+     * SAM models are square (H === W); we pass a single dim.
+     */
+    const [inputH, inputW] = req.manifest.size.input;
+    const targetHW = inputH;
     const preData =
       req.inputMode === 'rgb'
         ? preprocessRgbPatchForSam(
             req.pixels as Uint8Array | Uint8ClampedArray,
             req.width,
-            req.height
+            req.height,
+            targetHW
           ).data
-        : preprocessSliceForSam(req.pixels, req.width, req.height).data;
-    const [inputH, inputW] = req.manifest.size.input;
+        : preprocessSliceForSam(req.pixels, req.width, req.height, targetHW).data;
     const tensor = new ort.Tensor('float32', preData, [1, 3, inputH, inputW]);
     const out = await encoderSession.session.run({ [encoderSession.inputName]: tensor });
     const embTensor = out[encoderSession.outputName]!;

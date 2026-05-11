@@ -33,15 +33,24 @@ export interface SamRgbPreprocessResult {
  * @param srcW   Width of the patch (level-0 pixels rescaled by readRegion).
  * @param srcH   Height of the patch.
  */
+/*
+ * v0.8.13 — same `targetHW` parameter as the gray version. Pathology
+ * SAM 3 will need 1008 too once the SAM 3 worker honours it; the
+ * current pathology path uses the regular SAM panel which goes
+ * through this function. Default 1024 keeps v0.7.x behaviour for
+ * any caller that hasn't been updated.
+ */
 export function preprocessRgbPatchForSam(
   rgba: Uint8ClampedArray | Uint8Array,
   srcW: number,
-  srcH: number
+  srcH: number,
+  targetHW: number = SAM_INPUT_HW
 ): SamRgbPreprocessResult {
-  const out = new Float32Array(3 * SAM_INPUT_HW * SAM_INPUT_HW);
-  const channelStride = SAM_INPUT_HW * SAM_INPUT_HW;
-  const sx = srcW / SAM_INPUT_HW;
-  const sy = srcH / SAM_INPUT_HW;
+  const T = targetHW;
+  const out = new Float32Array(3 * T * T);
+  const channelStride = T * T;
+  const sx = srcW / T;
+  const sy = srcH / T;
   const meanR = IMAGENET_MEAN[0]!;
   const meanG = IMAGENET_MEAN[1]!;
   const meanB = IMAGENET_MEAN[2]!;
@@ -49,12 +58,12 @@ export function preprocessRgbPatchForSam(
   const stdG = IMAGENET_STD[1]!;
   const stdB = IMAGENET_STD[2]!;
 
-  for (let y = 0; y < SAM_INPUT_HW; y++) {
+  for (let y = 0; y < T; y++) {
     const fy = y * sy;
     const y0 = Math.floor(fy);
     const y1 = Math.min(y0 + 1, srcH - 1);
     const ty = fy - y0;
-    for (let x = 0; x < SAM_INPUT_HW; x++) {
+    for (let x = 0; x < T; x++) {
       const fx = x * sx;
       const x0 = Math.floor(fx);
       const x1 = Math.min(x0 + 1, srcW - 1);
@@ -76,12 +85,12 @@ export function preprocessRgbPatchForSam(
       const g = blend(rgba[i00 + 1]!, rgba[i10 + 1]!, rgba[i01 + 1]!, rgba[i11 + 1]!) / 255;
       const b = blend(rgba[i00 + 2]!, rgba[i10 + 2]!, rgba[i01 + 2]!, rgba[i11 + 2]!) / 255;
 
-      const dstIdx = y * SAM_INPUT_HW + x;
+      const dstIdx = y * T + x;
       out[0 * channelStride + dstIdx] = (r - meanR) / stdR;
       out[1 * channelStride + dstIdx] = (g - meanG) / stdG;
       out[2 * channelStride + dstIdx] = (b - meanB) / stdB;
     }
   }
 
-  return { data: out, scaleX: SAM_INPUT_HW / srcW, scaleY: SAM_INPUT_HW / srcH, srcW, srcH };
+  return { data: out, scaleX: T / srcW, scaleY: T / srcH, srcW, srcH };
 }

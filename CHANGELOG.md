@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.13] — Preprocess actually honours the manifest's input size
+
+### Fixed
+
+- 🛑 **`Got: 1024 Expected: 1008` returned in v0.8.12** despite the manifest fix. Root cause: `preprocessSliceForSam` (and the RGB pathology variant) had `SAM_INPUT_HW = 1024` hard-coded inside the function body — the v0.8.12 manifest update set `size.input` to `[1008, 1008]` but the preprocessor still emitted a 1024×1024 tensor, then the worker tried to wrap it as `[1, 3, 1008, 1008]` and ORT rejected the shape mismatch.
+- Fix: both preprocess functions take a `targetHW` argument; the SAM worker reads `manifest.size.input[0]` and passes it through. Default falls back to 1024 so any caller that hasn't been updated keeps the v0.7.x behaviour. Result: SAM 1 / 2.1 / MedSAM unchanged; SAM 3 actually runs at 1008×1008 now; BYO-URL models with arbitrary square input sizes (256, 512, 1024, 1536, …) just work without code changes.
+
+### Notes for the user
+
+- **3D models (TotalSegmentator, nnUNet, MONAI bundles).** These run through the **regular Inference panel** (not the SAM panel) — that worker passes the full 3D voxel tensor `[1, C, D, H, W]` directly to ORT, no per-slice resizing. Whatever 3D model you BYO, its declared input shape from the ONNX header is used as-is. SAM is 2D by design; the new "Whole volume" propagation button (v0.8.12) is the workflow for full-volume masks via SAM.
+
+### Internal
+
+- `src/lib/sam/preprocess.ts` — `preprocessSliceForSam(src, srcW, srcH, targetHW = 1024)`. Body uses local `T` instead of `SAM_INPUT_HW` constant. `scaleX/scaleY` returned correctly for the new size.
+- `src/lib/sam/preprocess-rgb.ts` — same `targetHW` parameter on `preprocessRgbPatchForSam`.
+- `src/workers/sam.worker.ts` — encode path reads `[inputH, inputW] = manifest.size.input` and passes `inputH` (SAM is square) to the preprocessor.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 9s (36 precache entries, 5516 KiB).
+
 ## [0.8.12] — SAM 3 dims · Prompt placement on HiDPI · "Whole volume" propagation
 
 ### Fixed — SAM 3 inference run-time error
