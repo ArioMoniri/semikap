@@ -43,6 +43,21 @@ export interface PathologyRunInputs {
   modelBytes: Uint8Array;
   manifest: PathologyManifest;
   roi: PathologyROI;
+  /**
+   * v0.8.10 — manual MPP override in µm/pixel. When set, the worker
+   * uses this value INSTEAD of `loader.meta.mppX` (which is parsed
+   * from the slide bytes by the OME-TIFF tile loader). Lets the
+   * user calibrate inference on slides whose OME-TIFF / SVS / NDPI
+   * header lacks PhysicalSizeX/Y.
+   *
+   * v0.8.9 added a "Use this MPP" button on the inference panel,
+   * but it mutated the parent's `meta` object — and the worker
+   * re-opens the slide bytes via `openSlide({...})` then parses
+   * its own meta, so the override was silently dropped at the
+   * worker boundary. v0.8.10 routes it through the run inputs
+   * instead.
+   */
+  mppOverride?: number | null;
 }
 
 export interface PathologyInferenceApi {
@@ -75,12 +90,33 @@ const api: PathologyInferenceApi = {
     // in a 200k×200k result — too big. We compute the result size, and
     // bail with a clear error if it's larger than 16 384² (browser
     // canvas limit, also a reasonable sanity ceiling for now).
-    const slideMpp = loader.meta.mppX;
+    /*
+     * v0.8.10 — accept a manual MPP override from the inference
+     * panel. When the slide bytes don't carry PhysicalSizeX/Y, the
+     * "Use this MPP" UI captures a µm/pixel value from the user and
+     * passes it via `inputs.mppOverride`. We prefer the loader's
+     * parsed value when present (it's authoritative), then fall
+     * back to the override, then bail.
+     */
+    const slideMpp = loader.meta.mppX ?? inputs.mppOverride ?? null;
     if (slideMpp === null) {
       throw new Error(
-        'Slide has no MPP metadata. Set MPP on the slide or convert ' +
-          'to OME-TIFF with PhysicalSizeX/Y filled in before running inference.'
+        'Slide has no MPP metadata. Set a manual MPP via the ' +
+          'inference panel ("Use this MPP" button) or convert to ' +
+          'OME-TIFF with PhysicalSizeX/Y filled in before running ' +
+          'inference.'
       );
+    }
+    /*
+     * v0.8.10 — if the user set an override AND the slide had no
+     * MPP in the header, also patch `loader.meta` so downstream
+     * code paths (export, tiles, audit) report the calibrated value.
+     */
+    if (loader.meta.mppX === null && inputs.mppOverride) {
+      (loader.meta as { mppX: number | null; mppY: number | null }).mppX =
+        inputs.mppOverride;
+      (loader.meta as { mppX: number | null; mppY: number | null }).mppY =
+        inputs.mppOverride;
     }
     const scale = slideMpp / manifest.mpp;
     const resultW = Math.max(1, Math.round(roi.width * scale));

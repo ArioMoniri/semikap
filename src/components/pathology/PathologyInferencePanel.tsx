@@ -95,6 +95,24 @@ export function PathologyInferencePanel({
           modelBytes: model.bytes,
           manifest: model.manifest,
           roi: fullRoi,
+          /*
+           * v0.8.10 — pass the user's manual MPP through to the
+           * worker. The v0.8.9 "Use this MPP" button mutated
+           * `meta.mppX/Y` on the parent's local state, but the
+           * worker re-opens the slide bytes via openSlide() and
+           * reads its OWN parsed meta — silently dropping the
+           * override at the worker boundary. The user reported
+           * "even after I set up the suggested MPP" the "Set MPP
+           * on the slide…" error still surfaced.
+           *
+           * The worker prefers the loader-parsed value when present,
+           * so this is a true fallback — slides that DO carry
+           * PhysicalSizeX/Y still use the authoritative header
+           * value, not whatever was in `meta` at panel-render time.
+           */
+          ...(meta.mppX !== null
+            ? { mppOverride: meta.mppX }
+            : {}),
         },
         onProgress
       );

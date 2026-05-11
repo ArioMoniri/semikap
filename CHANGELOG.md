@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.10] — MPP override actually reaches the worker
+
+### Fixed
+
+- 🛑 **`Slide has no MPP metadata. Set MPP on the slide…`** still surfaced even after the user clicked v0.8.9's "Use this MPP" button. Root cause: v0.8.9 mutated `meta.mppX/Y` on the parent React state, but the inference worker re-opens the slide bytes via `openSlide({ bytes, filename })` and reads its OWN parsed meta — silently dropping the override at the worker boundary.
+- Fix: route the override through `PathologyRunInputs.mppOverride` so the worker sees it directly. The worker prefers `loader.meta.mppX` when present (authoritative — header value), falls back to `inputs.mppOverride`, then bails. Slides that DO carry PhysicalSizeX/Y still use the header value untouched. Worker also patches `loader.meta.mppX/Y` post-resolve so downstream code paths (export, audit, tile arithmetic) see the calibrated value.
+
+### Internal
+
+- `src/workers/pathology-inference.worker.ts` — `PathologyRunInputs` gains `mppOverride?: number | null`; `slideMpp` resolution chain becomes `loader.meta.mppX ?? inputs.mppOverride ?? throw`. `loader.meta.mppX/Y` patched in-place when override used so subsequent geometry math is consistent.
+- `src/components/pathology/PathologyInferencePanel.tsx` — `api.run({...})` call passes `mppOverride: meta.mppX` when set by the v0.8.9 "Use this MPP" button.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 9s (36 precache entries, 5513 KiB).
+
 ## [0.8.9] — Pathology in Files browser · Manual MPP override
 
 ### Added — Pathology slides + models in the recent-files history
