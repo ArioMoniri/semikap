@@ -197,7 +197,7 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
   return (
     <div
       ref={overlayRef}
-      className={`absolute inset-0 z-10 ${
+      className={`absolute inset-0 z-20 ${
         interactive ? 'cursor-crosshair' : 'pointer-events-none'
       }`}
       onPointerDown={interactive ? handlePointerDown : undefined}
@@ -242,8 +242,8 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
               const colour = p.label === 1 ? '#22c55e' : '#ef4444';
               return (
                 <g key={`pt-${i}`}>
-                  <circle cx={c.x} cy={c.y} r={6} fill={colour} fillOpacity={0.3} />
-                  <circle cx={c.x} cy={c.y} r={3} fill={colour} stroke="#000" strokeWidth={0.5} />
+                  <circle cx={c.x} cy={c.y} r={8} fill={colour} fillOpacity={0.35} />
+                  <circle cx={c.x} cy={c.y} r={4} fill={colour} stroke="#000" strokeWidth={0.6} />
                   <text
                     x={c.x + 8}
                     y={c.y + 4}
@@ -251,7 +251,7 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
                     stroke="#000"
                     strokeWidth={2}
                     paintOrder="stroke"
-                    fontSize={11}
+                    fontSize={13}
                     fontFamily="monospace"
                   >
                     {p.label === 1 ? '+' : '−'}

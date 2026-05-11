@@ -45,6 +45,11 @@ export interface PathologyViewerHandle {
   /** Map a canvas-space pointer event to slide level-0 pixel coords.
    *  Returns null when the click is outside the slide. */
   canvasToLevel0(canvasX: number, canvasY: number): { x: number; y: number } | null;
+  /** v0.8.14 — inverse: project a level-0 slide pixel back to
+   *  viewer-element CSS pixel coords. Used by the SAM prompt overlay
+   *  to draw point/box markers + the in-progress box-drag preview
+   *  rectangle on top of the OSD canvas. */
+  level0ToCanvas(slideX: number, slideY: number): { x: number; y: number } | null;
 }
 
 export const PathologyViewer = forwardRef<PathologyViewerHandle>(function PathologyViewer(
@@ -134,6 +139,9 @@ export const PathologyViewer = forwardRef<PathologyViewerHandle>(function Pathol
       },
       canvasToLevel0(canvasX, canvasY) {
         return viewerRef.current?.canvasToLevel0(canvasX, canvasY) ?? null;
+      },
+      level0ToCanvas(slideX, slideY) {
+        return viewerRef.current?.level0ToCanvas(slideX, slideY) ?? null;
       },
     })
   );

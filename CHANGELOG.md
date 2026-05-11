@@ -6,6 +6,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.14] — Pathology SAM markers · Brighter radiology markers · level0ToCanvas
+
+### Fixed
+
+- 🛑 **PathologySamOverlay had NO visual markers at all.** The pre-v0.8.14 overlay was a click-capture div + a tiny ROI banner — no point markers, no box outlines, no in-progress drag preview. So the user clicked Box / Point / dragged, and saw absolutely nothing on screen — same complaint they reported for radiology earlier. Mirrored the v0.8.12 radiology SVG layer:
+  - Each placed point prompt → green "+" (positive) or red "−" (negative) at its slide-mapped CSS pixel
+  - Each placed box prompt → green outlined rectangle
+  - During a box drag → live yellow-dashed preview rectangle
+  - Active ROI → amber dashed rectangle (replaces the banner-only hint)
+- 🔍 **Radiology SAM markers brighter + bumped above NiiVue's canvas layer.** v0.8.12 markers existed but at `r=3 / r=6 / fontSize=11 / z-10` they were easy to miss against bright/busy slices. v0.8.14: `r=4 / r=8 / fontSize=13 / z-20`, larger glow rings, stronger contrast.
+
+### Added
+
+- 🪟 **`level0ToCanvas(slideX, slideY)`** on the OSD viewer wrapper + PathologyViewerHandle — the inverse of `canvasToLevel0`. Calls OSD's `viewport.imageToViewerElementCoordinates` to project a level-0 slide pixel back to viewer-element CSS coords. The pathology marker layer reads it on every animation frame to track pan/zoom.
+
+### Internal
+
+- `src/lib/pathology/osd-viewer.ts` — new `level0ToCanvas(slideX, slideY)` impl + interface entry.
+- `src/components/pathology/PathologyViewer.tsx` — exposes `level0ToCanvas` on `PathologyViewerHandle`.
+- `src/components/pathology/PathologySamOverlay.tsx` — full rewrite: SVG marker layer, in-progress drag preview, animation-frame tick to re-project on pan/zoom.
+- `src/components/SamPromptOverlay.tsx` — marker sizes bumped (r 6→8 / 3→4, fontSize 11→13); `z-10` → `z-20` so markers sit above NiiVue's canvas + crosshair.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 9s (36 precache entries, 5518 KiB).
+
+### Honest deferred
+
+- 📝 **Text prompts for SAM 3.** Worker currently filters out `kind: 'text'` prompts before packing the decoder input — needs a CLIP-style text encoder run + concat into the prompt embedding. Significant work; tracked for v0.9.x.
+- 🎬 **"Encode all slices" pre-warm.** SAM is 2D; the v0.8.12 "Whole volume" propagation button is the workflow for full-volume masks via SAM. A separate batched pre-encode pass would speed up subsequent prompting but doesn't change capability — tracked.
+
 ## [0.8.13] — Preprocess actually honours the manifest's input size
 
 ### Fixed

@@ -112,6 +112,14 @@ export interface OsdViewer {
    * into the same coordinate frame as ROI / mask overlays.
    */
   canvasToLevel0(canvasX: number, canvasY: number): { x: number; y: number } | null;
+  /**
+   * v0.8.14 — inverse of `canvasToLevel0`: project a level-0 slide
+   * pixel back to viewer-element CSS pixel coords. Used by the SAM
+   * prompt overlay to draw point/box markers + the in-progress
+   * box-drag preview rectangle on top of the OSD canvas. Returns
+   * null when no slide is loaded.
+   */
+  level0ToCanvas(slideX: number, slideY: number): { x: number; y: number } | null;
   destroy(): void;
 }
 
@@ -536,6 +544,24 @@ export function createOsdViewer(opts: OsdViewerOptions): OsdViewer {
         const y = imgPoint.y;
         if (x < 0 || y < 0 || x > meta.width || y > meta.height) return null;
         return { x: Math.round(x), y: Math.round(y) };
+      } catch {
+        return null;
+      }
+    },
+    /*
+     * v0.8.14 — inverse of canvasToLevel0. Used by the SAM prompt
+     * overlay to draw point/box markers + the in-progress box-drag
+     * preview rectangle. OSD's
+     * `viewport.imageToViewerElementCoordinates` returns a CSS-pixel
+     * point relative to the viewer's outer container, which is what
+     * the SVG overlay needs.
+     */
+    level0ToCanvas(slideX, slideY) {
+      try {
+        const p = viewer.viewport.imageToViewerElementCoordinates(
+          new OpenSeadragon.Point(slideX, slideY)
+        );
+        return { x: p.x, y: p.y };
       } catch {
         return null;
       }
