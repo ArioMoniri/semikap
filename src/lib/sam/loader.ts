@@ -102,8 +102,14 @@ export const PRESET_SAM_MODELS: Array<{
   // verified 200 OK as of v0.7.2.
   {
     id: 'sam2-tiny',
-    approxBytesEncoder: 32_000_000,
-    approxBytesDecoder: 16_000_000,
+    // v0.8.11 — refreshed from a live HEAD against the HF resolve URL
+    // (2026-05-11). Old v0.7.x estimates (32 MB / 16 MB) were ~70×
+    // too big — the onnx-community quantized exports are int8 +
+    // LZ4-compressed and ship at <1 MB total per model. The user
+    // reported "the approx size of shown models and the size shows
+    // while downloading is so much different".
+    approxBytesEncoder: 441_167,
+    approxBytesDecoder: 290_416,
     manifest: {
       kind: 'sam',
       name: 'SAM 2.1 Tiny',
@@ -127,8 +133,9 @@ export const PRESET_SAM_MODELS: Array<{
   },
   {
     id: 'sam2-base-plus',
-    approxBytesEncoder: 80_000_000,
-    approxBytesDecoder: 16_000_000,
+    // v0.8.11 — refreshed from a live HEAD; see sam2-tiny note.
+    approxBytesEncoder: 861_193,
+    approxBytesDecoder: 290_416,
     manifest: {
       kind: 'sam',
       name: 'SAM 2.1 Base+',
@@ -152,8 +159,10 @@ export const PRESET_SAM_MODELS: Array<{
   },
   {
     id: 'medsam',
-    approxBytesEncoder: 360_000_000,
-    approxBytesDecoder: 16_000_000,
+    // v0.8.11 — refreshed from a live HEAD. Old 360 MB encoder was
+    // for the un-quantized variant; we link to the quantized one.
+    approxBytesEncoder: 101_088_469,
+    approxBytesDecoder: 4_903_810,
     manifest: {
       kind: 'sam',
       name: 'MedSAM',

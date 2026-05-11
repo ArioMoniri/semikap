@@ -1,6 +1,6 @@
 [package]
 name = "tamias"
-version = "0.8.10"
+version = "0.8.11"
 description = "TAMIAS — Transparent locAl Medical Image AnalysiS Tool (desktop wrapper)"
 authors = ["Ariorad Moniri"]
 edition = "2021"

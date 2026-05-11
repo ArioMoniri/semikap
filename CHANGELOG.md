@@ -6,6 +6,47 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.11] — SAM prompt visibility · Encode-button guard · Real model sizes
+
+### Added — SAM prompt visualisation
+
+- 🟢 **Visual markers for SAM prompts on canvas.** Pre-v0.8.11 the SamPromptOverlay was invisible — clicking + or dragging a box added the prompt to state but the user saw NOTHING on screen ("the + sign appears in pinch roi but cant see while selecting the selected area"). Now an SVG layer renders:
+  - Each placed point prompt → a coloured marker (green "+" for positive, red "−" for negative) at its voxel-mapped position
+  - Each placed box prompt → a green outlined rectangle
+  - During an in-progress box drag → a yellow dashed preview rectangle from start to current pointer position
+- The SVG is `pointer-events-none` so it never blocks the click-capture div underneath. Animation-frame poll re-projects markers as the user pans / zooms / changes slice.
+- Prompts are stored in source-axial voxel coords (unchanged from v0.7.x); the overlay projects to overlay-pixel space using the volume's dims + the overlay rect bounds — exact when the axial pane fills the overlay (the standard SAM workflow).
+
+### Fixed — Encode button enabled with no volume → cryptic error
+
+- 🛑 **"No slice loaded" / "No base volume loaded; cannot overlay a mask"** errors after clicking Encode/Run when no image was actually loaded. Pre-v0.8.11 the SAM Encode button was always enabled once a model loaded, so users without a primary volume hit the worker and got the opaque error. Now the button is greyed out + an inline amber hint says "No image loaded — pick a DICOM/NIfTI/NRRD on the left first, then come back."
+
+### Fixed — Approx model sizes off by ~70×
+
+- 📏 **`PRESET_SAM_MODELS.approxBytes*` refreshed from a live HEAD against the HF resolve URL** (2026-05-11). Old v0.7.x estimates were grossly wrong because they were for the un-quantized variants — onnx-community ships int8 + LZ4-compressed exports that are dramatically smaller:
+  - SAM 2.1 Tiny: was 32 + 16 MB → now **441 KB + 290 KB**
+  - SAM 2.1 Base+: was 80 + 16 MB → now **861 KB + 290 KB**
+  - MedSAM: was 360 + 16 MB → now **101 MB + 4.9 MB** (closer; old est was for the float32 build)
+- The user reported "the approx size of shown models and the size shows while downloading is so much different" — sizes shown in the OnboardingView buttons now match what the progress bar shows during download.
+
+### Internal
+
+- `src/components/SamPromptOverlay.tsx` — full rewrite of the rendering layer; click-capture logic kept; new SVG overlay reads `sam.prompts` + uses an animation-frame tick to re-project on every paint.
+- `src/components/SamPanel.tsx` — `ReadyView` gains `volumeLoaded: boolean` prop; Encode button rendered with `disabled={!volumeLoaded}` + tooltip + inline hint when false.
+- `src/lib/sam/loader.ts` — `approxBytesEncoder` / `approxBytesDecoder` updated for sam2-tiny, sam2-base-plus, medsam from real HF Content-Length values.
+
+### Deferred to v0.8.12
+
+- 🔁 **Cross-tab model sharing** (radiology ↔ pathology). Models already cache-share via OPFS/user-folder by sha256 — switching tabs hits the cache without re-downloading — but the user has to click the preset again. A "use the SAM model from the other tab" button would be cleaner; tracked.
+- 🔄 **Tab content persistence on switch.** Pathology + Radiology have separate state in zustand (`sam` vs `samPathology`) but the React tree currently re-mounts on tab switch. Either lift state to a shared slice or keep both panels mounted with `display: none`.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 9s (36 precache entries, 5515 KiB).
+
 ## [0.8.10] — MPP override actually reaches the worker
 
 ### Fixed

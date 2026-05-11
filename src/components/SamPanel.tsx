@@ -61,6 +61,10 @@ interface Props {
  */
 export function SamPanel({ viewerRef }: Props) {
   const sam = useAppStore((s) => s.sam);
+  /** v0.8.11 — reactively read whether a primary volume is loaded.
+   *  Used to disable the SAM "Encode current slice" button when
+   *  there's nothing to encode (and to show an inline hint). */
+  const volumeLoaded = useAppStore((s) => !!s.volume);
   const setSam = useAppStore((s) => s.setSam);
   const removePrompt = useAppStore((s) => s.removeSamPrompt);
   const clearPrompts = useAppStore((s) => s.clearSamPrompts);
@@ -797,6 +801,7 @@ export function SamPanel({ viewerRef }: Props) {
               maskColor={maskColor}
               setMaskColor={setMaskColor}
               writePaths={lastWritePaths}
+              volumeLoaded={volumeLoaded}
             />
           )}
 
@@ -997,6 +1002,12 @@ function ReadyView(props: {
    *  the user knows where the bytes live. Empty when the model came
    *  from disk via Pick local. */
   writePaths: { path: string; backend: 'user-folder' | 'opfs' }[];
+  /** v0.8.11 — gate the Encode button on a primary volume actually
+   *  being loaded. Pre-v0.8.11 the button was always enabled, so a
+   *  user with a SAM model loaded but no image got the cryptic
+   *  "No slice loaded" error after click. Now the button is greyed
+   *  out + a hint explains what to do. */
+  volumeLoaded: boolean;
 }) {
   const {
     activeMode,
@@ -1020,6 +1031,7 @@ function ReadyView(props: {
     maskColor,
     setMaskColor,
     writePaths,
+    volumeLoaded,
   } = props;
 
   return (
@@ -1070,9 +1082,28 @@ function ReadyView(props: {
       )}
 
       {!encoded && (
-        <Button size="sm" variant="ink" onClick={onEncode} className="w-full gap-1.5">
-          <Wand2 className="h-3.5 w-3.5" /> Encode current slice
-        </Button>
+        <>
+          <Button
+            size="sm"
+            variant="ink"
+            onClick={onEncode}
+            disabled={!volumeLoaded}
+            title={
+              volumeLoaded
+                ? 'Encode the active axial slice through the SAM encoder'
+                : 'Load a primary volume first (Image picker on the left)'
+            }
+            className="w-full gap-1.5"
+          >
+            <Wand2 className="h-3.5 w-3.5" /> Encode current slice
+          </Button>
+          {!volumeLoaded && (
+            <div className="text-[10px] text-amber-600 dark:text-amber-400">
+              No image loaded — pick a DICOM/NIfTI/NRRD on the left
+              first, then come back.
+            </div>
+          )}
+        </>
       )}
 
       {encoded && (
