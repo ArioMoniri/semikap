@@ -33,6 +33,10 @@ export interface ViewerHandle {
     }
   ): Promise<void>;
   removeMaskOverlay(): void;
+  /** v0.8.16 — drop every loaded volume + brush bitmap so the user
+   *  can load a fresh series. Called by LoadedImagesList's Remove
+   *  button. */
+  unloadAll(): void;
   setMaskOpacity(opacity: number): void;
   setMaskColormap(colormap: OverlayColorMap): void;
   setWindow(level: number, width: number): void;
@@ -482,6 +486,9 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       removeMaskOverlay() {
         viewerRef.current?.removeMaskOverlay();
+      },
+      unloadAll() {
+        viewerRef.current?.unloadAll();
       },
       setMaskOpacity(opacity) {
         viewerRef.current?.setMaskOpacity(opacity);

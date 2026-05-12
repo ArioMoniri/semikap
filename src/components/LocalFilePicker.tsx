@@ -16,7 +16,15 @@ import { cn } from '../lib/ui/cn';
 
 const IMAGE_ACCEPT: Record<string, string[]> = {
   'application/dicom': ['.dcm', '.dicom'],
-  'application/octet-stream': ['.nii', '.nii.gz', '.nrrd', '.nhdr', '.mha', '.mhd', '.mgz', '.mgh'],
+  // v0.8.16 — kept .nii.gz here for the <input type="file"> fallback
+  // path (HTML spec accepts compound extensions). The FSA picker path
+  // strips multi-segment extensions in `sanitizeFsaExtensions()` so
+  // Chromium doesn't throw a TypeError on '.nii.gz' (the most common
+  // NIfTI distribution format).
+  'application/octet-stream': [
+    '.nii', '.nii.gz', '.nrrd', '.nhdr', '.mha', '.mhd', '.mgz', '.mgh',
+    '.gz', '.img', '.hdr', '.vol',
+  ],
 };
 
 interface Props {
@@ -35,6 +43,18 @@ export function LocalFilePicker({ onPicked, onPickedMany, current }: Props) {
 
   const handlePick = useCallback(async () => {
     const file = await pickFile(IMAGE_ACCEPT);
+    if (file) onPicked(file);
+  }, [onPicked]);
+
+  /**
+   * v0.8.16 — "Any file" escape hatch. Bypasses the medical-image
+   * accept filter so the user can load unusual formats (vendor-specific
+   * .vol exports, gzipped series with non-standard suffix, raw archive
+   * dumps with header sniffing). The downstream loader does its own
+   * format detection so we don't need the picker to gatekeep.
+   */
+  const handlePickAny = useCallback(async () => {
+    const file = await pickFile(IMAGE_ACCEPT, { anyFile: true });
     if (file) onPicked(file);
   }, [onPicked]);
 
@@ -110,6 +130,20 @@ export function LocalFilePicker({ onPicked, onPickedMany, current }: Props) {
               <FilesIcon className="h-3.5 w-3.5" /> Series…
             </Button>
           )}
+          {/* v0.8.16 — accept-any escape hatch. The medical-image
+              filter occasionally hides files the loader can actually
+              read (vendor exports, weird gzipped suffixes), so this
+              opens the OS dialog with the "All files" filter selected
+              by default. */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handlePickAny}
+            className="gap-1.5"
+            title="Browse with no extension filter (loader sniffs the format)"
+          >
+            <Upload className="h-3.5 w-3.5" /> Any file
+          </Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-2">

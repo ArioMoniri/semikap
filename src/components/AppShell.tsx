@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ShieldCheck, X, Crosshair, ExternalLink as ExternalLinkIcon, Copy as CopyIcon, Check as CheckIcon, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { ShieldCheck, X, Crosshair, ExternalLink as ExternalLinkIcon, Copy as CopyIcon, Check as CheckIcon, PanelLeftClose, PanelLeftOpen, Eye, EyeOff } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { detectBackend } from '../lib/diagnostics/gpu';
 import type { ProbeReading } from './Viewer';
@@ -484,6 +484,12 @@ export function AppShell() {
               <PanelLeftClose className="h-3.5 w-3.5" />
             )}
           </Button>
+          {/* v0.8.16 — clean-canvas toggle. One button hides BOTH the
+              per-tile slice chips AND the top-left study-metadata badge
+              so screenshots / teaching captures don't include the
+              numeric overlays. Prefs persist via the existing
+              localStorage path so the choice survives a reload. */}
+          <CleanCanvasToggle />
           <Viewer ref={viewerRef} />
           {/* v0.7.8 — overlays mounted as siblings inside the relative
               `#viewer` <section> so SVG `absolute inset-0` lands on
@@ -498,20 +504,7 @@ export function AppShell() {
               per-axis lines (X=red, Y=green, Z=blue) on each MPR
               tile when Settings → "Axis-coloured crosshair" is on. */}
           <AxisCrosshairOverlay viewerRef={viewerRef} />
-          {studyMeta && (
-            <div
-              className="pointer-events-none absolute left-11 top-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"
-              role="status"
-              aria-label="Study metadata"
-            >
-              <div className="truncate font-medium" title={studyHint}>
-                {studyHint}
-              </div>
-              <div className="text-white/55">
-                {studyMeta.dims} · {studyMeta.spacing} · {studyMeta.dtype}
-              </div>
-            </div>
-          )}
+          {studyMeta && <StudyMetaBadge studyMeta={studyMeta} studyHint={studyHint} />}
           {probe && volume && (
             <div
               className="pointer-events-none absolute right-2 top-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"
@@ -576,6 +569,78 @@ export function AppShell() {
  * is reactive (the previous attempt called `useAppStore.getState()` at
  * render-time, which never re-rendered when the state flipped).
  */
+/**
+ * v0.8.16 — clean-canvas toggle. Hides BOTH the per-tile slice chips
+ * (`A 47/154`, `C 80/248`, `S 128/256`) and the top-left study-metadata
+ * badge (`CT Pitch.nii  175 × 248 × 58 · 0.81 × 0.81 × 2.40 mm · uint8`).
+ *
+ * Renders as a small floating button at the top-left of the viewer next
+ * to the sidebar collapse toggle. Persists via `prefs.showSliceChips +
+ * showStudyMetaBadge`. Two-state for screenshot prep:
+ *   - eye-open  (default) = both overlays visible
+ *   - eye-closed          = both overlays hidden, clean canvas
+ *
+ * Single button instead of two so the user doesn't have to find the
+ * separate settings panel for a frequent screenshot workflow.
+ */
+function CleanCanvasToggle() {
+  const showChips = useAppStore((s) => s.prefs.showSliceChips);
+  const showBadge = useAppStore((s) => s.prefs.showStudyMetaBadge);
+  const setPrefs = useAppStore((s) => s.setPrefs);
+  // Both flags move in lockstep — if either is hidden the user is in
+  // "clean canvas" mode; toggling restores both to visible.
+  const hidden = !showChips || !showBadge;
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        setPrefs({ showSliceChips: hidden, showStudyMetaBadge: hidden })
+      }
+      aria-label={hidden ? 'Show slice numbers + study info' : 'Hide slice numbers + study info'}
+      title={hidden ? 'Show slice numbers + study info' : 'Hide slice numbers + study info'}
+      className="absolute left-11 top-2 z-20 inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-black/45 text-white/85 backdrop-blur transition-colors hover:bg-black/65"
+    >
+      {hidden ? (
+        <EyeOff className="h-3.5 w-3.5" />
+      ) : (
+        <Eye className="h-3.5 w-3.5" />
+      )}
+    </button>
+  );
+}
+
+/**
+ * v0.8.16 — wraps the study-metadata badge so it can subscribe to the
+ * `showStudyMetaBadge` pref independently of the rest of AppShell. The
+ * top-level component already pulls a wide swath of state; isolating
+ * this lets the toggle re-render only the badge instead of the entire
+ * viewer chrome on every click.
+ */
+function StudyMetaBadge({
+  studyMeta,
+  studyHint,
+}: {
+  studyMeta: { dims: string; spacing: string; dtype: string };
+  studyHint: string;
+}) {
+  const visible = useAppStore((s) => s.prefs.showStudyMetaBadge);
+  if (!visible) return null;
+  return (
+    <div
+      className="pointer-events-none absolute left-20 top-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/85 backdrop-blur"
+      role="status"
+      aria-label="Study metadata"
+    >
+      <div className="truncate font-medium" title={studyHint}>
+        {studyHint}
+      </div>
+      <div className="text-white/55">
+        {studyMeta.dims} · {studyMeta.spacing} · {studyMeta.dtype}
+      </div>
+    </div>
+  );
+}
+
 function NoUploadBadge() {
   const dismissed = useAppStore((s) => s.prefs.dismissedNoUploadBanner);
   const setPrefs = useAppStore((s) => s.setPrefs);

@@ -420,6 +420,34 @@ export class NiivueViewer {
     this.nv.updateGLVolume();
   }
 
+  /**
+   * v0.8.16 — fully unload every volume from NiiVue, reset every
+   * index, and clear the brush bitmap. Used by LoadedImagesList's
+   * "Remove" button so the user can drop the active series and
+   * load a new one without lingering state from the previous load
+   * (which had been corrupting subsequent loads — user reported
+   * "cant remove the addded series and the images are not deleted
+   * from environment and cant add new ones").
+   *
+   * Walks `nv.volumes` in reverse so each `removeVolume` mutation
+   * doesn't shift the indices of items we haven't visited yet.
+   */
+  unloadAll(): void {
+    for (let i = this.nv.volumes.length - 1; i >= 0; i--) {
+      const v = this.nv.volumes[i];
+      if (v) this.nv.removeVolume(v);
+    }
+    this.primaryIndex = -1;
+    this.secondaryIndex = -1;
+    this.maskIndex = -1;
+    this.maskFilledVoxels = null;
+    this.angleMode = false;
+    this.anglePoints = [];
+    this.notifyAngle();
+    this.nv.updateGLVolume();
+    this.nv.drawScene();
+  }
+
   setMaskOpacity(opacity: number): void {
     if (this.maskIndex < 0) return;
     const v = this.nv.volumes[this.maskIndex];

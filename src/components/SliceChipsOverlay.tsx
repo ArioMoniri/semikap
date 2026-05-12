@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAppStore } from '../lib/state/store';
 import type { ViewerHandle } from './Viewer';
 
 /**
@@ -37,6 +38,10 @@ export function SliceChipsOverlay({
 }: {
   viewerRef: React.MutableRefObject<ViewerHandle | null>;
 }) {
+  // v0.8.16 — opt-out via Settings → Clean canvas. When the pref flips
+  // off we ALSO stop the RAF loop so the overlay isn't churning a
+  // setSlices on every frame for nothing while invisible.
+  const showSliceChips = useAppStore((s) => s.prefs.showSliceChips);
   const [slices, setSlices] = useState<
     Array<{
       rect: [number, number, number, number];
@@ -49,7 +54,7 @@ export function SliceChipsOverlay({
 
   useEffect(() => {
     const v = viewerRef.current;
-    if (!v) return;
+    if (!v || !showSliceChips) return;
     const loop = () => {
       const next = v.getScreenSlices();
       setSlices(next);
@@ -59,7 +64,11 @@ export function SliceChipsOverlay({
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [viewerRef]);
+  }, [viewerRef, showSliceChips]);
+
+  // Bail BEFORE rendering the chip list when hidden — keeps the
+  // pointer-events-none wrapper out of the DOM entirely.
+  if (!showSliceChips) return null;
 
   // v0.8.7 — DPR-aware CSS positioning. NiiVue's screenSlices entries
   // are in canvas backing-store pixels (CSS × DPR). React's `style`

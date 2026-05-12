@@ -394,6 +394,22 @@ export interface UserPrefs {
    * non-HiDPI desktop monitors.
    */
   pxPerMm: number;
+  /**
+   * v0.8.16 — show/hide the slice-counter chips that overlay each
+   * MPR tile (e.g. "C 80/248", "A 47/154"). Some users reported the
+   * chips obscure thin anatomy near the bottom of each pane and
+   * wanted a single switch to mute them. Default true (the v0.8.x
+   * shipped behaviour); the toggle lives in the viewer header next
+   * to the layout / fullscreen controls.
+   */
+  showSliceChips: boolean;
+  /**
+   * v0.8.16 — show/hide the study-metadata badge that overlays the
+   * top-left of the viewer ("CT Pitch.nii  175 × 248 × 58 · 0.81 ×
+   * 0.81 × 2.40 mm · uint8"). Same rationale as `showSliceChips` —
+   * a clean-canvas toggle for screenshots / teaching. Default true.
+   */
+  showStudyMetaBadge: boolean;
 }
 
 /**
@@ -446,6 +462,40 @@ export const useAppStore = create<AppState>((set) => ({
         saveRecentFiles(next);
         return { recentFiles: next };
       });
+    }
+    // v0.8.16 — when the volume is unloaded (v === null), cascade-clear
+    // every slice that's tied to "the currently-loaded series": run
+    // result, run meta, persistent measurements, SAM embedding/preview
+    // /prompts on both the radiology + pathology slices. Without this,
+    // the next series the user loads inherits stale state (a SAM mask
+    // from the previous patient drawn on top of the new anatomy, an
+    // angle measurement at coords that no longer exist, etc.) and the
+    // UI gets stuck in a half-loaded zombie state — the bug the user
+    // reported as "cant remove the addded series and the images are not
+    // deleted from environemet ... and cant add new ones".
+    if (!v) {
+      set((s) => ({
+        volume: null,
+        result: null,
+        runMeta: null,
+        measurements: [],
+        sam: {
+          ...s.sam,
+          prompts: [],
+          embedding: null,
+          preview: null,
+          busy: null,
+        },
+        samPathology: {
+          ...s.samPathology,
+          prompts: [],
+          embedding: null,
+          preview: null,
+          roi: null,
+          busy: null,
+        },
+      }));
+      return;
     }
     set({ volume: v, result: null });
   },
@@ -757,5 +807,7 @@ function defaultPrefs(): UserPrefs {
     axisColoredCrosshair: true,
     perPaneCrosshairLock: false,
     pxPerMm: 3.78,
+    showSliceChips: true,
+    showStudyMetaBadge: true,
   };
 }

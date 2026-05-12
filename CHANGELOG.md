@@ -6,6 +6,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.16] — Series removal, .nii.gz upload, hideable overlays, drag-drop paths
+
+### Fixed
+
+- 🗑️ **Cannot remove a loaded series** ("cant remove the addded series and the images are not deleted from environemet and the shower and cant add new ones"). The "Loaded images" sidebar widget now has a per-row trash button that:
+  1. Calls `viewer.unloadAll()` — walks NiiVue's `volumes[]` in reverse and `removeVolume()`s every entry, then resets primary/secondary/mask indices, the brush bitmap, the angle-tool state, and re-runs `updateGLVolume + drawScene`.
+  2. Calls `setVolume(null)` — which now **cascade-clears** `result`, `runMeta`, `measurements`, `sam.{prompts,embedding,preview,busy}`, and `samPathology.{prompts,embedding,preview,roi,busy}`. Pre-v0.8.16 the volume reference cleared but the dependent slices kept holding a SAM mask + measurements from the previous patient; loading a new series stacked the stale overlay on top of the new anatomy.
+- 📦 **`.nii.gz` upload silently broken on Chromium** ("cant upload nii gz file"). Chromium's `showOpenFilePicker` rejects multi-segment extensions like `.nii.gz` with a hard `TypeError`, which the picker treated as a non-recoverable error. Two-part fix:
+  1. `sanitizeFsaExtensions()` strips multi-segment extensions to their trailing single segment (`.nii.gz` → `.gz`) for the FSA accept-list, so Chromium accepts the call. The HTML `<input type="file">` fallback still uses the full list (the spec accepts compound extensions).
+  2. On any `TypeError` from the picker the helper now retries once with `anyFile: true` (no type filter) so the user can still pick the file even when the extension list is corrupted somehow.
+- 🌐 **Browse should accept any series, regardless of vendor extension** ("in browse file should be ablr to uplaod all kinds series or not shouldnt matter"). Added an explicit "Any file" button next to "Browse" / "Series…" in the LocalFilePicker. It opens the OS dialog with the system "All files" filter selected so vendor exports (`.vol`, gzipped `.img/.hdr` pairs, raw blobs) load — the downstream NiiVue + DICOM loaders sniff the format from the header.
+- 📂 **Drag-and-drop didn't show file paths anywhere** ("drag and drop file and models still dont get their path and dont show them in the app"). New `filePathHint(file)` helper extracts the absolute path from Tauri's non-standard `File.path` property when present, or falls back to `webkitRelativePath` (folder picks). Path is propagated through every `pickFile` / `pickFiles` / `readDroppedFile` / `readDroppedFiles` callsite, stored in `PickedFile.hint`, and surfaced under the filename in the LoadedImagesList chip when it differs from the basename. Browser-PWA mode still shows the basename only — the File API does not expose paths to web pages by design.
+- 👁️ **Slice counter + study-meta badge could not be hidden for screenshots** ("the section counter and the … part in the image should be hidabel"). New "clean canvas" toggle (eye icon, top-left of viewer next to the sidebar collapse). One click hides BOTH the per-tile slice chips (`A 47/154`, `C 80/248`, `S 128/256`) AND the study-metadata badge (`CT Pitch.nii  175 × 248 × 58 · 0.81 × 0.81 × 2.40 mm · uint8`). Persists via `prefs.showSliceChips + showStudyMetaBadge` so the choice survives a reload.
+
+### Internal
+
+- `src/lib/niivue.ts` — `unloadAll()` method.
+- `src/components/Viewer.tsx` — `ViewerHandle.unloadAll()` exposed.
+- `src/components/LoadedImagesList.tsx` — Trash2 button per row + remove handler; renders `path` line under filename.
+- `src/lib/state/store.ts` — `setVolume(null)` cascade clear; new prefs `showSliceChips + showStudyMetaBadge`.
+- `src/lib/fs/filesystem.ts` — `sanitizeAccept()` / `sanitizeFsaExtensions()` / `filePathHint()`; `pickFile`/`pickFiles` now accept `{ anyFile?: boolean }`; TypeError fallback to anyFile mode.
+- `src/components/LocalFilePicker.tsx` — "Any file" button + `handlePickAny`; expanded `IMAGE_ACCEPT` with `.gz/.img/.hdr/.vol`.
+- `src/components/SliceChipsOverlay.tsx` — bails on `!showSliceChips` and stops the RAF loop while hidden.
+- `src/components/AppShell.tsx` — `CleanCanvasToggle` button + `StudyMetaBadge` wrapper subscribed to the new prefs.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships under 10s.
+
 ## [0.8.15] — Click-debug overlay so we can see what's actually wrong
 
 ### Added
