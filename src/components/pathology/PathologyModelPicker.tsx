@@ -52,7 +52,8 @@ export function PathologyModelPicker({ onLoaded, current }: Props) {
 
   const handlePickModel = useCallback(async () => {
     setError(null);
-    const file = await pickFile(MODEL_ACCEPT);
+    // v0.8.17 — anyFile so non-standard model suffixes (.bin, .data) load.
+    const file = await pickFile(MODEL_ACCEPT, { anyFile: true });
     if (!file) return;
     setPendingModel(file);
   }, []);
@@ -62,7 +63,7 @@ export function PathologyModelPicker({ onLoaded, current }: Props) {
       setError('Pick the .onnx file first.');
       return;
     }
-    const file = await pickFile(JSON_ACCEPT);
+    const file = await pickFile(JSON_ACCEPT, { anyFile: true });
     if (!file) return;
     await finishLoad(pendingModel, file.bytes);
   }, [pendingModel, finishLoad]);

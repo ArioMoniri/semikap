@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.17] — Single Browse button (any-file mode by default)
+
+### Changed
+
+- 🧹 **One Browse button per picker, not two** ("there should be just a browse button for models of files which gets input of as any file type and not seperate buttons"). v0.8.16 added an "Any file" sibling button to LocalFilePicker as an escape hatch for vendor exports / non-standard suffixes. v0.8.17 collapses both behaviours into the single Browse button by switching every picker to `pickFile(accept, { anyFile: true })` by default, so the OS dialog opens with "All files" selected and the picker no longer hides anything. The downstream loaders (NiiVue, OpenSlide-via-WASM, ORT-Web) sniff the format from the file header, so the extension filter wasn't gatekeeping anything the loader could read — it was only blocking files the loader could ALSO read but with non-standard suffixes.
+
+### Internal
+
+- `src/components/LocalFilePicker.tsx` — removed the secondary "Any file" button; `handlePick` and `handlePickMany` now pass `{ anyFile: true }`.
+- `src/components/ModelPicker.tsx` — `handlePickModel` opens both the .onnx and the manifest dialogs with `anyFile: true`.
+- `src/components/SecondarySeriesPicker.tsx` — `handlePick` opens with `anyFile: true`.
+- `src/components/pathology/PathologySlidePicker.tsx` — `handlePick` opens with `anyFile: true` so vendor exports (.czi, .scn variants) load without the user switching the dialog filter.
+- `src/components/pathology/PathologyModelPicker.tsx` — both .onnx and manifest pickers open with `anyFile: true`.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships under 10s.
+
 ## [0.8.16] — Series removal, .nii.gz upload, hideable overlays, drag-drop paths
 
 ### Fixed

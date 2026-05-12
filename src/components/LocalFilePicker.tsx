@@ -41,19 +41,23 @@ interface Props {
 export function LocalFilePicker({ onPicked, onPickedMany, current }: Props) {
   const [dragOver, setDragOver] = useState(false);
 
-  const handlePick = useCallback(async () => {
-    const file = await pickFile(IMAGE_ACCEPT);
-    if (file) onPicked(file);
-  }, [onPicked]);
-
   /**
-   * v0.8.16 — "Any file" escape hatch. Bypasses the medical-image
-   * accept filter so the user can load unusual formats (vendor-specific
-   * .vol exports, gzipped series with non-standard suffix, raw archive
-   * dumps with header sniffing). The downstream loader does its own
-   * format detection so we don't need the picker to gatekeep.
+   * v0.8.17 — single Browse button that always opens the OS dialog with
+   * "All files" selected by default. Pre-v0.8.17 we shipped two buttons
+   * (Browse + Any file) which the user found redundant ("there should be
+   * just a browse button … which gets input of as any file type"). The
+   * downstream NiiVue + DICOM loaders sniff the format from the file
+   * header so the picker doesn't need to gatekeep — every accepted-by-
+   * extension file the loader could read was also accepted in anyFile
+   * mode, and anyFile mode unlocks vendor exports / gzipped series with
+   * non-standard suffixes that the extension filter was hiding.
+   *
+   * IMAGE_ACCEPT is still passed (rather than `{}`) so the input-element
+   * fallback path on Safari / Firefox renders a sensible default name
+   * for the dialog and so future "show only matching files" toggles
+   * have a list to work from.
    */
-  const handlePickAny = useCallback(async () => {
+  const handlePick = useCallback(async () => {
     const file = await pickFile(IMAGE_ACCEPT, { anyFile: true });
     if (file) onPicked(file);
   }, [onPicked]);
@@ -65,10 +69,15 @@ export function LocalFilePicker({ onPicked, onPickedMany, current }: Props) {
    *
    * Bytes are still read in-process (no upload). The "Pick series" button
    * is only shown when the caller supplies onPickedMany.
+   *
+   * v0.8.17 — also any-file by default for the same reason as the single
+   * Browse path. Multi-frame DICOM exports from research scanners
+   * sometimes ship with .img + .ima suffixes that the medical-image
+   * filter was rejecting.
    */
   const handlePickMany = useCallback(async () => {
     if (!onPickedMany) return;
-    const files = await pickFiles(IMAGE_ACCEPT);
+    const files = await pickFiles(IMAGE_ACCEPT, { anyFile: true });
     if (files.length > 0) onPickedMany(files);
   }, [onPickedMany]);
 
@@ -125,25 +134,11 @@ export function LocalFilePicker({ onPicked, onPickedMany, current }: Props) {
               variant="outline"
               onClick={handlePickMany}
               className="gap-1.5"
-              title="Pick or drop multiple .dcm files (DICOM series)"
+              title="Pick or drop multiple files (DICOM series)"
             >
               <FilesIcon className="h-3.5 w-3.5" /> Series…
             </Button>
           )}
-          {/* v0.8.16 — accept-any escape hatch. The medical-image
-              filter occasionally hides files the loader can actually
-              read (vendor exports, weird gzipped suffixes), so this
-              opens the OS dialog with the "All files" filter selected
-              by default. */}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handlePickAny}
-            className="gap-1.5"
-            title="Browse with no extension filter (loader sniffs the format)"
-          >
-            <Upload className="h-3.5 w-3.5" /> Any file
-          </Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-2">

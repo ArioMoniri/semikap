@@ -59,10 +59,21 @@ export function ModelPicker({ onLoaded, current }: Props) {
   const handlePickModel = useCallback(async () => {
     setError(null);
     try {
-      const onnx = await pickFile({ 'application/octet-stream': ['.onnx', '.ort'] });
+      // v0.8.17 — anyFile so the OS dialog defaults to "All files".
+      // Some research / hospital exports ship models with non-standard
+      // suffixes (.bin, .data, .model) and the .onnx/.ort filter was
+      // hiding them. Loader still verifies the bytes via ORT-Web's
+      // session-create, so an actually-broken file fails fast.
+      const onnx = await pickFile(
+        { 'application/octet-stream': ['.onnx', '.ort'] },
+        { anyFile: true }
+      );
       if (!onnx) return;
 
-      const manifestFile = await pickFile({ 'application/json': ['.json'] });
+      const manifestFile = await pickFile(
+        { 'application/json': ['.json'] },
+        { anyFile: true }
+      );
       if (!manifestFile) {
         setError('A manifest JSON is required (one was not selected).');
         return;

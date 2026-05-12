@@ -24,7 +24,10 @@ export function PathologySlidePicker({ onPicked, current }: Props) {
   const [dragOver, setDragOver] = useState(false);
 
   const handlePick = useCallback(async () => {
-    const file = await pickFile(SLIDE_ACCEPT);
+    // v0.8.17 — anyFile so vendor exports (e.g. .czi, .scn variants) load
+    // without the user having to switch the dialog filter. openSlide()
+    // does its own header-based format detection.
+    const file = await pickFile(SLIDE_ACCEPT, { anyFile: true });
     if (file) {
       onPicked({
         name: file.name,

@@ -43,7 +43,8 @@ export function SecondarySeriesPicker({ viewerRef }: Props) {
   );
 
   const handlePick = useCallback(async () => {
-    const f = await pickFile(IMAGE_ACCEPT);
+    // v0.8.17 — anyFile so the OS dialog defaults to "All files".
+    const f = await pickFile(IMAGE_ACCEPT, { anyFile: true });
     if (f) await loadFile(f.name, f.bytes);
   }, [loadFile]);
 
