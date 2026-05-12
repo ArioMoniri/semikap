@@ -433,9 +433,19 @@ export class NiivueViewer {
    * doesn't shift the indices of items we haven't visited yet.
    */
   unloadAll(): void {
-    for (let i = this.nv.volumes.length - 1; i >= 0; i--) {
-      const v = this.nv.volumes[i];
-      if (v) this.nv.removeVolume(v);
+    // v0.8.18 — match the cleanup pattern in `loadPrimaryFromBytes` exactly
+    // (while-loop on volumes[0], removeVolume each). Pre-v0.8.18 we walked
+    // in reverse and called updateGLVolume() on the empty scene, which left
+    // NiiVue's GL slot bound to a destroyed texture handle — the next
+    // `addVolume` then silently failed to render even though the volumes[]
+    // slot was populated. User report: "after first image adding and
+    // removal i cant add another image path to the envireontmet and it
+    // doesnt show up". Removing the GL push on an empty scene is what
+    // unblocks subsequent loads.
+    while (this.nv.volumes.length > 0) {
+      const v = this.nv.volumes[0];
+      if (!v) break;
+      this.nv.removeVolume(v);
     }
     this.primaryIndex = -1;
     this.secondaryIndex = -1;
@@ -444,7 +454,9 @@ export class NiivueViewer {
     this.angleMode = false;
     this.anglePoints = [];
     this.notifyAngle();
-    this.nv.updateGLVolume();
+    // Only repaint — DON'T call updateGLVolume on an empty scene. Repaint
+    // gives the user immediate "the image is gone" feedback; the next
+    // loadPrimaryFromBytes will reinitialise the GL volume slot freshly.
     this.nv.drawScene();
   }
 

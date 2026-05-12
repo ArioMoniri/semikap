@@ -1,10 +1,8 @@
 import { useCallback, useState } from 'react';
-import { FileImage, Upload, Files as FilesIcon } from 'lucide-react';
+import { FileImage, Upload } from 'lucide-react';
 import {
   isFileSystemAccessSupported,
-  pickFile,
   pickFiles,
-  readDroppedFile,
   readDroppedFiles,
 } from '../lib/fs/filesystem';
 import type { PickedFile } from '../lib/fs/filesystem';
@@ -19,8 +17,7 @@ const IMAGE_ACCEPT: Record<string, string[]> = {
   // v0.8.16 — kept .nii.gz here for the <input type="file"> fallback
   // path (HTML spec accepts compound extensions). The FSA picker path
   // strips multi-segment extensions in `sanitizeFsaExtensions()` so
-  // Chromium doesn't throw a TypeError on '.nii.gz' (the most common
-  // NIfTI distribution format).
+  // Chromium doesn't throw a TypeError on '.nii.gz'.
   'application/octet-stream': [
     '.nii', '.nii.gz', '.nrrd', '.nhdr', '.mha', '.mhd', '.mgz', '.mgh',
     '.gz', '.img', '.hdr', '.vol',
@@ -31,8 +28,12 @@ interface Props {
   onPicked(file: PickedFile): void;
   /**
    * v0.7.4 — optional callback for multi-file picks (DICOM folder /
-   * series). When the caller doesn't provide it the multi button is
-   * hidden and the single-file behaviour is unchanged.
+   * series). When the caller doesn't provide it, multi-file picks are
+   * silently coerced to single-file (first item only).
+   *
+   * v0.8.18 — even when this is provided we no longer expose a separate
+   * "Series" button. The single Browse button accepts 1..N files and
+   * routes based on how many the user picks.
    */
   onPickedMany?(files: PickedFile[]): void;
   current: PickedFile | null;
@@ -42,64 +43,56 @@ export function LocalFilePicker({ onPicked, onPickedMany, current }: Props) {
   const [dragOver, setDragOver] = useState(false);
 
   /**
-   * v0.8.17 — single Browse button that always opens the OS dialog with
-   * "All files" selected by default. Pre-v0.8.17 we shipped two buttons
-   * (Browse + Any file) which the user found redundant ("there should be
-   * just a browse button … which gets input of as any file type"). The
-   * downstream NiiVue + DICOM loaders sniff the format from the file
-   * header so the picker doesn't need to gatekeep — every accepted-by-
-   * extension file the loader could read was also accepted in anyFile
-   * mode, and anyFile mode unlocks vendor exports / gzipped series with
-   * non-standard suffixes that the extension filter was hiding.
+   * v0.8.18 — single Browse button that handles BOTH single files
+   * (NIfTI, NRRD, MHA, single .dcm) AND multi-file series (a folder of
+   * DICOM slices, a multi-frame .ima dump). Pre-v0.8.18 the picker
+   * shipped two visually-distinct buttons (Browse + Series…) which the
+   * user found redundant ("there should be just a browse button … not
+   * seperate buttons including all series and single ones").
    *
-   * IMAGE_ACCEPT is still passed (rather than `{}`) so the input-element
-   * fallback path on Safari / Firefox renders a sensible default name
-   * for the dialog and so future "show only matching files" toggles
-   * have a list to work from.
+   * Routing:
+   *   - 0 files picked  → cancel, no-op
+   *   - 1 file picked   → onPicked(files[0])
+   *   - 2+ files picked → onPickedMany(files), or onPicked(first) if
+   *                       the parent didn't wire onPickedMany
+   *
+   * `anyFile: true` means the OS dialog opens with "All files" filter
+   * selected — vendor exports / non-standard suffixes load too because
+   * the downstream NiiVue + DICOM loaders sniff the format from the
+   * file header rather than the extension.
    */
   const handlePick = useCallback(async () => {
-    const file = await pickFile(IMAGE_ACCEPT, { anyFile: true });
-    if (file) onPicked(file);
-  }, [onPicked]);
-
-  /**
-   * v0.7.4 — multi-file picker for DICOM series. The user picks every
-   * .dcm slice (or, on Chromium, drops the whole folder) and the parent
-   * concatenates them into a single NiiVue series load.
-   *
-   * Bytes are still read in-process (no upload). The "Pick series" button
-   * is only shown when the caller supplies onPickedMany.
-   *
-   * v0.8.17 — also any-file by default for the same reason as the single
-   * Browse path. Multi-frame DICOM exports from research scanners
-   * sometimes ship with .img + .ima suffixes that the medical-image
-   * filter was rejecting.
-   */
-  const handlePickMany = useCallback(async () => {
-    if (!onPickedMany) return;
     const files = await pickFiles(IMAGE_ACCEPT, { anyFile: true });
-    if (files.length > 0) onPickedMany(files);
-  }, [onPickedMany]);
+    if (files.length === 0) return;
+    if (files.length === 1) {
+      onPicked(files[0]!);
+      return;
+    }
+    if (onPickedMany) {
+      onPickedMany(files);
+    } else {
+      // Caller didn't wire multi-file routing — fall back to first.
+      onPicked(files[0]!);
+    }
+  }, [onPicked, onPickedMany]);
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
       setDragOver(false);
-      // v0.7.4 — if multiple files were dropped (or a folder), route to
-      // the multi-file callback; otherwise keep the single-file path so
-      // the existing UX is unchanged.
-      if (onPickedMany) {
-        const many = await readDroppedFiles(e.nativeEvent);
-        if (many.length > 1) {
-          onPickedMany(many);
-          return;
-        }
-        if (many.length === 1 && many[0]) {
-          onPicked(many[0]);
-          return;
-        }
+      // Same routing as handlePick: 1 file → single, 2+ → multi (with
+      // graceful fallback when onPickedMany is missing). v0.7.4 added the
+      // multi path for dropped folders of .dcm; we keep that behaviour.
+      const many = await readDroppedFiles(e.nativeEvent);
+      if (many.length === 0) return;
+      if (many.length === 1) {
+        onPicked(many[0]!);
+        return;
       }
-      const file = await readDroppedFile(e.nativeEvent);
-      if (file) onPicked(file);
+      if (onPickedMany) {
+        onPickedMany(many);
+      } else {
+        onPicked(many[0]!);
+      }
     },
     [onPicked, onPickedMany]
   );
@@ -122,23 +115,12 @@ export function LocalFilePicker({ onPicked, onPickedMany, current }: Props) {
           <CardTitle className="flex items-center gap-2">
             <FileImage className="h-4 w-4 text-tamias-accent" /> Medical image
           </CardTitle>
-          <CardDescription>DICOM · NIfTI · NRRD · MHA · MGZ</CardDescription>
+          <CardDescription>DICOM · NIfTI · NRRD · MHA · MGZ — single or series</CardDescription>
         </div>
         <div className="flex shrink-0 flex-col gap-1">
           <Button size="sm" onClick={handlePick} className="gap-1.5">
             <Upload className="h-3.5 w-3.5" /> Browse
           </Button>
-          {onPickedMany && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handlePickMany}
-              className="gap-1.5"
-              title="Pick or drop multiple files (DICOM series)"
-            >
-              <FilesIcon className="h-3.5 w-3.5" /> Series…
-            </Button>
-          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -150,8 +132,8 @@ export function LocalFilePicker({ onPicked, onPickedMany, current }: Props) {
           <VolumePreview compact />
         ) : (
           <div className="text-xs text-slate-500">
-            Drop a file here or click <span className="font-medium">Browse</span>.
-            {onPickedMany && ' Drop a folder of .dcm to load a series.'}
+            Drop a file or folder, or click <span className="font-medium">Browse</span>.
+            {onPickedMany && ' Pick one file (NIfTI/NRRD/MHA) or many .dcm slices for a series.'}
           </div>
         )}
         {!isFileSystemAccessSupported() && (

@@ -6,6 +6,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.8.18] — Re-load after removal works; Browse covers single + series
+
+### Fixed
+
+- 🔁 **Couldn't load a second image after removing the first** ("after first image adding and removal i cant add another image path to the envireontmet and it doesnt show up"). v0.8.16's `unloadAll()` walked `volumes[]` in reverse and called `nv.updateGLVolume()` on the resulting empty scene; that left NiiVue's GL volume slot bound to a destroyed texture handle, and the next `addVolume` silently failed to render even though the volumes array was populated correctly. Fixed by:
+  1. Switching to the same forward `while (volumes.length > 0) … removeVolume(volumes[0])` pattern used by `loadPrimaryFromBytes` (which has worked for 8+ versions).
+  2. Dropping the `updateGLVolume()` call on the empty scene — the next `loadPrimaryFromBytes` reinitialises the slot freshly. We still call `drawScene()` so the canvas immediately repaints to black after the user clicks the trash button.
+
+### Changed
+
+- 🧷 **One Browse button covers both single files AND multi-file series** ("there should be just a browse button … not seperate buttons including all series and single ones"). The "Series…" sibling button is gone; the single Browse opens a multi-select dialog that routes by count:
+  - 0 picked → cancel, no-op
+  - 1 picked → `onPicked(file)` (single-file load — NIfTI / NRRD / single .dcm)
+  - 2+ picked → `onPickedMany(files)` (DICOM-series load — NVImage.loadFromFile sorts slices by ImagePositionPatient)
+
+  Drag-and-drop already worked the same way (1 vs many routing); this just brings the click path in line so the user doesn't have to remember which button to use.
+
+### Internal
+
+- `src/lib/viewer/niivue.ts` — `unloadAll()` now mirrors `loadPrimaryFromBytes`'s removal loop and skips `updateGLVolume()` on empty.
+- `src/components/LocalFilePicker.tsx` — collapsed `handlePick` + `handlePickMany` into a single `handlePick` that calls `pickFiles` (multi-select) and routes by count; dropped the `Series…` button + `FilesIcon` import. Card description updated to "single or series".
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships under 10s.
+
 ## [0.8.17] — Single Browse button (any-file mode by default)
 
 ### Changed
