@@ -55,6 +55,13 @@ export interface ViewerHandle {
    *  handlers in this component so the canvas can repaint after WebGL
    *  context loss / cursor-leave even when the brush isn't active. */
   redraw(): void;
+  /** v0.9.0 — toggle inverted colormap on the primary volume (OHIF "Invert"). */
+  toggleInvert(): void;
+  isInverted(): boolean;
+  /** v0.9.0 — flip radiological/neurological convention (OHIF "Flip H"). */
+  toggleRadiologicalConvention(): void;
+  /** v0.9.0 — rotate the 3D render around the Z axis by `delta` degrees. */
+  rotate3D(deltaAzimuth: number, deltaElevation?: number): void;
   undoLastBrushStroke(): void;
   /** Returns the AI mask merged with any user brush corrections, or null
    *  when no corrections have been drawn. */
@@ -519,6 +526,18 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       redraw() {
         viewerRef.current?.redraw();
+      },
+      toggleInvert() {
+        viewerRef.current?.toggleInvert();
+      },
+      isInverted() {
+        return viewerRef.current?.isInverted() ?? false;
+      },
+      toggleRadiologicalConvention() {
+        viewerRef.current?.toggleRadiologicalConvention();
+      },
+      rotate3D(deltaAzimuth, deltaElevation = 0) {
+        viewerRef.current?.rotate3D(deltaAzimuth, deltaElevation);
       },
       undoLastBrushStroke() {
         viewerRef.current?.undoLastBrushStroke();

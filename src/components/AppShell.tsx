@@ -15,6 +15,10 @@ import { InferencePanel } from './InferencePanel';
 import { SamPanel } from './SamPanel';
 import { TotalSegmentatorPanel } from './TotalSegmentatorPanel';
 import { LoadedImagesList } from './LoadedImagesList';
+import { IdcBrowser } from './IdcBrowser';
+import { DicomTagBrowser } from './DicomTagBrowser';
+import { MeasurementsListPanel } from './MeasurementsListPanel';
+import { ViewerToolbar } from './ViewerToolbar';
 import { ExportPanel } from './ExportPanel';
 import { GpuInfoPanel } from './GpuInfoPanel';
 import { OverlayControls } from './OverlayControls';
@@ -357,6 +361,9 @@ export function AppShell() {
                   nothing is loaded; auto-shows the search input once 2+
                   images land. */}
               <LoadedImagesList viewerRef={viewerRef} />
+              {/* v0.9.0 — search + download from NCI Imaging Data
+                  Commons (CT/MR/PET, 100% public coverage, no login). */}
+              <IdcBrowser viewerRef={viewerRef} />
             </div>
           </CollapsibleSection>
 
@@ -400,6 +407,18 @@ export function AppShell() {
 
           <CollapsibleSection title="Display" defaultOpen={false}>
             <OverlayControls viewerRef={viewerRef} />
+          </CollapsibleSection>
+
+          {/* v0.9.0 — measurements list (mirrors OHIF's Measurements
+              panel) + DICOM tag browser (parses dcmjs against the
+              loaded volume's source bytes). Both render only when
+              there's a volume loaded; cheap to mount otherwise. */}
+          <CollapsibleSection title="Measurements" defaultOpen={false}>
+            <MeasurementsListPanel />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="DICOM tags" defaultOpen={false}>
+            <DicomTagBrowser />
           </CollapsibleSection>
 
           <CollapsibleSection title="Correction" defaultOpen={false}>
@@ -490,6 +509,9 @@ export function AppShell() {
               numeric overlays. Prefs persist via the existing
               localStorage path so the choice survives a reload. */}
           <CleanCanvasToggle />
+          {/* v0.9.0 — top-right floating quick tools (Invert / FlipH /
+              Rotate). Auto-hides when no volume loaded. */}
+          <ViewerToolbar viewerRef={viewerRef} />
           <Viewer ref={viewerRef} />
           {/* v0.7.8 — overlays mounted as siblings inside the relative
               `#viewer` <section> so SVG `absolute inset-0` lands on

@@ -6,6 +6,51 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.0] — IDC Imaging Data Commons integration + first batch of OHIF parity
+
+### Added
+
+- ☁️ **IDC public-data browser** — new "IDC public data" panel in the radiology Inputs section. Searches the NCI Imaging Data Commons via the public DICOMweb proxy (`proxy.imaging.datacommons.cancer.gov`) — no login, no Pyodide, no backend service. Filters by Patient ID, modality (CT/MR/PT…), study description, study date. Click a study to expand its series list; click "Load" on a series to download every instance with 6-way parallelism, cache in OPFS for instant re-loads, and hand the bytes to NiiVue's existing multi-DICOM loader. Cache size + clear button visible inline. 100% public, read-only, no telemetry — the host is allowlisted in the strict CSP.
+- 🏷️ **DICOM Tag Browser** — new "DICOM tags" sidebar section. Mirrors OHIF's tool of the same name: parses the loaded DICOM volume via `dcmjs` (lazy-loaded only on first open), surfaces every dataset tag with VR + keyword + value, supports free-text filtering. Auto-disables for NIfTI / NRRD / MHA volumes. 500-row display cap with hint to narrow the filter.
+- 📏 **Measurements list panel** — new "Measurements" sidebar section. Surfaces the existing persistent-measurements store (added in v0.7.8) as a clickable list with per-row trash button + bulk Clear button. Shows the value formatted in the user's chosen unit (`mm` / `cm` / `px` / `°`) plus the start/end coords. Mirrors OHIF's right-rail Measurements panel.
+- 🛠️ **Floating viewer toolbar** — top-right floating buttons over the viewer:
+  - **Invert** — toggles `colormapInvert` without changing W/L.
+  - **Flip H** — toggles radiological vs neurological convention.
+  - **Rotate** — rotates the 3D volumetric render 90° clockwise.
+
+  Auto-hides when no volume is loaded.
+
+### Internal
+
+- New `src/lib/idc/dicomweb.ts` — minimal QIDO-RS + WADO-RS client (`searchStudies`, `listSeries`, `downloadSeries`, `pingProxy`, `getCacheUsage`, `clearCache`). OPFS cache keyed by `SeriesInstanceUID`; stripMultipart helper for proxies that wrap single-part WADO responses; tag-keyed query-builder so callers don't have to know hex tags.
+- New `src/components/IdcBrowser.tsx` — search + study/series tree + per-series download with progress bar.
+- New `src/components/DicomTagBrowser.tsx` — lazy dcmjs import; tag/keyword/value table with sticky header.
+- New `src/components/MeasurementsListPanel.tsx` — distance + angle list with per-row delete + bulk clear.
+- New `src/components/ViewerToolbar.tsx` — three floating toolbar buttons (Invert/FlipH/Rotate).
+- `src/lib/viewer/niivue.ts` — added `toggleInvert()`, `isInverted()`, `toggleRadiologicalConvention()`, `rotate3D(deltaAzimuth, deltaElevation)`.
+- `src/components/Viewer.tsx` — `ViewerHandle` extended with the four new methods.
+- `src/components/AppShell.tsx` — wired the four new components into the radiology sidebar + viewer overlay.
+- `src-tauri/tauri.conf.json` + `index.html` — added `https://proxy.imaging.datacommons.cancer.gov` to the `connect-src` CSP allowlist.
+
+### OHIF parity status (this release vs the screenshots)
+
+**Shipped:**
+- Reset View, Rotate, Flip Horizontal, Invert, Probe, Cine (NiiVue-native), Length / Distance, Angle, Stack Scroll, Measurements panel, DICOM Tag Browser, Calibration (via Settings → Fit 1:1), Layouts (1up / 2up / 4up + MPR + 3D).
+
+**Queued for v0.9.1+:**
+- Bidirectional measurement, Cobb angle, Ellipse / Rectangle / Circle ROI, Freehand ROI / Spline ROI / Livewire, Reference Lines, Image Slice Sync, Window Level Region, Magnify Probe, Frame View / custom grid layouts, Hotkey customization UI, Segment Label Display, Ultrasound Directional.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships in 10.2s (36 precache entries, 5548 KiB).
+
+### Honest deferred
+
+- 🐍 **idc-index Python integration** — the IDC Claude skill recommends `idc-index` for queries. We use the DICOMweb proxy instead (no Pyodide cold-start, no 200 MB metadata parquet) which gives the same browse + download capability at the cost of the more SQL-shaped queries the Python lib supports. If users need richer metadata queries we can layer Pyodide-based idc-index on the existing TotalSegmentator runner.
+
 ## [0.8.18] — Re-load after removal works; Browse covers single + series
 
 ### Fixed

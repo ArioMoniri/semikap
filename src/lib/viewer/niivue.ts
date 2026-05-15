@@ -534,6 +534,62 @@ export class NiivueViewer {
     this.nv.drawScene();
   }
 
+  /**
+   * v0.9.0 — toggle the active volume's invert-colormap flag. NiiVue
+   * stores the per-volume colormapInvert on the NVImage instance; we
+   * flip it on the primary, push it via updateGLVolume, and repaint.
+   * Used by the new Invert toolbar button (mirrors OHIF's "Invert").
+   */
+  toggleInvert(): void {
+    if (this.primaryIndex < 0) return;
+    const v = this.nv.volumes[this.primaryIndex] as { colormapInvert?: boolean } | undefined;
+    if (!v) return;
+    v.colormapInvert = !v.colormapInvert;
+    this.nv.updateGLVolume();
+    this.nv.drawScene();
+  }
+
+  isInverted(): boolean {
+    if (this.primaryIndex < 0) return false;
+    const v = this.nv.volumes[this.primaryIndex] as { colormapInvert?: boolean } | undefined;
+    return Boolean(v?.colormapInvert);
+  }
+
+  /**
+   * v0.9.0 — toggle radiological vs neurological convention. The de
+   * facto OHIF "Flip Horizontal" maps to this: in radiological
+   * convention the patient's LEFT side is on the viewer's RIGHT
+   * (think looking AT the patient on a hospital lightbox); in
+   * neurological convention they match. NiiVue exposes a clean
+   * `setRadiologicalConvention(bool)` so we read the current value
+   * and flip it.
+   *
+   * Top/bottom flip isn't natively supported by NiiVue 0.44 — adding
+   * it cleanly needs a per-tile transform in the wrapper which is a
+   * v0.9.x follow-up.
+   */
+  toggleRadiologicalConvention(): void {
+    const cur = (this.nv as unknown as { opts?: { isRadiologicalConvention?: boolean } }).opts
+      ?.isRadiologicalConvention ?? false;
+    this.nv.setRadiologicalConvention(!cur);
+  }
+
+  /**
+   * v0.9.0 — rotate the 3D volumetric render by `delta` degrees around
+   * the vertical (Z) axis. Wraps NiiVue's setRenderAzimuthElevation
+   * so the Tools panel can offer a one-click "Rotate 90°" button.
+   * No-op when no primary volume is loaded.
+   */
+  rotate3D(deltaAzimuth: number, deltaElevation: number = 0): void {
+    if (this.primaryIndex < 0) return;
+    const scene = (this.nv as unknown as {
+      scene?: { renderAzimuth?: number; renderElevation?: number };
+    }).scene;
+    const az = (scene?.renderAzimuth ?? 0) + deltaAzimuth;
+    const el = (scene?.renderElevation ?? 0) + deltaElevation;
+    this.nv.setRenderAzimuthElevation(az, el);
+  }
+
   /** Set the brush label index. Pass `0` for eraser. */
   setBrushLabel(label: number): void {
     (this.nv as unknown as NVDriver).setPenValue(label, true);
