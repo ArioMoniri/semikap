@@ -18,6 +18,11 @@ import { LoadedImagesList } from './LoadedImagesList';
 import { IdcBrowser } from './IdcBrowser';
 import { DicomTagBrowser } from './DicomTagBrowser';
 import { MeasurementsListPanel } from './MeasurementsListPanel';
+import { ToolPicker } from './ToolPicker';
+import { HotkeysPanel } from './HotkeysPanel';
+import { SyncPanel } from './SyncPanel';
+import { SegmentLabelsOverlay } from './SegmentLabelsOverlay';
+import { RoiOverlay } from './RoiOverlay';
 import { ViewerToolbar } from './ViewerToolbar';
 import { ExportPanel } from './ExportPanel';
 import { GpuInfoPanel } from './GpuInfoPanel';
@@ -405,20 +410,40 @@ export function AppShell() {
             <ToolsPanel viewerRef={viewerRef} />
           </CollapsibleSection>
 
+          {/* v0.9.1 — OHIF measurement-tool picker (rectangle, ellipse,
+              circle, freehand, spline, livewire, bidirectional, cobb,
+              W/L region, magnify, directional). One-click to arm,
+              click again or Esc to disarm. */}
+          <CollapsibleSection title="Annotate" defaultOpen={false}>
+            <ToolPicker />
+          </CollapsibleSection>
+
           <CollapsibleSection title="Display" defaultOpen={false}>
             <OverlayControls viewerRef={viewerRef} />
           </CollapsibleSection>
 
+          {/* v0.9.1 — display-sync toggles (reference lines, slice sync,
+              segment labels, slice chips, study meta). */}
+          <CollapsibleSection title="Sync & overlays" defaultOpen={false}>
+            <SyncPanel />
+          </CollapsibleSection>
+
           {/* v0.9.0 — measurements list (mirrors OHIF's Measurements
               panel) + DICOM tag browser (parses dcmjs against the
-              loaded volume's source bytes). Both render only when
-              there's a volume loaded; cheap to mount otherwise. */}
+              loaded volume's source bytes). v0.9.1 — list now renders
+              every shape kind, not just distance/angle. */}
           <CollapsibleSection title="Measurements" defaultOpen={false}>
             <MeasurementsListPanel />
           </CollapsibleSection>
 
           <CollapsibleSection title="DICOM tags" defaultOpen={false}>
             <DicomTagBrowser />
+          </CollapsibleSection>
+
+          {/* v0.9.1 — hotkey customization (mirrors OHIF's User
+              Preferences → Hotkeys). Bindings persist to localStorage. */}
+          <CollapsibleSection title="Hotkeys" defaultOpen={false}>
+            <HotkeysPanel />
           </CollapsibleSection>
 
           <CollapsibleSection title="Correction" defaultOpen={false}>
@@ -512,6 +537,10 @@ export function AppShell() {
           {/* v0.9.0 — top-right floating quick tools (Invert / FlipH /
               Rotate). Auto-hides when no volume loaded. */}
           <ViewerToolbar viewerRef={viewerRef} />
+          {/* v0.9.1 — segment-label legend (top-right, under toolbar).
+              Shows per-label colour swatch + voxel count when a mask
+              overlay is loaded. */}
+          <SegmentLabelsOverlay />
           <Viewer ref={viewerRef} />
           {/* v0.7.8 — overlays mounted as siblings inside the relative
               `#viewer` <section> so SVG `absolute inset-0` lands on
@@ -520,6 +549,12 @@ export function AppShell() {
               through; the only clickable elements are the per-
               measurement delete handles inside MeasurementsOverlay. */}
           <MeasurementsOverlay viewerRef={viewerRef} />
+          {/* v0.9.1 — unified ROI overlay for the new shape kinds
+              (rectangle, ellipse, circle, freehand, spline, livewire,
+              W/L region, bidirectional, cobb, directional, magnify).
+              Captures pointer events ONLY when a tool is armed via
+              the ToolPicker. */}
+          <RoiOverlay viewerRef={viewerRef} />
           <SliceChipsOverlay viewerRef={viewerRef} />
           {/* v0.8.5 — axis-coloured crosshair overlay. Hides
               NiiVue's native single-color crosshair and paints

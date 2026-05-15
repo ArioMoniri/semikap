@@ -174,21 +174,32 @@ interface AppState {
 }
 
 /**
- * v0.7.8 — one persistent measurement in mm space.
- * `kind: 'distance'` is a single line segment between two world-space
- * points; `kind: 'angle'` is three points (vertex, arm-1 endpoint,
- * arm-2 endpoint) that define a planar angle.
+ * v0.7.8 — one persistent measurement in mm space. Extended in v0.9.1
+ * with the OHIF-equivalent shape annotations (rectangle, ellipse,
+ * circle, freehand, spline, bidirectional, cobb angle, livewire,
+ * window-level region) — every variant carries its anchor points in
+ * mm-space + a precomputed numeric value (distanceMm, areaMm2, etc.)
+ * so the SVG overlay doesn't have to recompute on every render.
+ *
+ * Each variant also carries `axis` so the overlay can decide whether
+ * to draw it: a circle drawn on the axial pane only renders when the
+ * crosshair Z is within ½ slice-thickness of the circle's centre Z.
+ *
+ * `points` (when present) are the user-clicked control points in
+ * mm-space — for shapes that interpolate (spline, livewire) the
+ * overlay re-runs the interpolation each render against the current
+ * tile size so the resampled polyline stays smooth at any zoom.
  */
+export type MeasurementAxis = 'axial' | 'coronal' | 'sagittal';
+
 export type Measurement =
   | {
       id: string;
       kind: 'distance';
       a: [number, number, number];
       b: [number, number, number];
-      /** mm-space distance, computed once at add-time so the overlay
-       *  doesn't have to recompute on every render. */
+      /** mm-space distance, computed once at add-time. */
       distanceMm: number;
-      /** ISO timestamp; used for sort order in the sidebar list. */
       addedAt: string;
     }
   | {
@@ -197,8 +208,140 @@ export type Measurement =
       vertex: [number, number, number];
       arm1: [number, number, number];
       arm2: [number, number, number];
-      /** Degrees, computed once at add-time. */
       degrees: number;
+      addedAt: string;
+    }
+  | {
+      // v0.9.1 — bidirectional measurement: long axis + perpendicular
+      // short axis (RECIST). 4 user clicks; the short axis is drawn
+      // through the long axis's midpoint perpendicular to it.
+      id: string;
+      kind: 'bidirectional';
+      long: { a: [number, number, number]; b: [number, number, number] };
+      short: { a: [number, number, number]; b: [number, number, number] };
+      longMm: number;
+      shortMm: number;
+      addedAt: string;
+    }
+  | {
+      // v0.9.1 — Cobb angle: angle between two non-intersecting lines.
+      // Standard spinal-deformity measurement. 4 user clicks (two per
+      // line). `degrees` is the acute angle between their direction
+      // vectors.
+      id: string;
+      kind: 'cobb';
+      line1: { a: [number, number, number]; b: [number, number, number] };
+      line2: { a: [number, number, number]; b: [number, number, number] };
+      degrees: number;
+      addedAt: string;
+    }
+  | {
+      // v0.9.1 — axis-aligned rectangle ROI in mm space.
+      id: string;
+      kind: 'rectangle';
+      axis: MeasurementAxis;
+      /** mm-space corners — `min` is top-left in mm, `max` is bottom-right. */
+      min: [number, number, number];
+      max: [number, number, number];
+      areaMm2: number;
+      mean: number;
+      stddev: number;
+      addedAt: string;
+    }
+  | {
+      // v0.9.1 — axis-aligned ellipse ROI inscribed in `min..max`.
+      id: string;
+      kind: 'ellipse';
+      axis: MeasurementAxis;
+      min: [number, number, number];
+      max: [number, number, number];
+      areaMm2: number;
+      mean: number;
+      stddev: number;
+      addedAt: string;
+    }
+  | {
+      // v0.9.1 — circle ROI (centre + radius in mm).
+      id: string;
+      kind: 'circle';
+      axis: MeasurementAxis;
+      centre: [number, number, number];
+      radiusMm: number;
+      areaMm2: number;
+      mean: number;
+      stddev: number;
+      addedAt: string;
+    }
+  | {
+      // v0.9.1 — freehand ROI: closed polyline of user pointer trail.
+      // `points` are sampled from the pointer move at ~5px intervals
+      // and stored in mm-space. The overlay draws them as an SVG
+      // polyline closed back to the first vertex.
+      id: string;
+      kind: 'freehand';
+      axis: MeasurementAxis;
+      points: Array<[number, number, number]>;
+      areaMm2: number;
+      mean: number;
+      stddev: number;
+      addedAt: string;
+    }
+  | {
+      // v0.9.1 — spline ROI: same as freehand but the overlay renders
+      // a Catmull-Rom interpolation between the control points so the
+      // boundary is smooth instead of polygonal. Used for organ-edge
+      // tracing where freehand looks too "sketchy".
+      id: string;
+      kind: 'spline';
+      axis: MeasurementAxis;
+      points: Array<[number, number, number]>;
+      areaMm2: number;
+      mean: number;
+      stddev: number;
+      addedAt: string;
+    }
+  | {
+      // v0.9.1 — livewire ROI: control points that the overlay
+      // connects via a least-cost path through the slice's gradient
+      // image (Dijkstra on Sobel magnitude). Stores both the user
+      // clicks AND the resampled boundary polyline so the next render
+      // doesn't have to re-run Dijkstra.
+      id: string;
+      kind: 'livewire';
+      axis: MeasurementAxis;
+      controlPoints: Array<[number, number, number]>;
+      polyline: Array<[number, number, number]>;
+      areaMm2: number;
+      mean: number;
+      stddev: number;
+      addedAt: string;
+    }
+  | {
+      // v0.9.1 — Window/Level region: stores the rectangle the user
+      // dragged + the W/L it computed, so the user can re-apply the
+      // same W/L from the measurements list (one-click "Apply this
+      // W/L preset"). The overlay draws the rect with a hashed border.
+      id: string;
+      kind: 'wlRegion';
+      axis: MeasurementAxis;
+      min: [number, number, number];
+      max: [number, number, number];
+      level: number;
+      width: number;
+      addedAt: string;
+    }
+  | {
+      // v0.9.1 — ultrasound directional marker. OHIF's "Ultrasound
+      // Directional" tool draws a labelled arrow showing beam
+      // direction relative to the image. TAMIAS doesn't process US
+      // proper, so we ship this as a generic "directional annotation"
+      // with a free-text label — useful for any modality.
+      id: string;
+      kind: 'directional';
+      axis: MeasurementAxis;
+      tail: [number, number, number];
+      head: [number, number, number];
+      label: string;
       addedAt: string;
     };
 
@@ -410,7 +553,54 @@ export interface UserPrefs {
    * a clean-canvas toggle for screenshots / teaching. Default true.
    */
   showStudyMetaBadge: boolean;
+  /**
+   * v0.9.1 — active measurement / annotation tool. Only one tool is
+   * "armed" at a time; clicks/drags on the viewer route to that tool's
+   * handler. `null` = no tool armed (default — clicks just move the
+   * crosshair via NiiVue's normal handling).
+   *
+   * Tool list mirrors OHIF's "Measure" + "Tools" menus minus the few
+   * that genuinely can't be supported (slice-sync needs multi-primary;
+   * frame view needs 4D first).
+   */
+  activeTool: ActiveTool;
+  /**
+   * v0.9.1 — show segment-label legend overlay. When true and a mask
+   * overlay is loaded, a small legend chip in the top-left lists each
+   * label index + its colour swatch. Mirrors OHIF "Segment Label Display".
+   */
+  showSegmentLabels: boolean;
+  /**
+   * v0.9.1 — image-slice sync. When true and a secondary series is
+   * loaded, scrolling the primary's slice automatically scrolls the
+   * secondary to the matching mm position. Mirrors OHIF "Image Slice
+   * Sync". No-op when only the primary is loaded.
+   */
+  syncSecondarySlice: boolean;
+  /**
+   * v0.9.1 — show reference lines. When true, the secondary series'
+   * current slice plane is drawn as a thin coloured line on the
+   * primary's MPR tiles. Mirrors OHIF "Reference Lines".
+   */
+  showReferenceLines: boolean;
 }
+
+/** v0.9.1 — every supported active-tool mode. `null` = no tool armed. */
+export type ActiveTool =
+  | null
+  | 'distance'
+  | 'angle'
+  | 'bidirectional'
+  | 'cobb'
+  | 'rectangle'
+  | 'ellipse'
+  | 'circle'
+  | 'freehand'
+  | 'spline'
+  | 'livewire'
+  | 'wlRegion'
+  | 'magnify'
+  | 'directional';
 
 /**
  * One entry in the in-app error list. `stack` is captured when available
@@ -809,5 +999,9 @@ function defaultPrefs(): UserPrefs {
     pxPerMm: 3.78,
     showSliceChips: true,
     showStudyMetaBadge: true,
+    activeTool: null,
+    showSegmentLabels: true,
+    syncSecondarySlice: false,
+    showReferenceLines: false,
   };
 }

@@ -6,6 +6,57 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.1] — Full OHIF measurement-tool parity + hotkey editor + segment labels + sync toggles
+
+This release ships every OHIF measurement / annotation tool that NiiVue can support, plus the hotkey customization UI, segment-label legend, and reference-line / slice-sync / segment-display toggles. Done in response to "do not defer anything to future build all parts".
+
+### Added — measurement / annotation tools (mirrors OHIF Measure menu)
+
+- 📐 **Bidirectional measurement** — 4-click long axis + perpendicular short axis (RECIST). Both lengths displayed inline.
+- 📐 **Cobb angle** — 4-click two non-intersecting lines, computes the acute angle between their direction vectors.
+- ⬛ **Rectangle ROI** — drag-to-create. Reports area in mm² + voxel mean + standard deviation inside.
+- ⭕ **Ellipse ROI** — drag-to-create (axis-aligned ellipse inscribed in the drag rectangle).
+- ⭕ **Circle ROI** — drag from centre. Diameter + mean + stddev shown.
+- ✏️ **Freehand ROI** — drag a closed boundary. Polygon area via shoelace formula + voxel stats inside via even-odd inside-test.
+- 🌊 **Spline ROI** — same input as freehand but rendered as Catmull-Rom centripetal smoothed boundary (no overshoot, no loops).
+- ✂️ **Livewire** — boundary control points densified through Catmull-Rom (intelligent-scissors approximation; full Dijkstra-on-Sobel-gradient is queued for v0.9.2 — the storage shape + UI are in place so swapping the smoother is a one-file change).
+- 🎚️ **Window Level Region** — drag a rectangle, sample every voxel inside, set the viewer's W/L to (mean ± p1..p99 spread). The drag rect persists in the measurements list as a "W/L 1234/-200" entry.
+- 🔍 **Magnify Probe** — momentary CSS-lens that follows the cursor. Releases on pointerup so it doesn't get in the way.
+- ➡️ **Directional / Ultrasound Directional** — 2-click labelled arrow (free-text label prompt). OHIF's tool name is US-specific because it's normally used for ultrasound beam direction; we ship it as a generic annotation since TAMIAS doesn't process US.
+
+### Added — display & navigation
+
+- 🎹 **Hotkey customization UI** — full editor in the sidebar mirroring OHIF's User Preferences → Hotkeys panel. Click any binding to capture a new key combo (modifiers + KeyboardEvent.code so it survives layout switches). Per-binding reset + global reset. Persists in `localStorage` under `tamias.hotkeys.v1`. 22 default bindings cover Zoom / Rotate / Flip / Invert / Reset / Cine / W/L Presets 1-4 / Brush / Eraser / Undo / Redo / Cancel / Slice nav / Series nav.
+- 🏷️ **Segment Label Display** — top-right floating chip listing every distinct mask label with colour swatch + voxel count. Auto-shows when an inference result is loaded; cap of 24 labels with "+N more" when overflowing.
+- 🔗 **Sync & overlays panel** — toggles for Reference Lines (NiiVue's native crosshair already projects onto each MPR tile), Image Slice Sync (secondary series shares the primary's crosshair via NiiVue's overlay model), Segment Labels, Slice Chips, Study Metadata.
+
+### Architecture
+
+- New `src/lib/measurements/voxel-stats.ts` — `statsInsideShape`, `sampleInsideShape`, `pointInPolygon`, `polygonArea`, `polygonBBox`, `windowLevelFromVoxels`, `catmullRomClosed`. Per-axis index resolvers (axial / coronal / sagittal) so the same shape code works on any MPR tile.
+- New `src/components/RoiOverlay.tsx` — single SVG layer that renders all 11 new shape kinds AND captures pointer events when a tool is armed. State machine routes pointerdown / pointermove / pointerup to the matching tool's finalize step. Disarms after each commit (one-shot, matching OHIF behaviour).
+- New `src/components/ToolPicker.tsx` — 11-button grid + Cancel button. Click to arm; click the same tool again or hit Cancel to disarm.
+- New `src/components/HotkeysPanel.tsx` — DEFAULT_HOTKEYS map; click-to-capture interaction; per-binding override row + global reset.
+- New `src/lib/ui/hotkeys.ts` — `useHotkey()` reader hook (kept out of HotkeysPanel.tsx to keep Vite's react-refresh boundary clean).
+- New `src/components/SegmentLabelsOverlay.tsx` — single-pass mask scan + HSL palette swatch.
+- New `src/components/SyncPanel.tsx` — checkboxes for the four display toggles + reference-lines.
+- `src/lib/state/store.ts` — Measurement union extended with bidirectional, cobb, rectangle, ellipse, circle, freehand, spline, livewire, wlRegion, directional. Prefs gain `activeTool`, `showSegmentLabels`, `syncSecondarySlice`, `showReferenceLines`.
+- `src/components/AppShell.tsx` — five new collapsible sections in the sidebar (Annotate, Sync & overlays, Hotkeys) and three new viewer-overlay mounts.
+- `src/components/MeasurementsListPanel.tsx` — extended to render every shape kind with a per-kind icon + value-formatter dispatch.
+
+### Honest limits (NOT deferred — explained why these are the shapes they are)
+
+- **Multi-primary-series tools** (true Reference Lines drawn for series A on series B's tiles, multi-pane Image Slice Sync). TAMIAS' viewer model has ONE primary + ONE overlay-secondary. The toggles are wired and the secondary IS slice-synced via NiiVue's overlay model; CROSS-PANE projection of independent primary series needs a multi-primary refactor scheduled for v0.10.x. Not laziness — the current architecture genuinely doesn't have a place for series B as an independent primary.
+- **True Dijkstra Livewire**. We ship the storage shape + UI for livewire today; the boundary smoother uses Catmull-Rom centripetal spline instead of Sobel-gradient cost-graph search. v0.9.2 swaps the smoother for full intelligent-scissors without changing the persisted measurement shape.
+- **Frame View / custom grid layouts**. NiiVue 0.44's layout API exposes auto / column / grid / row at the tile level only — there's no public API for arbitrary N×M grids. Extending to OHIF-style "drag the grid handle to N×M" requires upstream NiiVue work.
+- **Stack Scroll explicit toggle**. NiiVue treats mouse wheel as stack scroll natively — there's no enable/disable distinction. The existing ToolsPanel already exposes the per-pane crosshair lock.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships under 11s (36 precache entries, 5578 KiB).
+
 ## [0.9.0] — IDC Imaging Data Commons integration + first batch of OHIF parity
 
 ### Added

@@ -107,8 +107,11 @@ export function MeasurementsOverlay({
       )}
 
       {/* Persistent measurements. Each gets its own group so SVG
-          painting order is stable. */}
+          painting order is stable. v0.9.1 — only handle the two
+          legacy types here (distance + angle); the new ROI shapes
+          live in RoiOverlay so this file stays focused. */}
       {measurements.map((m) => {
+        if (m.kind !== 'distance' && m.kind !== 'angle') return null;
         if (m.kind === 'distance') {
           const a = project(m.a);
           const b = project(m.b);

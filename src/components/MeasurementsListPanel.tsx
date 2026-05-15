@@ -1,5 +1,16 @@
 import { useMemo } from 'react';
-import { Ruler, Triangle, Trash2 } from 'lucide-react';
+import {
+  Ruler,
+  Triangle,
+  Trash2,
+  Square,
+  Circle,
+  Spline,
+  Crosshair,
+  Hexagon,
+  ArrowRight,
+} from 'lucide-react';
+import type { Measurement } from '../lib/state/store';
 import { useAppStore } from '../lib/state/store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
@@ -77,22 +88,12 @@ export function MeasurementsListPanel() {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1">
-                  {m.kind === 'distance' ? (
-                    <Ruler className="h-3 w-3 text-blue-500" />
-                  ) : (
-                    <Triangle className="h-3 w-3 text-emerald-500" />
-                  )}
+                  {iconForKind(m.kind)}
                   <span className="font-medium text-slate-700 dark:text-slate-300">
-                    {m.kind === 'distance'
-                      ? formatDistance(m.distanceMm, distanceUnit)
-                      : `${m.degrees.toFixed(1)}°`}
+                    {labelFor(m, distanceUnit)}
                   </span>
                 </div>
-                <div className="truncate text-[10px] text-slate-500">
-                  {m.kind === 'distance'
-                    ? `${formatPoint(m.a)} → ${formatPoint(m.b)}`
-                    : `vertex ${formatPoint(m.vertex)}`}
-                </div>
+                <div className="truncate text-[10px] text-slate-500">{detailFor(m)}</div>
               </div>
               <button
                 type="button"
@@ -119,4 +120,87 @@ function formatDistance(mm: number, unit: 'mm' | 'cm' | 'px'): string {
   if (unit === 'cm') return `${(mm / 10).toFixed(2)} cm`;
   if (unit === 'px') return `${mm.toFixed(0)} px (≈mm)`;
   return `${mm.toFixed(2)} mm`;
+}
+
+/**
+ * v0.9.1 — kind→icon for the measurements list. Each shape gets a
+ * distinct affordance so the user can scan the list visually.
+ */
+function iconForKind(kind: Measurement['kind']) {
+  switch (kind) {
+    case 'distance':
+      return <Ruler className="h-3 w-3 text-blue-500" />;
+    case 'angle':
+      return <Triangle className="h-3 w-3 text-emerald-500" />;
+    case 'bidirectional':
+      return <Ruler className="h-3 w-3 text-cyan-500" />;
+    case 'cobb':
+      return <Triangle className="h-3 w-3 text-rose-500" />;
+    case 'rectangle':
+      return <Square className="h-3 w-3 text-emerald-500" />;
+    case 'ellipse':
+    case 'circle':
+      return <Circle className="h-3 w-3 text-emerald-500" />;
+    case 'freehand':
+    case 'spline':
+    case 'livewire':
+      return <Spline className="h-3 w-3 text-fuchsia-500" />;
+    case 'wlRegion':
+      return <Hexagon className="h-3 w-3 text-sky-500" />;
+    case 'directional':
+      return <ArrowRight className="h-3 w-3 text-amber-500" />;
+    default:
+      return <Crosshair className="h-3 w-3 text-slate-400" />;
+  }
+}
+
+function labelFor(m: Measurement, unit: 'mm' | 'cm' | 'px'): string {
+  switch (m.kind) {
+    case 'distance':
+      return formatDistance(m.distanceMm, unit);
+    case 'angle':
+      return `${m.degrees.toFixed(1)}°`;
+    case 'bidirectional':
+      return `${formatDistance(m.longMm, unit)} × ${formatDistance(m.shortMm, unit)}`;
+    case 'cobb':
+      return `${m.degrees.toFixed(1)}° (Cobb)`;
+    case 'rectangle':
+    case 'ellipse':
+    case 'freehand':
+    case 'spline':
+    case 'livewire':
+      return `${m.areaMm2.toFixed(1)} mm² · μ=${m.mean.toFixed(1)}`;
+    case 'circle':
+      return `Ø${(m.radiusMm * 2).toFixed(1)} mm · μ=${m.mean.toFixed(1)}`;
+    case 'wlRegion':
+      return `W ${m.width.toFixed(0)} / L ${m.level.toFixed(0)}`;
+    case 'directional':
+      return m.label || 'arrow';
+  }
+}
+
+function detailFor(m: Measurement): string {
+  switch (m.kind) {
+    case 'distance':
+      return `${formatPoint(m.a)} → ${formatPoint(m.b)}`;
+    case 'angle':
+      return `vertex ${formatPoint(m.vertex)}`;
+    case 'bidirectional':
+      return `long ${formatPoint(m.long.a)} → ${formatPoint(m.long.b)}`;
+    case 'cobb':
+      return `line1 ${formatPoint(m.line1.a)} → ${formatPoint(m.line1.b)}`;
+    case 'rectangle':
+    case 'ellipse':
+    case 'wlRegion':
+      return `${m.axis} · ${formatPoint(m.min)} → ${formatPoint(m.max)}`;
+    case 'circle':
+      return `${m.axis} · centre ${formatPoint(m.centre)}`;
+    case 'freehand':
+    case 'spline':
+      return `${m.axis} · ${m.points.length} points`;
+    case 'livewire':
+      return `${m.axis} · ${m.controlPoints.length} ctrl, ${m.polyline.length} pts`;
+    case 'directional':
+      return `${m.axis} · ${formatPoint(m.tail)} → ${formatPoint(m.head)}`;
+  }
 }
