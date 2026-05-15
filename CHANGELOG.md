@@ -6,6 +6,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.3] — Continuous brightness/contrast control (was binary Invert) + folds in v0.9.2 hot-fixes
+
+### Changed
+
+- 💡 **Top-right "Invert" button is now a continuous Brightness/Contrast control** ("this setting should be adjustable light not just binary by the cursor"). v0.9.0–v0.9.2 shipped a binary Invert toggle on the toolbar. v0.9.3 turns it into a proper W/L control:
+  1. **Click** the button → arms NiiVue's `dragMode='contrast'` so dragging the cursor on the viewer continuously adjusts W/L (horizontal = window width, vertical = window level — standard radiology convention). Click again to disarm. Active state shows an accent-coloured outline so the user can see the cursor-mode is armed.
+  2. **Hover** the button → reveals a popover with two sliders (Level + Width) for direct numeric adjustment, plus the old binary Invert as a small secondary toggle and an "Auto" button to reset to NiiVue's auto-W/L.
+  3. Slider bounds adapt to the loaded volume's dtype: `[0, 255]` for `uint8`, `[-2048, 4096]` for `int16/uint16` (covers HU + most MR ranges), or auto-scaled around the current value for floats. Step granularity matches.
+  4. Auto-disarms when the user picks a measurement tool (so the contrast drag mode doesn't interfere with rectangle/ellipse/etc. drags).
+
+### Fixed (folded from v0.9.2 — never published as a separate release)
+
+- 🎯 **Measurement tools now actually land** — Added `canvasToMm` to NiiVue wrapper using `tileMM` + screenSlices walker. RoiOverlay now uses NiiVue's real volume affine for canvas↔mm conversion instead of the v0.9.1 hand-rolled identity-affine formula. Shapes round-trip exactly through `mmToCanvas` regardless of volume orientation.
+- 🎹 **Hotkeys now actually fire** — New `HotkeyDispatcher` mounts at AppShell, installs a single global keydown listener, builds canonical combo from event, dispatches matching action. **24 actions wired**: zoom, rotate, flip H, invert, reset, cancel-tool (Esc), undo, delete-last-annotation, brush, eraser, **W/L Presets 1-4** (CT Abdomen 40/400, Lung -600/1500, Brain 40/80, Soft tissue 50/250). Skips when typing in inputs.
+- ☁️ **IDC search works + badge no longer permanently "offline"**:
+  - `StudyDescription` server-side filter dropped (Google Healthcare 400s on it); now post-filtered client-side.
+  - `pingProxy` switched HEAD→GET (HEAD always 404'd, badge always said "offline").
+  - Server JSON `error.message` now surfaced in the toast.
+
+### Internal
+
+- `src/components/ViewerToolbar.tsx` — rewritten. New popover with sliders + cursor-drag mode + Invert + Auto.
+- `src/lib/viewer/niivue.ts` — `canvasToMm()` (v0.9.2 fix retained).
+- `src/components/HotkeyDispatcher.tsx` — new file (v0.9.2 fix retained).
+- `src/lib/idc/dicomweb.ts` — pingProxy + searchStudies fixes (v0.9.2 fix retained).
+- `src/components/RoiOverlay.tsx` — canvasToSliceVox rewrite (v0.9.2 fix retained).
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships under 11s.
+
 ## [0.9.2] — Hot-fix: measurement tools land correctly, hotkeys actually fire, IDC search works
 
 Three regressions reported against v0.9.1, all fixed:
