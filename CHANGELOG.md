@@ -6,6 +6,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.4] — IDC date input accepts loose formats (year, year-month, ranges)
+
+### Fixed
+
+- 📅 **IDC search 400 on partial dates** ("IDC search failed: 400 — 2010 cannot be parsed as a date" / "20102015 cannot be parsed as a date"). Pre-v0.9.4 the IdcBrowser just stripped dashes from the user's input and forwarded it as the StudyDate filter, which the Google Healthcare DICOM store rejected unless it was already in strict YYYYMMDD or YYYYMMDD-YYYYMMDD form. v0.9.4 normalizes loose input on the client:
+  - `2010` → `20100101-20101231` (full year)
+  - `2010-2015` → `20100101-20151231` (year range)
+  - `2010-01` → `20100101-20100131` (full month, last-day computed via `Date(year, m, 0)`)
+  - `2010-01-15` → `20100115` (single day)
+  - `2010-2015-06` → mixed-precision range (year start, year+month end)
+  - `20100115` → passes through unchanged (already valid)
+  - Anything that doesn't match a known shape passes through so the server's error message still surfaces (no silent corruption).
+- 📅 Placeholder updated to show the supported shapes inline: `"2010 · 2010-2015 · 2010-01 · 2010-01-15"`.
+
+### Internal
+
+- `src/components/IdcBrowser.tsx` — `normalizeStudyDate()` + `expandDatePart()` + `lastDayOfMonth()` helpers.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.9.3] — Continuous brightness/contrast control (was binary Invert) + folds in v0.9.2 hot-fixes
 
 ### Changed

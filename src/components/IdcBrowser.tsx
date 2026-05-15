@@ -93,7 +93,7 @@ export function IdcBrowser({
         ...(patientId && { PatientID: patientId.trim() }),
         ...(modality && { ModalitiesInStudy: modality.trim() }),
         ...(studyDescription && { StudyDescription: studyDescription.trim() }),
-        ...(studyDate && { StudyDate: studyDate.trim().replace(/-/g, '') }),
+        ...(studyDate && { StudyDate: normalizeStudyDate(studyDate) }),
         limit: 50,
       });
       setResults(studies);
@@ -249,12 +249,12 @@ export function IdcBrowser({
               />
             </label>
             <label className="space-y-0.5">
-              <span className="text-slate-500">Study date (YYYY-MM-DD or range)</span>
+              <span className="text-slate-500">Study date or range</span>
               <input
                 type="text"
                 value={studyDate}
                 onChange={(e) => setStudyDate(e.target.value)}
-                placeholder="e.g. 2010-2015"
+                placeholder="2010 · 2010-2015 · 2010-01 · 2010-01-15"
                 className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
               />
             </label>
@@ -407,4 +407,85 @@ export function IdcBrowser({
       )}
     </Card>
   );
+}
+
+/**
+ * v0.9.4 — coerce loose user date input into a DICOMweb-compliant
+ * StudyDate filter value. The IDC proxy (Google Healthcare DICOM
+ * store) only accepts:
+ *   - YYYYMMDD            (single day)
+ *   - YYYYMMDD-YYYYMMDD   (closed range)
+ *   - -YYYYMMDD           (everything up to that day)
+ *   - YYYYMMDD-           (everything from that day)
+ *
+ * Pre-v0.9.4 we just stripped dashes, so "2010" became "2010" (server
+ * 400 "cannot be parsed as a date") and "2010-2015" became "20102015"
+ * (same error). User report:
+ *   "IDC search failed: 400 — 2010 cannot be parsed as a date"
+ *
+ * Now we expand each shorthand into a proper YYYYMMDD or
+ * YYYYMMDD-YYYYMMDD range using sensible defaults:
+ *   "2010"          → 20100101-20101231
+ *   "2010-2015"     → 20100101-20151231
+ *   "2010-01"       → 20100101-20100131
+ *   "2010-01-15"    → 20100115
+ *   "20100115"      → 20100115        (already valid)
+ *   "2010-01-2015"  → 20100101-20151231 (interpreted as Y-M / Y range)
+ *
+ * Anything that doesn't match a known shape passes through as-is and
+ * lets the server error so the user sees the raw message.
+ */
+function normalizeStudyDate(input: string): string {
+  const raw = input.trim();
+  if (!raw) return '';
+  // Already in DICOM YYYYMMDD-YYYYMMDD shape (with optional open ends).
+  if (/^\d{8}(-\d{8})?$/.test(raw) || /^-\d{8}$/.test(raw) || /^\d{8}-$/.test(raw)) {
+    return raw;
+  }
+  // Range with a hyphen between two parts (each part = year, year-month, or year-month-day).
+  const rangeMatch = raw.split(/\s*-\s*/);
+  if (rangeMatch.length === 2 && rangeMatch[0] && rangeMatch[1]) {
+    const start = expandDatePart(rangeMatch[0], 'start');
+    const end = expandDatePart(rangeMatch[1], 'end');
+    if (start && end) return `${start}-${end}`;
+  }
+  // Single year / year-month / year-month-day → expand to a single-day
+  // or full-range filter as appropriate.
+  if (/^\d{4}$/.test(raw)) {
+    return `${raw}0101-${raw}1231`;
+  }
+  if (/^\d{4}-?\d{2}$/.test(raw)) {
+    const y = raw.slice(0, 4);
+    const m = raw.slice(-2);
+    return `${y}${m}01-${y}${m}${lastDayOfMonth(+y, +m)}`;
+  }
+  if (/^\d{4}-?\d{2}-?\d{2}$/.test(raw)) {
+    return raw.replace(/-/g, '');
+  }
+  // Unknown shape — let the server complain so the user sees a clear error.
+  return raw;
+}
+
+function expandDatePart(part: string, edge: 'start' | 'end'): string | null {
+  const t = part.trim();
+  if (/^\d{4}$/.test(t)) {
+    return edge === 'start' ? `${t}0101` : `${t}1231`;
+  }
+  if (/^\d{4}-?\d{2}$/.test(t)) {
+    const y = t.slice(0, 4);
+    const m = t.slice(-2);
+    return edge === 'start' ? `${y}${m}01` : `${y}${m}${lastDayOfMonth(+y, +m)}`;
+  }
+  if (/^\d{4}-?\d{2}-?\d{2}$/.test(t)) {
+    return t.replace(/-/g, '');
+  }
+  if (/^\d{8}$/.test(t)) return t;
+  return null;
+}
+
+function lastDayOfMonth(year: number, monthIndex1: number): string {
+  // monthIndex1 is 1-12; Date(y, m, 0).getDate() returns the last day
+  // of month (m-1), which is exactly what we need.
+  const d = new Date(year, monthIndex1, 0).getDate();
+  return d.toString().padStart(2, '0');
 }
