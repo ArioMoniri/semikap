@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.6] — IDC series load fixed: NVImage.loadFromFile takes an options object, not positional args
+
+### Fixed
+
+- 🧱 **"IDC download failed: could not build NVImage"** when loading a multi-instance series. Root cause: the multi-DICOM loader (`loadPrimaryFromFiles` in `src/lib/viewer/niivue.ts`) called NiiVue's `NVImage.loadFromFile(files, { name })` positionally, but NiiVue 0.44's actual signature is `loadFromFile({ file, name, ... })` — a single options object. NiiVue destructured `file=undefined, name=undefined` from our positional call and threw the generic "could not build NVImage" because it had no bytes to parse. Local single-file loads weren't affected because they go through `loadPrimaryFromBytes` (which uses `NVImage.loadFromUrl` with a Blob URL); only the multi-file series path hit this. Fix: pass `{ file: files, name: ensureNiiName(items[0].name) }` as a single object per the NiiVue type definition.
+- 🩺 Added a diagnostic catch-and-rethrow around the `loadFromFile` call: when it still fails (e.g., the series uses JPEG 2000 or RLE compressed transfer syntaxes that NiiVue's built-in DICOM parser doesn't decode, or the series mixes non-image instances like SR/SEG/RWV), the error message now includes file count, first-file name + size, and a DICM-magic check. Pre-v0.9.6 every loader failure produced the same "could not build NVImage" with no actionable detail.
+
+### Internal
+
+- `src/lib/viewer/niivue.ts` — `loadPrimaryFromFiles()` rewrite of the `loadFromFile` call site + diagnostic wrapper.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.9.5] — IDC instance download fixed (drop `?accept=` query param)
 
 ### Fixed

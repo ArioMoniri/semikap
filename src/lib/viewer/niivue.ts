@@ -248,16 +248,40 @@ export class NiivueViewer {
           type: it.name.toLowerCase().endsWith('.dcm') ? 'application/dicom' : 'application/octet-stream',
         })
     );
-    // NVImage.loadFromFile in 0.44.x accepts File | File[]; the array form
-    // is the documented multi-DICOM-slice load path. The cast keeps us
-    // tolerant of older typings that only declared the singular form.
-    type LoadFromFile = (
-      arg: File | File[],
-      opts?: Record<string, unknown>
-    ) => Promise<NVImage>;
+    // v0.9.6 — NiiVue 0.44 NVImage.loadFromFile takes a SINGLE OPTIONS
+    // OBJECT shaped { file: File | File[], name?, ... } — NOT positional
+    // (file, opts). Pre-v0.9.6 we called `loadFromFile(files, { name })`
+    // which destructured to `file=undefined, name=undefined` inside
+    // NiiVue, and the loader threw the generic "could not build NVImage"
+    // because it had no file bytes to parse. Local single-DICOM loads
+    // happened to work because they take the loadPrimaryFromBytes path
+    // (which uses NVImage.loadFromUrl with a Blob URL), not this path.
+    // User reported "IDC download failed: could not build NVImage" once
+    // a multi-instance series came down from the proxy — that's when
+    // this code path actually fired.
+    type LoadFromFile = (opts: {
+      file: File | File[];
+      name?: string;
+    }) => Promise<NVImage>;
     const loadFromFile = (NVImage as unknown as { loadFromFile: LoadFromFile })
       .loadFromFile;
-    const image = await loadFromFile(files, { name: ensureNiiName(items[0]!.name) });
+    let image: NVImage;
+    try {
+      image = await loadFromFile({ file: files, name: ensureNiiName(items[0]!.name) });
+    } catch (err) {
+      // Surface a more useful error than the bare NiiVue "could not build
+      // NVImage" — include the first-instance byte count + magic-bytes
+      // probe so downstream "IDC download failed: …" toasts give the user
+      // something actionable. Most failures here are non-image instances
+      // (DICOM SR/SEG/RWV mixed into the series) or compressed transfer
+      // syntaxes NiiVue's built-in parser can't decode (JPEG 2000, RLE).
+      const first = files[0];
+      const head = first ? new Uint8Array(await first.arrayBuffer().catch(() => new ArrayBuffer(0))).slice(0, 132) : null;
+      const isDicom = head && head.length >= 132 &&
+        head[128] === 0x44 && head[129] === 0x49 && head[130] === 0x43 && head[131] === 0x4d;
+      const detail = `${files.length} files, first=${first?.name ?? '?'} (${first?.size ?? 0} bytes, ${isDicom ? 'DICOM magic OK' : 'no DICM magic — non-DICOM or implicit-VR'})`;
+      throw new Error(`NiiVue could not build the volume: ${(err as Error).message || 'unknown'}. ${detail}`);
+    }
     this.nv.addVolume(image);
     this.nv.updateGLVolume();
     this.primaryIndex = 0;
