@@ -115,6 +115,13 @@ export interface ViewerHandle {
    *  matches the canvas position) to source-axial-slice voxel coords.
    *  Returns null when the click is outside any slice tile. */
   canvasToAxialVoxel(canvasX: number, canvasY: number): { x: number; y: number } | null;
+  /** v0.9.2 — full canvas → mm conversion using NiiVue's tileMM
+   *  (handles all 3 MPR axes correctly with the volume's affine).
+   *  Returns null when the click missed every tile. */
+  canvasToMm(
+    canvasX: number,
+    canvasY: number
+  ): { mm: [number, number, number]; axis: 'axial' | 'coronal' | 'sagittal' } | null;
   /** v0.7.8 — convert a source-mm point to canvas pixel coordinates. */
   mmToCanvas(mm: [number, number, number]): {
     x: number;
@@ -620,6 +627,9 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       canvasToAxialVoxel(x, y) {
         return viewerRef.current?.canvasToAxialVoxel(x, y) ?? null;
+      },
+      canvasToMm(x, y) {
+        return viewerRef.current?.canvasToMm(x, y) ?? null;
       },
       mmToCanvas(mm) {
         return viewerRef.current?.mmToCanvas(mm) ?? null;

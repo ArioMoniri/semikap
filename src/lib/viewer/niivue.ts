@@ -1203,6 +1203,62 @@ export class NiivueViewer {
   }
 
   /**
+   * v0.9.2 — full canvas → mm conversion using NiiVue's tileMM (which
+   * walks the visible tiles and returns the mm coord of whichever one
+   * the click landed on, with the correct slice-axis mapping for each
+   * MPR pane). Returns null when the click missed every tile.
+   *
+   * This is the inverse of mmToCanvas() and is what the new ROI tools
+   * (rectangle, ellipse, circle, freehand, spline, livewire, W/L
+   * region, bidirectional, cobb, directional) use to convert pointer
+   * positions into mm-space anchors. Pre-v0.9.2 the RoiOverlay used a
+   * hand-rolled identity-affine conversion which produced mm values
+   * NiiVue couldn't project back, so the shapes were stored but
+   * rendered nowhere. User report: "none of these and also angle
+   * doesnt work because of niivue I guess".
+   *
+   * Returns the mm triple plus the axis tag so the caller can record
+   * which slice plane the measurement belongs to (used by the overlay
+   * to gate rendering when the user scrolls to a different slice).
+   */
+  canvasToMm(
+    canvasX: number,
+    canvasY: number
+  ): { mm: [number, number, number]; axis: 'axial' | 'coronal' | 'sagittal' } | null {
+    const nv = this.nv as unknown as {
+      tileMM?(canvasX: number, canvasY: number): [number, number, number] | null;
+      screenSlices?: Array<{ leftTopWidthHeight?: number[]; axCorSag?: number }>;
+    };
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const px = canvasX * dpr;
+    const py = canvasY * dpr;
+    const mm = nv.tileMM?.(px, py);
+    if (!mm) return null;
+    // Walk screenSlices in reverse so the topmost tile (last drawn)
+    // wins on overlap. axCorSag: 0=axial, 1=coronal, 2=sagittal, 4=3D.
+    let axis: 'axial' | 'coronal' | 'sagittal' = 'axial';
+    if (nv.screenSlices) {
+      for (let i = nv.screenSlices.length - 1; i >= 0; i--) {
+        const s = nv.screenSlices[i];
+        const r = s?.leftTopWidthHeight;
+        if (!r || r.length < 4) continue;
+        const x = r[0]!;
+        const y = r[1]!;
+        const w = r[2]!;
+        const h = r[3]!;
+        if (px < x || px > x + w || py < y || py > y + h) continue;
+        const ax = s?.axCorSag;
+        if (ax === 0) axis = 'axial';
+        else if (ax === 1) axis = 'coronal';
+        else if (ax === 2) axis = 'sagittal';
+        else continue; // skip 3D tile
+        break;
+      }
+    }
+    return { mm: [mm[0], mm[1], mm[2]], axis };
+  }
+
+  /**
    * v0.7.8 — convert a source-mm point to canvas pixel coordinates.
    * Used by the new MeasurementsOverlay (SVG layer rendered over the
    * viewer canvas) to draw angle arms + persistent distance lines at

@@ -151,8 +151,12 @@ function buildStudyQuery(filters: SearchFilters): string {
   if (filters.ModalitiesInStudy)
     params.set(STUDY_TAGS.ModalitiesInStudy, filters.ModalitiesInStudy.toUpperCase());
   if (filters.StudyDate) params.set(STUDY_TAGS.StudyDate, filters.StudyDate);
-  if (filters.StudyDescription)
-    params.set(STUDY_TAGS.StudyDescription, `*${filters.StudyDescription}*`);
+  // v0.9.2 — DO NOT pass StudyDescription as a server-side filter.
+  // The IDC public proxy (Google Healthcare DICOM store) returns 400
+  // "StudyDescription is not a supported study level attribute" when
+  // we include it. We still ask for it via includefield so the
+  // searchStudies caller can post-filter on the client. User report:
+  // "IDC search failed: 400" — this was the cause.
   params.set('limit', String(filters.limit ?? 50));
   if (filters.offset) params.set('offset', String(filters.offset));
   // Ask the server to include all the tags we display so we don't have to
@@ -180,10 +184,24 @@ export async function searchStudies(filters: SearchFilters): Promise<IdcStudy[]>
   const res = await fetch(url, { headers: { Accept: 'application/dicom+json' } });
   if (res.status === 204) return [];
   if (!res.ok) {
-    throw new Error(`IDC search failed: ${res.status} ${res.statusText}`);
+    // v0.9.2 — surface the server's actual error message (Google
+    // Healthcare returns a JSON envelope with the reason, not just
+    // the HTTP status). Helps diagnose query problems faster than
+    // a bare "400 Bad Request".
+    let detail = '';
+    try {
+      const body = (await res.json()) as Array<{ error?: { message?: string } }> | { error?: { message?: string } };
+      const arr = Array.isArray(body) ? body : [body];
+      detail = arr.map((b) => b.error?.message).filter(Boolean).join('; ');
+    } catch {
+      /* response wasn't JSON; fall through to bare status */
+    }
+    throw new Error(
+      `IDC search failed: ${res.status}${detail ? ` — ${detail}` : ` ${res.statusText}`}`
+    );
   }
   const rows = (await res.json()) as Array<Record<string, unknown>>;
-  return rows.map((r) => ({
+  let mapped = rows.map((r) => ({
     StudyInstanceUID: readTag(r, STUDY_TAGS.StudyInstanceUID),
     StudyDate: readTag(r, STUDY_TAGS.StudyDate),
     StudyDescription: readTag(r, STUDY_TAGS.StudyDescription),
@@ -195,6 +213,13 @@ export async function searchStudies(filters: SearchFilters): Promise<IdcStudy[]>
     NumberOfInstances: readTagInt(r, STUDY_TAGS.NumberOfStudyRelatedInstances),
     AccessionNumber: readTag(r, STUDY_TAGS.AccessionNumber),
   }));
+  // v0.9.2 — client-side StudyDescription filter (the IDC proxy doesn't
+  // accept it server-side; see buildStudyQuery comment).
+  if (filters.StudyDescription) {
+    const needle = filters.StudyDescription.toLowerCase();
+    mapped = mapped.filter((s) => s.StudyDescription.toLowerCase().includes(needle));
+  }
+  return mapped;
 }
 
 /** QIDO-RS series-in-study list. */
@@ -498,9 +523,13 @@ export async function clearCache(): Promise<void> {
  */
 export async function pingProxy(): Promise<boolean> {
   try {
+    // v0.9.2 — switched from HEAD to GET. The IDC proxy returns 404
+    // for HEAD requests on /studies, so the badge always read
+    // "offline" even when the proxy was perfectly healthy. GET with
+    // limit=1 is cheap (one tiny JSON envelope) and definitive.
+    // User report: badge said "offline" while the user was online.
     const url = `${IDC_BASE}/studies?limit=1`;
     const res = await fetch(url, {
-      method: 'HEAD',
       headers: { Accept: 'application/dicom+json' },
     });
     return res.ok || res.status === 204;

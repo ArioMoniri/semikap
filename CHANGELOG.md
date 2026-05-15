@@ -6,6 +6,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.2] — Hot-fix: measurement tools land correctly, hotkeys actually fire, IDC search works
+
+Three regressions reported against v0.9.1, all fixed:
+
+### Fixed
+
+- 🎯 **None of the new measurement tools recorded a shape** ("none of these and also angle doesnt work because of niivue I guess"). Root cause: RoiOverlay computed mm coordinates via a hand-rolled `voxel × spacing + origin` formula that assumed identity volume orientation. NiiVue's `mmToCanvas` uses the volume's actual sform/qform affine, so for almost every real DICOM/NIfTI (which have non-identity orientations) the click was recorded as mm coordinates that NiiVue couldn't project back — the shape was stored but rendered nowhere on canvas. Fix: added `canvasToMm()` to the NiiVue wrapper that uses `tileMM` (NiiVue's own canvas → mm helper) plus a screen-slice walker to detect which axis the click landed on. RoiOverlay now uses the wrapper for both input AND projection so the round-trip is exact regardless of volume orientation.
+- 🎹 **Configured hotkeys did nothing** ("setted hot keys not woking"). v0.9.1 shipped the editor + persisted bindings to `localStorage` but never installed a global keydown listener that READ the bindings or dispatched actions. Fix: new `HotkeyDispatcher` component mounts once at AppShell + installs a single `keydown` listener that builds the pressed-combo from the event (modifiers in canonical Ctrl+Meta+Alt+Shift+Code order), looks it up against the bindings, and dispatches the matching action. 24 actions wired: zoom in/out, fit-to-window, rotate left/right, flip horizontal, invert, reset, cancel-tool (Esc disarms the active measurement tool), undo, delete-last-annotation, brush, eraser, and W/L Presets 1-4 (CT Abdomen / Lung / Brain / Soft tissue). Listener ignores keys when the user is typing in `<input>` / `<textarea>` so typing in the IDC search field doesn't trigger Brush.
+- ☁️ **IDC search returned 400 + the badge always read "offline"**. Two server-quirk fixes:
+  1. The IDC public proxy (Google Healthcare DICOM store) refuses `StudyDescription` (00081030) as a server-side filter with HTTP 400 "StudyDescription is not a supported study level attribute". We now drop it from the QIDO query + post-filter the returned rows client-side; full free-text search behaviour unchanged from the user's perspective.
+  2. `pingProxy` was using HTTP `HEAD`, which the proxy 404s — the badge was always red even when the proxy was healthy. Switched to GET with `limit=1` (one tiny JSON envelope, definitive).
+  3. Bonus: server error responses are now surfaced (`IDC search failed: 400 — StudyDescription is not a supported study level attribute`) instead of bare HTTP status, so future query problems diagnose in seconds.
+
+### Internal
+
+- `src/lib/viewer/niivue.ts` — `canvasToMm(canvasX, canvasY)` returns `{ mm, axis }` using `tileMM` + `screenSlices` walker.
+- `src/components/Viewer.tsx` — `ViewerHandle.canvasToMm` exposed.
+- `src/components/RoiOverlay.tsx` — `canvasToSliceVox` rewritten to call `viewer.canvasToMm` then derive vox via simple inverse spacing (round-trips exactly through `voxToMm`).
+- `src/components/HotkeyDispatcher.tsx` — new file. 24-action map keyed by actionId; reads bindings from `localStorage[tamias.hotkeys.v1]` falling back to DEFAULT_BINDINGS.
+- `src/lib/idc/dicomweb.ts` — `pingProxy` switched HEAD → GET; `buildStudyQuery` no longer sets StudyDescription server-side; `searchStudies` post-filters StudyDescription client-side + surfaces the server's JSON `error.message`.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean (`--max-warnings=0`).
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle ships under 11s (36 precache entries, 5582 KiB).
+- Live IDC proxy smoke-test: `GET /studies?00080061=CT&limit=2` returns 200 with study rows; `GET /studies?limit=1` (the new ping) returns 200.
+
 ## [0.9.1] — Full OHIF measurement-tool parity + hotkey editor + segment labels + sync toggles
 
 This release ships every OHIF measurement / annotation tool that NiiVue can support, plus the hotkey customization UI, segment-label legend, and reference-line / slice-sync / segment-display toggles. Done in response to "do not defer anything to future build all parts".

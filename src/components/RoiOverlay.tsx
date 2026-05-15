@@ -116,67 +116,60 @@ export function RoiOverlay({
     setMagnifyAt(null);
   }, [setPrefs]);
 
-  // Map a canvas-px point to the slice axis/index/voxel it landed on.
+  /**
+   * v0.9.2 — canvas → (axis, sliceIndex, voxX, voxY, mm) using NiiVue's
+   * canvasToMm helper. Pre-v0.9.2 we computed mm by hand from the
+   * volume's spacing assuming an identity orientation, which silently
+   * broke for any NIfTI with a non-trivial sform/qform — the click
+   * was recorded but mmToCanvas couldn't project it back, so the new
+   * shape rendered nowhere. User report: "none of these and also
+   * angle doesnt work because of niivue I guess".
+   *
+   * Now: canvasToMm returns the real mm + the axis tag. We derive
+   * vox/sliceIndex from mm via simple spacing-divide because mmToVox
+   * is the *inverse* of voxToMm and we control both ends, so the
+   * round-trip is exact even when the volume affine isn't identity —
+   * we just don't store vox, we store mm.
+   */
   const canvasToSliceVox = useCallback(
     (canvasX: number, canvasY: number) => {
       const v = viewerRef.current;
-      if (!v) return null;
-      const slices = v.getScreenSlices();
-      const dpr = window.devicePixelRatio || 1;
-      // Convert CSS-px back to canvas backing-store px to compare to
-      // `screenSlices.rect` which is in backing-store coords.
-      const px = canvasX * dpr;
-      const py = canvasY * dpr;
-      for (const s of slices) {
-        if (s.axis === '3d') continue;
-        const [x, y, w, h] = s.rect;
-        if (px < x || px > x + w || py < y || py > y + h) continue;
-        // Voxel coord = ratio across the tile times the slice's voxel
-        // dimensions. We don't know the voxel-grid dims of each tile
-        // here without round-tripping to NiiVue, so we approximate by
-        // mapping (px, py) → mm via NiiVue, then back-convert.
-        // Cheaper: for axial we can ask the existing canvasToAxialVoxel
-        // helper. For coronal/sagittal we approximate via the ratio.
-        if (s.axis === 'axial') {
-          const vox = v.canvasToAxialVoxel(canvasX, canvasY);
-          if (!vox) continue;
-          return {
-            axis: 'axial' as const,
-            sliceIndex: s.sliceIndex,
-            voxX: vox.x,
-            voxY: vox.y,
-          };
-        }
-        // Coronal / sagittal: map proportionally from tile rect to
-        // slice-pixel grid. Volume dims drive the scale.
-        if (!volume) continue;
-        const [VX, VY, VZ] = volume.meta.dims;
-        const u = (px - x) / w;
-        const ratioY = (py - y) / h;
-        if (s.axis === 'coronal') {
-          // X = lateral (volume X), Y on screen = axial Z (inverted).
-          return {
-            axis: 'coronal' as const,
-            sliceIndex: s.sliceIndex,
-            voxX: u * VX,
-            voxY: (1 - ratioY) * VZ,
-          };
-        }
-        return {
-          axis: 'sagittal' as const,
-          sliceIndex: s.sliceIndex,
-          voxX: u * VY,
-          voxY: (1 - ratioY) * VZ,
-        };
+      if (!v || !volume) return null;
+      const hit = v.canvasToMm(canvasX, canvasY);
+      if (!hit) return null;
+      const [sx, sy, sz] = volume.meta.spacing;
+      const ox = volume.meta.origin?.[0] ?? 0;
+      const oy = volume.meta.origin?.[1] ?? 0;
+      const oz = volume.meta.origin?.[2] ?? 0;
+      const xVox = (hit.mm[0] - ox) / sx;
+      const yVox = (hit.mm[1] - oy) / sy;
+      const zVox = (hit.mm[2] - oz) / sz;
+      let voxX = 0, voxY = 0, sliceIndex = 0;
+      if (hit.axis === 'axial') {
+        voxX = xVox;
+        voxY = yVox;
+        sliceIndex = Math.round(zVox);
+      } else if (hit.axis === 'coronal') {
+        voxX = xVox;
+        voxY = zVox;
+        sliceIndex = Math.round(yVox);
+      } else {
+        voxX = yVox;
+        voxY = zVox;
+        sliceIndex = Math.round(xVox);
       }
-      return null;
+      return { axis: hit.axis, sliceIndex, voxX, voxY };
     },
     [viewerRef, volume]
   );
 
-  // mm-coord helper: convert (axis, voxX, voxY, sliceIndex) → mm using
-  // the volume's spacing. Origin convention: (0,0,0) at the volume
-  // origin so the same mm-coord round-trips through `mmToCanvas`.
+  /**
+   * v0.9.2 — voxel → mm. EXACT inverse of canvasToSliceVox so the
+   * mm we store round-trips back through mmToCanvas at render time
+   * to the same canvas pixel. Spacing-only conversion is correct
+   * because canvasToSliceVox itself derived vox from canvasToMm
+   * using the same spacing — the volume's full affine cancels out.
+   */
   const voxToMm = useCallback(
     (
       axis: 'axial' | 'coronal' | 'sagittal',

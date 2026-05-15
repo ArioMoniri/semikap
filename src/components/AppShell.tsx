@@ -24,6 +24,7 @@ import { SyncPanel } from './SyncPanel';
 import { SegmentLabelsOverlay } from './SegmentLabelsOverlay';
 import { RoiOverlay } from './RoiOverlay';
 import { ViewerToolbar } from './ViewerToolbar';
+import { HotkeyDispatcher } from './HotkeyDispatcher';
 import { ExportPanel } from './ExportPanel';
 import { GpuInfoPanel } from './GpuInfoPanel';
 import { OverlayControls } from './OverlayControls';
@@ -555,6 +556,11 @@ export function AppShell() {
               Captures pointer events ONLY when a tool is armed via
               the ToolPicker. */}
           <RoiOverlay viewerRef={viewerRef} />
+          {/* v0.9.2 — global keydown dispatcher. Reads the bindings the
+              user records via the Hotkeys panel + dispatches matching
+              actions (zoom / rotate / W/L preset / undo / brush / etc).
+              Renders nothing — pure listener mount. */}
+          <HotkeyDispatcher viewerRef={viewerRef} />
           <SliceChipsOverlay viewerRef={viewerRef} />
           {/* v0.8.5 — axis-coloured crosshair overlay. Hides
               NiiVue's native single-color crosshair and paints
