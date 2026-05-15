@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.5] — IDC instance download fixed (drop `?accept=` query param)
+
+### Fixed
+
+- ☁️ **IDC instance download fails with HTTP 400** ("IDC download failed for instance …: 400"). Root cause: the WADO-RS request URL carried `?accept=application/dicom%3Btransfer-syntax%3D*` as a query parameter in addition to the matching `Accept` header. The IDC public proxy (Google Healthcare DICOM store) accepts the header form but rejects the query-parameter form with HTTP 400 — even when the header itself is correct. Fix: pass the Accept-spec only in the HTTP header, drop the query string. Live smoke-test confirms 200 OK on the same instance UID after the fix.
+
+### Internal
+
+- `src/lib/idc/dicomweb.ts` — `downloadInstance()` URL no longer appends `?accept=…`.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+- Live IDC smoke-tests against three different studies (NLST + 14519/TCIA prefixes) all return 200 OK on instance fetch.
+
 ## [0.9.4] — IDC date input accepts loose formats (year, year-month, ranges)
 
 ### Fixed

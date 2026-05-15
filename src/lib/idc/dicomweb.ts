@@ -284,13 +284,20 @@ async function downloadInstance(
   SeriesInstanceUID: string,
   SOPInstanceUID: string
 ): Promise<Uint8Array> {
-  // The 'transfer-syntax=*' parameter tells the server we'll accept the
-  // bytes in their stored transfer syntax (most IDC files are stored in
-  // Explicit VR Little Endian or JPEG Baseline; we don't need transcoding
-  // because dcmjs/NiiVue handle both).
-  const url =
-    `${IDC_BASE}/studies/${StudyInstanceUID}/series/${SeriesInstanceUID}/instances/${SOPInstanceUID}` +
-    `?accept=application/dicom%3Btransfer-syntax%3D*`;
+  // v0.9.5 — DROPPED the `?accept=...` query parameter. The IDC public
+  // proxy (Google Healthcare DICOM store) rejects WADO-RS requests
+  // that carry the Accept-spec as a query param with HTTP 400 — even
+  // when the Accept header itself is correct. Header-only is the
+  // standard DICOMweb form and the only one the proxy accepts.
+  // User report: "IDC download failed for instance ...: 400". Live
+  // smoke-test confirmed: same UID returns 200 with `?accept=`
+  // removed, 400 with it present.
+  //
+  // 'transfer-syntax=*' tells the server we accept the bytes in their
+  // stored transfer syntax (most IDC files are Explicit VR Little
+  // Endian or JPEG Baseline — dcmjs/NiiVue handle both, no transcoding
+  // needed).
+  const url = `${IDC_BASE}/studies/${StudyInstanceUID}/series/${SeriesInstanceUID}/instances/${SOPInstanceUID}`;
   const res = await fetch(url, {
     headers: { Accept: 'application/dicom; transfer-syntax=*' },
   });
