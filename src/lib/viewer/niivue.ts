@@ -259,15 +259,26 @@ export class NiivueViewer {
     // User reported "IDC download failed: could not build NVImage" once
     // a multi-instance series came down from the proxy — that's when
     // this code path actually fired.
+    // v0.9.7 — invoke NVImage.loadFromFile DIRECTLY through the class
+    // rather than via an extracted function reference. Pre-v0.9.7 we
+    // pulled `loadFromFile` off the class into a local variable, which
+    // lost the `this`-binding to NVImage. NiiVue's loadFromFile body
+    // calls `this.readFileAsync(...)` internally; with `this`
+    // undefined the user got the cryptic "TypeError: undefined is not
+    // an object (evaluating 'this.readFileAsync')". Calling via the
+    // class keeps `this === NVImage` so internal `this.readFileAsync`
+    // resolves to NVImage's own helper.
     type LoadFromFile = (opts: {
       file: File | File[];
       name?: string;
     }) => Promise<NVImage>;
-    const loadFromFile = (NVImage as unknown as { loadFromFile: LoadFromFile })
-      .loadFromFile;
+    const NVI = NVImage as unknown as { loadFromFile: LoadFromFile };
     let image: NVImage;
     try {
-      image = await loadFromFile({ file: files, name: ensureNiiName(items[0]!.name) });
+      image = await NVI.loadFromFile({
+        file: files,
+        name: ensureNiiName(items[0]!.name),
+      });
     } catch (err) {
       // Surface a more useful error than the bare NiiVue "could not build
       // NVImage" — include the first-instance byte count + magic-bytes

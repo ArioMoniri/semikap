@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.7] — IDC series load: restore `this`-binding on NVImage.loadFromFile
+
+### Fixed
+
+- 🧱 **"could not build NVImage" / "TypeError: undefined is not an object (evaluating 'this.readFileAsync')"** when loading an IDC series. Root cause: v0.9.6 fixed the call shape (positional → options object) but extracted `loadFromFile` into a local variable, which lost the `this`-binding to the `NVImage` class. NiiVue's `loadFromFile` body internally calls `this.readFileAsync(...)`; with `this` undefined that line threw the cryptic TypeError shown above. Fix: invoke through the class (`NVImage.loadFromFile({...})`) so `this === NVImage` and the internal helper resolves.
+- The diagnostic catch added in v0.9.6 was useful — its output (`149 files, first=…dcm (528118 bytes, DICOM magic OK)`) confirmed the bytes were valid DICOM and the failure was inside NiiVue's loader, not in the data fetch. Catch is retained for future transfer-syntax / mixed-modality failures.
+
+### Internal
+
+- `src/lib/viewer/niivue.ts` — `loadPrimaryFromFiles()`: invoke `NVImage.loadFromFile` directly through the class (was extracted into a local var in v0.9.6, breaking `this` binding).
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.9.6] — IDC series load fixed: NVImage.loadFromFile takes an options object, not positional args
 
 ### Fixed
