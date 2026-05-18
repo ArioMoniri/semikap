@@ -6,6 +6,42 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.7] — SAM Text-mode disabled state made explicit + concrete v0.11.0 plan
+
+### Changed
+
+- 📝 **SAM Text-prompt button labeling rewritten to stop misleading users.** The user reported "cant give sam text input" — the button has been visually-disabled since v0.7.5 with a vague "coming in a follow-up" tooltip; users kept clicking it expecting it to work. v0.10.7 changes:
+  - Button label is now **`Text*`** (asterisk signals "footnote below").
+  - Tooltip rewritten to reference the inline status row instead of hand-waving "coming soon".
+  - **Inline status paragraph below the mode picker** explains exactly why it's disabled and what's needed to ship it — no more "coming soon" loop.
+
+### Concrete plan to actually ship Text prompts (v0.11.0)
+
+None of the registered SAM models accept text natively today:
+- **SAM 2.1 Tiny / Base+**: image-only — no text-embedding input on the decoder ONNX.
+- **MedSAM**: box-prompt-only by design (the medical fine-tune dropped the point + text heads).
+- **SAM 3**: HAS native text support in the upstream model, but the public `onnx-community/sam3-tracker-ONNX` export doesn't expose the text-embedding slot.
+
+Two real options, with honest cost:
+
+| Path | Bundle cost | Quality | Status |
+|---|---|---|---|
+| **Lang-SAM-style** (CLIP text encoder → cosine similarity vs SAM patch embeddings → derive positive point → re-run decoder) | **~50 MB** quantized CLIP text encoder + BPE tokenizer | Good for distinct anatomical regions; less precise than human-clicked point | **Scoped for v0.11.0** |
+| **GroundingDINO + SAM** (text → bbox via GroundingDINO → SAM with bbox prompt) | ~700 MB | Best quality | **Rejected** — too large for browser/PWA |
+
+v0.11.0 will ship path (1): add `clip-text` to `prompts.supports` on every model, lazy-fetch the CLIP encoder when the user first uses Text mode, run the cosine-similarity → point conversion inside the SAM worker.
+
+### Internal
+
+- `src/components/SamPanel.tsx` — Text button label `Text*`, rewritten tooltip + new inline status paragraph; old v0.7.5 "temporarily disabled" comment block replaced with concrete reasoning per model family.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.10.6] — SAM click overlay no longer false-misses + honest scope note on non-axial SAM
 
 ### Verified

@@ -1131,25 +1131,48 @@ function ReadyView(props: {
                 active={activeMode === 'box'}
                 onClick={() => setActiveMode('box')}
               />
-              {/* v0.7.5 — Text mode is **temporarily disabled**. The
-                  worker explicitly filters out `kind: 'text'` prompts
-                  before packing them into the decoder (sam.worker.ts),
-                  so user-typed text was being silently dropped — the
-                  user reported "after putting text input it says encoded
-                  but mask doesn't generate". Until the text encoder
-                  lands we render the button visually-distinct +
-                  disabled with a tooltip explaining why. */}
+              {/* v0.10.7 — Text mode is structurally disabled (not "coming
+                  soon" hand-wave; concrete reason explained below).
+                  Pre-v0.10.7 the button looked nearly identical to Point/
+                  Box and users kept clicking it expecting it to work
+                  (the user reported "cant give sam text input" against
+                  v0.10.6). Now: explicit "not yet" labelling on the
+                  button itself + an inline status row below the mode
+                  picker spelling out what's required to ship it. */}
               <ModeBtn
-                label="Text"
+                label="Text*"
                 icon={<TypeIcon className="h-3.5 w-3.5" />}
                 active={false}
                 disabled
                 onClick={() => {
                   /* no-op while text encoder is missing */
                 }}
-                title="Text prompts need a CLIP-style text encoder; coming in a follow-up."
+                title="* Text prompts require a CLIP-style text encoder ONNX (~50MB) — see status row below."
               />
             </div>
+            {/* v0.10.7 — explicit "why disabled" status. None of the SAM
+                models in the registry today natively accept text prompts:
+                  - SAM 2.1 Tiny / Base+: image-only, no text-embedding
+                    input on the decoder.
+                  - MedSAM: box-prompt-only by design.
+                  - SAM 3: HAS native text input but the public ONNX export
+                    from onnx-community (sam3-tracker-ONNX) doesn't expose
+                    the text-embedding slot.
+                Two real paths forward, NOT shipped yet:
+                  (1) Lang-SAM-style: CLIP text encoder → cosine-similarity
+                      against SAM patch embeddings → derive a positive point
+                      → re-run decoder with that point. ~50 MB extra
+                      download for the quantized CLIP text encoder.
+                  (2) GroundingDINO + SAM: text → bbox → SAM. ~700 MB extra
+                      (rejected for browser deployment).
+                Path (1) is in scope for v0.11.0. */}
+            <p className="mt-1 text-[10px] leading-snug text-slate-500 dark:text-slate-400">
+              <span className="font-semibold">Text*</span> is structurally disabled. None of the
+              currently registered SAM models accept text natively. v0.11.0 ships text via a CLIP
+              text-encoder (~50&nbsp;MB extra download) that maps your phrase to a positive point
+              over the SAM patch embeddings. Use <span className="font-semibold">Point</span> or{' '}
+              <span className="font-semibold">Box</span> for now.
+            </p>
           </div>
 
           {/* v0.7.5 — mask colormap picker. Was a hard-coded green
