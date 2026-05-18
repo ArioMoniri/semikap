@@ -105,6 +105,23 @@ export function RoiOverlay({
   const [clickPath, setClickPath] = useState<Array<[number, number, number]>>([]);
   // Magnify lens cursor position for the magnify tool.
   const [magnifyAt, setMagnifyAt] = useState<{ x: number; y: number } | null>(null);
+  // v0.10.2 — diagnostic state mirroring v0.8.15's SAM-prompt approach:
+  // `clickFlash` paints a red dot at the click position for 800ms so the
+  // user can confirm the SVG is intercepting events; `lastClick` is a
+  // persistent chip explaining whether the click resolved to a slice
+  // tile (the v0.9.2 canvasToMm rewrite still misses when the user
+  // clicks outside any MPR pane or on the 3D render tile).
+  const [clickFlash, setClickFlash] = useState<{ x: number; y: number; t: number } | null>(null);
+  const [lastClick, setLastClick] = useState<
+    | { kind: 'ok'; vox: { x: number; y: number }; axis: 'axial' | 'coronal' | 'sagittal'; sliceIndex: number; px: { x: number; y: number }; ts: number }
+    | { kind: 'miss'; px: { x: number; y: number }; ts: number }
+    | null
+  >(null);
+  useEffect(() => {
+    if (!clickFlash) return;
+    const id = window.setTimeout(() => setClickFlash(null), 800);
+    return () => window.clearTimeout(id);
+  }, [clickFlash]);
 
   // Disarm + clear all transient state.
   const disarmTool = useCallback(() => {
@@ -200,8 +217,32 @@ export function RoiOverlay({
       const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
       const canvasX = e.clientX - rect.left;
       const canvasY = e.clientY - rect.top;
+      // v0.10.2 — UNCONDITIONAL flash + chip BEFORE the canvasToSliceVox
+      // call. Pre-v0.10.2 the handler returned silently when the hit
+      // resolved to null (click missed every tile, or canvasToMm
+      // couldn't find the slice) — the user got "tools not working"
+      // with no indication that the SVG even received their click.
+      // Same diagnostic pattern that v0.8.15 introduced for the SAM
+      // prompt overlay: red flash proves we got the event, the chip
+      // explains why no shape appeared.
+      setClickFlash({ x: canvasX, y: canvasY, t: Date.now() });
       const hit = canvasToSliceVox(canvasX, canvasY);
-      if (!hit) return;
+      if (!hit) {
+        setLastClick({
+          kind: 'miss',
+          px: { x: canvasX, y: canvasY },
+          ts: Date.now(),
+        });
+        return;
+      }
+      setLastClick({
+        kind: 'ok',
+        vox: { x: hit.voxX, y: hit.voxY },
+        axis: hit.axis,
+        sliceIndex: hit.sliceIndex,
+        px: { x: canvasX, y: canvasY },
+        ts: Date.now(),
+      });
       e.preventDefault();
       e.stopPropagation();
       (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
@@ -653,11 +694,49 @@ export function RoiOverlay({
             onDelete={() => removeMeasurement(m.id)}
           />
         ))}
+
+        {/* v0.10.2 — red-flash click confirmation. Renders a fading 6→18px
+            circle pair at the last click position so the user sees the
+            SVG IS intercepting events. Auto-clears after 800ms via the
+            useEffect timer above. */}
+        {clickFlash && (
+          <g pointerEvents="none">
+            <circle cx={clickFlash.x} cy={clickFlash.y} r={18} fill="rgba(239,68,68,0.20)" />
+            <circle cx={clickFlash.x} cy={clickFlash.y} r={6} fill="#ef4444" />
+          </g>
+        )}
       </svg>
 
       {/* Magnify lens (separate layer — it's a CSS lens, not SVG). */}
       {activeTool === 'magnify' && magnifyAt && (
         <MagnifyLens x={magnifyAt.x} y={magnifyAt.y} />
+      )}
+
+      {/* v0.10.2 — persistent diagnostic chip (bottom-left of viewer)
+          when a tool is armed but the click pipeline isn't producing a
+          shape. Tells the user WHY: tile-miss vs successful-resolve.
+          Auto-hides after 6s of inactivity to stay unobtrusive. */}
+      {activeTool && lastClick && Date.now() - lastClick.ts < 6000 && (
+        <div
+          className={`pointer-events-none absolute bottom-2 left-2 z-30 max-w-[320px] rounded-md border px-2 py-1 text-[10px] backdrop-blur ${
+            lastClick.kind === 'ok'
+              ? 'border-emerald-500/60 bg-emerald-950/70 text-emerald-200'
+              : 'border-red-500/60 bg-red-950/70 text-red-200'
+          }`}
+        >
+          {lastClick.kind === 'ok' ? (
+            <>
+              ✓ Click registered · {lastClick.axis} slice {lastClick.sliceIndex} · vox (
+              {lastClick.vox.x.toFixed(0)}, {lastClick.vox.y.toFixed(0)})
+            </>
+          ) : (
+            <>
+              ✗ Click missed any MPR tile — the SVG got your event ({lastClick.px.x.toFixed(0)},{' '}
+              {lastClick.px.y.toFixed(0)}) but NiiVue's tileMM returned no slice. Click inside an
+              axial / coronal / sagittal pane (avoid gutters + the 3D tile).
+            </>
+          )}
+        </div>
       )}
     </>
   );

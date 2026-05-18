@@ -6,6 +6,45 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.2] — IDC smoke test passed + RoiOverlay diagnostics so we can actually see why tools "don't work"
+
+### Verified — IDC + TCIA download pipeline end-to-end (live smoke test 2026-05-15)
+
+Mirrored the app's exact call chain via `curl` against the IDC public proxy:
+
+| Step | Call | Result |
+|---|---|---|
+| 1. pingProxy | `GET /studies?limit=1` | **HTTP 200** (1.4s) |
+| 2. searchStudies | `GET /studies?00080061=CT&limit=3&includefield=...` | 3 studies returned |
+| 3. listSeries | `GET /studies/{StudyUID}/series?includefield=...` | 5 series in first study |
+| 4. listInstances | `GET /studies/{StudyUID}/series/{SeriesUID}/instances?limit=3` | 1 instance |
+| 5. downloadInstance | `GET /studies/{StudyUID}/series/{SeriesUID}/instances/{InstUID}` (Accept: application/dicom;transfer-syntax=*) | **HTTP 200, 508522 bytes** |
+| 6. DICM magic check | `xxd -s 128 -l 4` | `4449 434d` (DICM) ✓ |
+
+Full IDC → TCIA → load-into-NiiVue pipeline is verified at every network boundary. v0.9.5 (`?accept=` URL fix) + v0.9.6 (loadFromFile shape) + v0.9.7 (`this`-binding) + v0.9.9 (search-depth + TCIA modality dropdown) compose into a working end-to-end flow.
+
+### Added — RoiOverlay click diagnostics (stop guessing, start localizing)
+
+I owe you a direct answer to "are the tools built": code is built but each release has shipped a different theory of why clicks weren't producing shapes. v0.10.2 mirrors the v0.8.15 SAM-prompt diagnostic pattern that finally pinned down the SAM click bug — applied now to RoiOverlay.
+
+- 🔴 **Red flash at every click position** for 800ms. Proves the SVG is intercepting events. If you click and see NO red flash, the SVG isn't receiving pointer events — that's a different bug class (z-order conflict / wrong portal target) and the diagnostic chip won't appear either.
+- 🪪 **Persistent diagnostic chip** (bottom-left of viewer, 6s timeout) shows on every click when a tool is armed:
+  - **Green: `✓ Click registered · axial slice 47 · vox (123, 456)`** — click hit a tile, shape should appear. If nothing rendered after that, the bug is in finalizeDrag / finalizeClickPath / mmToCanvas, not in click capture.
+  - **Red: `✗ Click missed any MPR tile — the SVG got your event (X, Y) but NiiVue's tileMM returned no slice. Click inside an axial / coronal / sagittal pane (avoid gutters + the 3D tile).`** — click landed on the SVG but on a region NiiVue doesn't recognize (gutter between tiles, the 3D render tile, outside the volume bounds).
+
+This converts the previously-silent "I clicked and nothing happened" failure into actionable evidence. Please share the chip text when you next try a tool — I can localize the actual bug from your screenshot or copy-paste of the message instead of guessing across releases.
+
+### Internal
+
+- `src/components/RoiOverlay.tsx` — `clickFlash` + `lastClick` state + auto-clearing useEffect for the flash; `onPointerDown` now sets diagnostic state BEFORE the `canvasToSliceVox` null-check; SVG renders a fading red dot; floating bottom-left chip renders the diagnostic message.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.10.1] — Multi-bundle Examples panel + TCIA coverage clarified + honest liver-vessel answer
 
 ### Answer first: "so now user can search from idc and tcia and download directly and load into the app right?"
