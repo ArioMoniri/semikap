@@ -125,7 +125,12 @@ export interface ViewerHandle {
   canvasToMm(
     canvasX: number,
     canvasY: number
-  ): { mm: [number, number, number]; axis: 'axial' | 'coronal' | 'sagittal' } | null;
+  ): {
+    mm: [number, number, number];
+    axis: 'axial' | 'coronal' | 'sagittal';
+    /** v0.10.10 — true when canvasToMm fell back to crosshair (off-tile click). */
+    usedFallback?: boolean;
+  } | null;
   /** v0.7.8 — convert a source-mm point to canvas pixel coordinates. */
   mmToCanvas(mm: [number, number, number]): {
     x: number;

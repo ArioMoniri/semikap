@@ -173,16 +173,28 @@ const api: SamApi = {
 
     // Best-effort name matching — different exports use different input
     // names. Walk the decoder's declared inputs and assign by substring.
+    //
+    // v0.10.10 — added the SAM 2 / MedSAM input naming convention
+    // (`input_points`, `input_labels`, `input_mask`). The onnx-community
+    // and Xenova exports use `input_*` names; the original SAM 1
+    // released ONNX used `point_coords`, `point_labels`. Pre-v0.10.10
+    // we only matched the SAM 1 names — for any SAM 2 / MedSAM model
+    // the decoder threw "input 'input_points' is missing in 'feeds'"
+    // because nothing in our matcher bound to that name. User reported
+    // exactly this after v0.10.9 wired their MedSAM session correctly.
     const feeds: Record<string, ort.Tensor> = {};
     for (const inputName of decoderSession.inputs) {
       const lower = inputName.toLowerCase();
       if (lower.includes('image_embed')) {
         feeds[inputName] = embTensor;
-      } else if (lower.includes('point_coord')) {
+      } else if (lower.includes('point_coord') || lower.includes('input_point')) {
         feeds[inputName] = coordsTensor;
-      } else if (lower.includes('point_label')) {
+      } else if (lower.includes('point_label') || lower.includes('input_label')) {
         feeds[inputName] = labelsTensor;
-      } else if (lower.includes('mask_input') && !lower.includes('has')) {
+      } else if (
+        (lower.includes('mask_input') || lower === 'input_mask') &&
+        !lower.includes('has')
+      ) {
         feeds[inputName] = maskInput;
       } else if (lower.includes('has_mask')) {
         feeds[inputName] = hasMaskInput;

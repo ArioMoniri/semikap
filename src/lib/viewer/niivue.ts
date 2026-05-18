@@ -1322,7 +1322,18 @@ export class NiivueViewer {
   canvasToMm(
     canvasX: number,
     canvasY: number
-  ): { mm: [number, number, number]; axis: 'axial' | 'coronal' | 'sagittal' } | null {
+  ): {
+    mm: [number, number, number];
+    axis: 'axial' | 'coronal' | 'sagittal';
+    /** v0.10.10 — true when the click missed every MPR tile and we
+     *  returned the crosshair mm instead. Callers like SamPromptOverlay
+     *  can refuse to record a prompt under these conditions (where
+     *  every off-tile click would collapse to the same mm = same vox
+     *  = duplicate prompts; user reported 8 identical points from
+     *  8 distinct clicks on the 3D tile in v0.10.9). RoiOverlay still
+     *  accepts fallback clicks so its tools work everywhere. */
+    usedFallback?: boolean;
+  } | null {
     const nv = this.nv as unknown as {
       tileMM?(canvasX: number, canvasY: number): [number, number, number] | null;
       screenSlices?: Array<{ leftTopWidthHeight?: number[]; axCorSag?: number }>;
@@ -1369,18 +1380,19 @@ export class NiivueViewer {
     // intended axis, so we default to 'axial' (the most common
     // analysis plane). User can switch to coronal/sagittal explicitly
     // by clicking into that pane first to move the crosshair there.
+    let usedFallback = false;
     if (!mm || !foundTile) {
       const cross = nv.scene?.crosshairPos;
       if (cross && typeof nv.frac2mm === 'function') {
         const fallback = nv.frac2mm(cross);
         if (fallback && fallback.length >= 3) {
           mm = [fallback[0]!, fallback[1]!, fallback[2]!];
-          // axis stays whatever screenSlices resolved, or default 'axial'
+          usedFallback = true;
         }
       }
       if (!mm) return null;
     }
-    return { mm: [mm[0]!, mm[1]!, mm[2]!], axis };
+    return { mm: [mm[0]!, mm[1]!, mm[2]!], axis, usedFallback };
   }
 
   /**

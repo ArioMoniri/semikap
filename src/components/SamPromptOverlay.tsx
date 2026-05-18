@@ -98,6 +98,15 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
       const ox = vol.meta.origin?.[0] ?? 0;
       const oy = vol.meta.origin?.[1] ?? 0;
       const oz = vol.meta.origin?.[2] ?? 0;
+      // v0.10.10 — refuse fallback-only resolutions. If canvasToMm
+      // had to fall back to the crosshair (click missed every MPR
+      // tile — landed on the 3D render tile or a gutter), every such
+      // off-tile click collapses to the SAME mm = same voxel = duplicate
+      // prompts. User reported 8 identical (111, 83) points from 8
+      // distinct clicks on the 3D tile in v0.10.9. SAM prompts MUST
+      // be position-specific; reject and let the diagnostic chip tell
+      // the user to click on the MPR pane.
+      if (hit?.usedFallback) return null;
       // Fast path: when the click resolved to the axial pane, use
       // NiiVue's canvasToAxialVoxel (more accurate than the spacing-
       // divide round-trip).

@@ -6,6 +6,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.10] — SAM decoder input naming + reject off-tile prompts that collapse to duplicates
+
+### Fixed
+
+- 🤖 **"SAM decode failed: input 'input_points' is missing in 'feeds'."** Root cause confirmed: the worker's decoder-input matcher only matched the SAM 1 naming convention (`point_coord`, `point_label`). The onnx-community + Xenova exports for SAM 2.1 and MedSAM use the SAM 2 convention (`input_points`, `input_labels`, `input_mask`). After v0.10.9's axis-aware encode actually got models loading and producing embeddings, the decode call exposed this name-matching gap. v0.10.10 extends the matcher to also accept `input_point` / `input_label` / `input_mask` substrings. The decoder now binds correctly for every model in the registry (verified by walking each export's input names).
+- 🎯 **8 prompts all at (111, 83) from 8 distinct clicks** — v0.10.3's crosshair fallback path in `canvasToMm` lets RoiOverlay tools work even when clicks miss tiles, but for SAM prompts every off-tile click collapses to the SAME crosshair mm → same vox → useless duplicate prompt. v0.10.10:
+  - `canvasToMm` now returns an optional `usedFallback: boolean` so callers can tell strict-tile resolution apart from crosshair-only fallback.
+  - `SamPromptOverlay.overlayToVoxel` refuses fallback-only clicks (`if (hit?.usedFallback) return null;`). The diagnostic chip then fires "✗ Missed: click did not resolve to any MPR pane" telling the user to click directly on a pane.
+  - `RoiOverlay` continues to accept fallback clicks because its measurement tools have a separate degenerate-shape rejection (v0.10.4) that catches min===max zero-area drags. Both safeguards needed because the failure modes are different per tool.
+
+### Known (not in this release)
+
+- 🔍 **"magnify and some of tools don't work"** — likely z-order conflict: `SamPromptOverlay` sits at `z-20` with `pointer-events-auto` when SAM mode ≠ off; `RoiOverlay` sits at `z-[6]`. When SAM is active AND a RoiOverlay tool is armed, SAM intercepts the pointer first. Scoped for v0.10.11: mutex between SAM `prompt-mode` and RoiOverlay `activeTool` (arming one disarms the other, same pattern as v0.9.3 angle/distance mutex).
+
+### Internal
+
+- `src/workers/sam.worker.ts` — decoder input matcher extended for `input_point` / `input_label` / `input_mask`.
+- `src/lib/viewer/niivue.ts` + `src/components/Viewer.tsx` — `canvasToMm` return type adds optional `usedFallback`.
+- `src/components/SamPromptOverlay.tsx` — `overlayToVoxel` rejects `usedFallback` resolutions.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.10.9] — Axis-aware SAM end-to-end: box on coronal / sagittal now produces a 3D mask
 
 ### Fixed — SAM now works on every MPR plane, not just axial
