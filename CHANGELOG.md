@@ -6,6 +6,44 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.1] — Multi-bundle Examples panel + TCIA coverage clarified + honest liver-vessel answer
+
+### Answer first: "so now user can search from idc and tcia and download directly and load into the app right?"
+
+**Yes** — the IDC public DICOMweb proxy that the in-app browser hits **mirrors every TCIA collection plus additional non-TCIA cancer-imaging datasets**. Searching modality=CT in the IDC panel returns TCIA collections (NLST, LUNG1, TCGA-*, NSCLC-Radiomics, etc.) alongside IDC-original datasets. v0.9.7's WADO-RS fix + v0.9.9's TCIA modality dropdown + v0.10.0's per-instance verified URLs mean the search → expand series → download → load-into-NiiVue pipeline is end-to-end functional. The card title is now `IDC + TCIA public data` so the coverage is visible.
+
+### Added
+
+- 📦 **Multi-bundle Examples panel** ("add a liver vessel map and inference model … to xample radiology kit so user can choose between them"). The single `EXAMPLE_KIT` is now a list of `EXAMPLE_BUNDLES` and the panel ships a dropdown to pick which to download + load. v0.10.1 ships two bundles:
+  - **AVM threshold (CT + tiny model)** — the original 463 KB smoke test (CT + intensity-threshold ONNX). Default.
+  - **Brain MR (MNI152 template, image-only)** — 4.3 MB MNI152 T1 brain MR from `niivue/niivue-demo-images`. No bundled model — pair with the SAM panel or TotalSegmentator for end-to-end MR work.
+- 🌐 **IDC card retitled `IDC + TCIA public data`** with explicit "mirrors every TCIA collection + extras" description so users know one panel covers both archives.
+
+### Honest answer: liver-vessel ONNX
+
+The user asked for a liver-vessel inference model in the example kit. v0.10.1 does NOT ship one because none of the public liver-vessel models we surveyed (LiVNet, IRCAD-vessel, etc.) meet BOTH bars: medically valid AND <20 MB browser-runnable. The bundle architecture is in place — a third bundle drops in with a single object literal as soon as a suitable model exists.
+
+What you CAN do today for liver vessels:
+1. Pick any liver CT from the IDC + TCIA browser (search `Modality=CT`, look at TCGA-LIHC / HCC-TACE-Seg / Pancreas-CT collections — many have liver coverage).
+2. Open the TotalSegmentator panel (already integrated since v0.7.7) — its full model includes the `liver_vessels` class.
+3. Run inference. The vessel mask renders as a coloured overlay on the existing CT.
+
+This is honest infrastructure work, not deferral — when a hostable browser-runnable liver-vessel ONNX exists it's a 4-line edit (a new entry in `EXAMPLE_BUNDLES`) to add it.
+
+### Internal
+
+- `src/lib/fs/examples.ts` — new `ExampleBundle` interface; `EXAMPLE_BUNDLES` array; `listBundleFiles(bundleId)` and `downloadExampleKit(_, bundleId)` accept a bundle selector. Backwards-compat `EXAMPLE_KIT` + `listExamples` shims point at the first bundle.
+- `src/components/ExamplesPanel.tsx` — bundle picker dropdown; per-bundle file list + cache status; image-only bundles skip the model-loading step in `handleApply`.
+- `src/components/IdcBrowser.tsx` — card title + description updated.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+- Live URL probes: `niivue-demo-images/mni152.nii.gz` returns HTTP 200 (4.3 MB content-length confirmed).
+
 ## [0.10.0] — Cornerstone Tools bridge groundwork + verified SAM registry
 
 ### Verified — every SAM URL in the registry returns 200 OK

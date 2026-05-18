@@ -215,10 +215,10 @@ export function IdcBrowser({
       <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2">
-            <Cloud className="h-4 w-4 text-tamias-accent" /> IDC public data
+            <Cloud className="h-4 w-4 text-tamias-accent" /> IDC + TCIA public data
           </CardTitle>
           <CardDescription>
-            NCI Imaging Data Commons — search + download CT / MR / PET. No login needed.
+            NCI Imaging Data Commons (mirrors every TCIA collection + extras) — search + download. No login needed.
           </CardDescription>
         </div>
         <div className="flex shrink-0 items-center gap-1">
