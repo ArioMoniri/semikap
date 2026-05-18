@@ -48,11 +48,17 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
    *  cursor is. We keep BOTH: voxel for the eventual prompt commit,
    *  pixel for the preview rectangle. */
   const [boxStart, setBoxStart] = useState<
-    | { vox: { x: number; y: number }; px: { x: number; y: number } }
+    | {
+        vox: { x: number; y: number; axis?: 'axial' | 'coronal' | 'sagittal' };
+        px: { x: number; y: number };
+      }
     | null
   >(null);
   const [boxCurrent, setBoxCurrent] = useState<
-    | { vox: { x: number; y: number }; px: { x: number; y: number } }
+    | {
+        vox: { x: number; y: number; axis?: 'axial' | 'coronal' | 'sagittal' };
+        px: { x: number; y: number };
+      }
     | null
   >(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -81,34 +87,40 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
       const rect = overlay.getBoundingClientRect();
       const canvasX = clientX - rect.left;
       const canvasY = clientY - rect.top;
-      // v0.10.6 — primary path: canvasToAxialVoxel (returns axial
-      // x,y voxel coords directly, what the encoder expects).
-      const direct = viewerRef.current?.canvasToAxialVoxel?.(canvasX, canvasY);
-      if (direct) return direct;
-      // v0.10.6 — fallback: canvasToMm has a v0.10.3 crosshair fallback
-      // that returns mm even when the click landed off-tile (3D pane,
-      // gutter, single-pane sliceMode where axial isn't visible). When
-      // we hit that path, derive axial voxel coords from mm via the
-      // volume's spacing+origin. User reported the chip kept firing
-      // "outside axial pane" even ON axial — that suggested NiiVue's
-      // tileMM was returning null for clicks the user expected to
-      // resolve. This fallback covers the recovery so SAM works even
-      // when the strict tileMM path bails.
+      // v0.10.9 — return BOTH voxel coords AND the axis the click
+      // landed on. canvasToMm gives us the axis as a first-class
+      // result; we map mm → slice-plane voxel coords per axis so
+      // downstream handleEncode picks the right slice extractor.
       const hit = viewerRef.current?.canvasToMm?.(canvasX, canvasY);
-      if (!hit) return null;
-      // Derive axial-plane voxel coords (x,y) from the mm position.
-      // This is the inverse of voxToMm in RoiOverlay: subtract origin,
-      // divide by spacing. Identity-affine math which is correct since
-      // canvasToMm returns NiiVue-space mm and the encoder is axial.
       const vol = volume;
       if (!vol) return null;
-      const sx = vol.meta.spacing[0];
-      const sy = vol.meta.spacing[1];
+      const [sx, sy, sz] = vol.meta.spacing;
       const ox = vol.meta.origin?.[0] ?? 0;
       const oy = vol.meta.origin?.[1] ?? 0;
-      const voxX = Math.round((hit.mm[0] - ox) / sx);
-      const voxY = Math.round((hit.mm[1] - oy) / sy);
-      return { x: voxX, y: voxY };
+      const oz = vol.meta.origin?.[2] ?? 0;
+      // Fast path: when the click resolved to the axial pane, use
+      // NiiVue's canvasToAxialVoxel (more accurate than the spacing-
+      // divide round-trip).
+      if (hit?.axis === 'axial' || !hit) {
+        const direct = viewerRef.current?.canvasToAxialVoxel?.(canvasX, canvasY);
+        if (direct) return { x: direct.x, y: direct.y, axis: 'axial' as const };
+        if (!hit) return null;
+      }
+      // Map mm → 2D slice-plane voxel coords based on which axis the
+      // click resolved to. Conventions:
+      //   axial   → (vol_x, vol_y) in X×Y plane
+      //   coronal → (vol_x, vol_z) in X×Z plane
+      //   sagittal→ (vol_y, vol_z) in Y×Z plane
+      // Each axis's slice extractor returns dimensions matching the
+      // plane's (width, height) and the encoder works on these as
+      // generic 2D Float32 arrays — the axis tag is what tells commit
+      // where to put the resulting mask back in 3D.
+      const xVox = Math.round((hit.mm[0] - ox) / sx);
+      const yVox = Math.round((hit.mm[1] - oy) / sy);
+      const zVox = Math.round((hit.mm[2] - oz) / sz);
+      if (hit.axis === 'coronal') return { x: xVox, y: zVox, axis: 'coronal' as const };
+      if (hit.axis === 'sagittal') return { x: yVox, y: zVox, axis: 'sagittal' as const };
+      return { x: xVox, y: yVox, axis: 'axial' as const };
     },
     [viewerRef, volume]
   );
@@ -141,7 +153,7 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
       const v = overlayToVoxel(e.clientX, e.clientY);
       setLastClick(
         v
-          ? { kind: 'ok', vox: v, px, ts: Date.now() }
+          ? { kind: 'ok', vox: { x: v.x, y: v.y }, px, ts: Date.now() }
           : { kind: 'miss', px, ts: Date.now() }
       );
       if (!v) return;
@@ -149,10 +161,14 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
       e.stopPropagation();
       if (mode === 'point') {
         const label: 0 | 1 = e.shiftKey ? 0 : 1;
-        addPrompt({ kind: 'point', xy: [v.x, v.y], label });
+        // v0.10.9 — record axis on each prompt so handleEncode picks
+        // the right slice extractor (axial / coronal / sagittal) and
+        // handleCommit projects the resulting 2D mask back to the
+        // correct 3D voxels.
+        addPrompt({ kind: 'point', xy: [v.x, v.y], label, axis: v.axis });
       } else if (mode === 'box') {
-        setBoxStart({ vox: { x: v.x, y: v.y }, px });
-        setBoxCurrent({ vox: { x: v.x, y: v.y }, px });
+        setBoxStart({ vox: { x: v.x, y: v.y, axis: v.axis }, px });
+        setBoxCurrent({ vox: { x: v.x, y: v.y, axis: v.axis }, px });
         (e.target as Element).setPointerCapture?.(e.pointerId);
       }
     },
@@ -194,7 +210,7 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
       const px = rect
         ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
         : { x: 0, y: 0 };
-      setBoxCurrent({ vox: { x: v.x, y: v.y }, px });
+      setBoxCurrent({ vox: { x: v.x, y: v.y, axis: v.axis }, px });
     },
     [mode, boxStart, overlayToVoxel]
   );
@@ -208,7 +224,15 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
       const y1 = Math.max(boxStart.vox.y, boxCurrent.vox.y);
       // Reject zero-area boxes — user probably just clicked.
       if (x1 - x0 > 2 && y1 - y0 > 2) {
-        addPrompt({ kind: 'box', xyxy: [x0, y0, x1, y1] });
+        // v0.10.9 — carry the axis through to the prompt. If the user
+        // dragged across axes (rare — pointer capture should pin them
+        // to one tile), the start axis wins. handleEncode reads this
+        // to pick the matching slice extractor.
+        addPrompt({
+          kind: 'box',
+          xyxy: [x0, y0, x1, y1],
+          axis: boxStart.vox.axis ?? 'axial',
+        });
       }
       setBoxStart(null);
       setBoxCurrent(null);

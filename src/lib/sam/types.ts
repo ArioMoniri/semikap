@@ -117,6 +117,23 @@ export interface SamExternalDataBlob {
 
 export type SamPromptKind = 'point' | 'box' | 'text';
 
+/**
+ * v0.10.9 — which MPR plane the prompt was placed on. Optional for
+ * backwards compatibility with v0.10.8 and earlier prompts (those
+ * default to 'axial' at consumer sites). Determines:
+ *   1. Which 2D slice the SAM encoder runs on (axial uses
+ *      getCurrentAxialSlice; coronal uses getCurrentCoronalSlice; etc).
+ *   2. How `xy` / `xyxy` are interpreted: axial = (vol_x, vol_y);
+ *      coronal = (vol_x, vol_z); sagittal = (vol_y, vol_z).
+ *   3. How the 2D decoder mask gets projected back to the 3D voxel
+ *      volume at commit time.
+ *
+ * SamPromptOverlay attaches this from canvasToMm's axis-detection
+ * result at click time (since v0.10.6, every click resolves an axis
+ * even when the canvas-to-mm fallback path fires).
+ */
+export type SamPromptAxis = 'axial' | 'coronal' | 'sagittal';
+
 /** Unified prompt type — one entry per user gesture. */
 export type SamPrompt =
   | {
@@ -126,11 +143,15 @@ export type SamPrompt =
       /** 1 = positive (include), 0 = negative (exclude). Decoders that
        *  don't honour negative points can ignore label=0 entries. */
       label: 0 | 1;
+      /** v0.10.9 — which MPR plane the prompt was placed on. */
+      axis?: SamPromptAxis;
     }
   | {
       kind: 'box';
       /** Pixel coords in source-slice space, top-left then bottom-right. */
       xyxy: [number, number, number, number];
+      /** v0.10.9 — which MPR plane the prompt was placed on. */
+      axis?: SamPromptAxis;
     }
   | {
       kind: 'text';
@@ -138,6 +159,8 @@ export type SamPrompt =
        *  later checkpoints; ignored when the manifest doesn't list "text"
        *  in `prompts.supports`. */
       value: string;
+      /** v0.10.9 — which MPR plane the prompt was placed on. */
+      axis?: SamPromptAxis;
     };
 
 /**

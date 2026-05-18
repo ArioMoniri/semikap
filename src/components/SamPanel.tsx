@@ -389,12 +389,42 @@ export function SamPanel({ viewerRef }: Props) {
 
   const handleEncode = useCallback(async () => {
     if (!sam.modelLoaded || !sam.manifest || !sam.encoderBytes) return;
-    const slice = viewerRef.current?.getCurrentAxialSlice();
+    // v0.10.9 — axis-aware encode. Pick the slice extractor based on
+    // the user's dominant prompt axis. Pre-v0.10.9 we always called
+    // getCurrentAxialSlice() regardless of whether the user clicked
+    // on coronal or sagittal. Now: tally each prompt's axis, the
+    // winner picks the extractor. If there are no prompts yet, default
+    // to axial (the historical behaviour — user encodes empty first
+    // then clicks prompts).
+    const tally: Record<'axial' | 'coronal' | 'sagittal', number> = {
+      axial: 0, coronal: 0, sagittal: 0,
+    };
+    for (const p of sam.prompts) {
+      if (p.kind === 'text') continue;
+      tally[p.axis ?? 'axial'] += 1;
+    }
+    const activeAxis: 'axial' | 'coronal' | 'sagittal' =
+      tally.coronal > tally.axial && tally.coronal >= tally.sagittal
+        ? 'coronal'
+        : tally.sagittal > tally.axial && tally.sagittal > tally.coronal
+          ? 'sagittal'
+          : 'axial';
+    const slice =
+      activeAxis === 'coronal'
+        ? viewerRef.current?.getCurrentCoronalSlice()
+        : activeAxis === 'sagittal'
+          ? viewerRef.current?.getCurrentSagittalSlice()
+          : viewerRef.current?.getCurrentAxialSlice();
     if (!slice) {
       pushError('No slice loaded — pick a primary volume first.');
       return;
     }
-    setSam({ busy: { stage: 'encoding', label: `Encoding slice ${slice.index + 1}…` } });
+    setSam({
+      busy: {
+        stage: 'encoding',
+        label: `Encoding ${activeAxis} slice ${slice.index + 1}…`,
+      },
+    });
     try {
       const worker = new Worker(new URL('../workers/sam.worker.ts', import.meta.url), {
         type: 'module',
@@ -424,12 +454,12 @@ export function SamPanel({ viewerRef }: Props) {
       })) as SamSliceEmbedding;
       worker.terminate();
       setSam({
-        embedding: { axis: 'axial', index: slice.index, bytes: res.embedding },
+        embedding: { axis: activeAxis, index: slice.index, bytes: res.embedding },
         busy: null,
       });
       void appendAudit({
         kind: 'export',
-        message: `SAM encode: slice ${slice.index + 1} in ${res.encodeMs.toFixed(0)}ms`,
+        message: `SAM encode: ${activeAxis} slice ${slice.index + 1} in ${res.encodeMs.toFixed(0)}ms`,
       });
     } catch (e) {
       const err = e as Error;
@@ -447,7 +477,17 @@ export function SamPanel({ viewerRef }: Props) {
       pushError('Add at least one prompt (click on the slice).');
       return;
     }
-    const slice = viewerRef.current?.getCurrentAxialSlice();
+    // v0.10.9 — pick the slice extractor matching the embedding's axis
+    // so the decoder gets pixels in the same plane the encoder ran on.
+    // Pre-v0.10.9 we always read axial; now we read whatever the user
+    // encoded.
+    const encAxis = sam.embedding.axis;
+    const slice =
+      encAxis === 'coronal'
+        ? viewerRef.current?.getCurrentCoronalSlice()
+        : encAxis === 'sagittal'
+          ? viewerRef.current?.getCurrentSagittalSlice()
+          : viewerRef.current?.getCurrentAxialSlice();
     if (!slice) return;
     setSam({ busy: { stage: 'decoding', label: 'Generating mask…' } });
     try {
@@ -497,16 +537,50 @@ export function SamPanel({ viewerRef }: Props) {
     const volume = useAppStore.getState().volume;
     if (!volume || !viewerRef.current) return;
     const [X, Y, Z] = volume.meta.dims;
-    if (sam.preview.width !== X || sam.preview.height !== Y) {
-      pushError('Preview mask size does not match the volume — re-encode the slice.');
+    // v0.10.9 — axis-aware mask projection. The 2D mask's expected
+    // (width, height) and the way we write it back to the 3D volume
+    // change per axis:
+    //   axial    → mask is X×Y; write to vol[sliceZ*X*Y + y*X + x]
+    //   coronal  → mask is X×Z; write to vol[z*X*Y + sliceY*X + x]
+    //   sagittal → mask is Y×Z; write to vol[z*X*Y + y*X + sliceX]
+    // The embedding's `axis` field tells us which one applies.
+    const encAxis = sam.embedding?.axis ?? 'axial';
+    const expectedW = encAxis === 'sagittal' ? Y : X;
+    const expectedH = encAxis === 'axial' ? Y : Z;
+    if (sam.preview.width !== expectedW || sam.preview.height !== expectedH) {
+      pushError(
+        `Preview mask size (${sam.preview.width}×${sam.preview.height}) does not match the ${encAxis} plane (${expectedW}×${expectedH}) — re-encode the slice.`
+      );
       return;
     }
     // Materialise the slice mask into a full-volume Uint8Array (zero
-    // everywhere except the encoded slice, where we copy the SAM mask).
+    // everywhere except the encoded slice, where we copy the SAM mask
+    // into the correct voxel positions per axis).
     const full = new Uint8Array(X * Y * Z);
-    const slab = X * Y;
-    const off = sam.preview.sliceIndex * slab;
-    for (let i = 0; i < slab; i++) full[off + i] = sam.preview.mask[i] ?? 0;
+    const sliceIdx = sam.preview.sliceIndex;
+    if (encAxis === 'axial') {
+      const slab = X * Y;
+      const off = sliceIdx * slab;
+      for (let i = 0; i < slab; i++) full[off + i] = sam.preview.mask[i] ?? 0;
+    } else if (encAxis === 'coronal') {
+      // mask[z*X + x] → vol[z*X*Y + sliceIdx*X + x]
+      for (let z = 0; z < Z; z++) {
+        const maskRow = z * X;
+        const volRow = z * X * Y + sliceIdx * X;
+        for (let x = 0; x < X; x++) {
+          full[volRow + x] = sam.preview.mask[maskRow + x] ?? 0;
+        }
+      }
+    } else {
+      // sagittal: mask[z*Y + y] → vol[z*X*Y + y*X + sliceIdx]
+      for (let z = 0; z < Z; z++) {
+        const maskRow = z * Y;
+        const zBase = z * X * Y;
+        for (let y = 0; y < Y; y++) {
+          full[zBase + y * X + sliceIdx] = sam.preview.mask[maskRow + y] ?? 0;
+        }
+      }
+    }
     await viewerRef.current.addMaskOverlay(
       'sam',
       full,

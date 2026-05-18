@@ -6,6 +6,53 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.9] — Axis-aware SAM end-to-end: box on coronal / sagittal now produces a 3D mask
+
+### Fixed — SAM now works on every MPR plane, not just axial
+
+The user reported "Box on coronal/sagittal → 2D mask: NOT yet". v0.10.8 shipped the wrapper-side slice extractors (`getCurrentCoronalSlice`, `getCurrentSagittalSlice`); v0.10.9 wires them through the rest of the SAM pipeline so a user can drag a box on ANY MPR pane and get a mask back.
+
+Five-step plumbing landed:
+
+1. 🏷️ **`SamPrompt.axis` field** added to the union (`'axial' | 'coronal' | 'sagittal'`, optional for backwards compat). Every prompt now carries the plane it was placed on.
+2. 🎯 **`SamPromptOverlay.overlayToVoxel` rewritten** to use `canvasToMm`'s axis detection (the v0.10.6 fallback already returns the axis as a first-class result). Voxel coords are mapped per axis:
+   - axial → `(vol_x, vol_y)` in X×Y plane
+   - coronal → `(vol_x, vol_z)` in X×Z plane
+   - sagittal → `(vol_y, vol_z)` in Y×Z plane
+   Box-drag preview carries the start-click's axis through pointerup so the committed prompt is tagged consistently.
+3. 🧠 **`SamPanel.handleEncode` is axis-aware**. It tallies each prompt's axis, picks the dominant one (default axial when no prompts yet), and calls the matching slice extractor. Busy-text reads "Encoding coronal slice 142…" etc. so the user sees which plane is going through. `embedding.axis` is stamped accordingly.
+4. 🧪 **`SamPanel.handleGenerate` reads `sam.embedding.axis`** to pick the matching extractor for the decoder run, so the decoder gets pixels in the same plane the encoder ran on.
+5. 🧱 **`SamPanel.handleCommit` projects the 2D mask back into 3D voxels per axis**:
+   - axial: `mask[y*X + x] → vol[sliceZ*X*Y + y*X + x]`
+   - coronal: `mask[z*X + x] → vol[z*X*Y + sliceY*X + x]`
+   - sagittal: `mask[z*Y + y] → vol[z*X*Y + y*X + sliceX]`
+   Dimension check uses per-axis (expectedW, expectedH); error message tells the user the actual plane so a re-encode is obvious if they switched planes mid-session.
+
+### What this unlocks for the user
+
+- Click `Box` mode → drag a rectangle on the **coronal** pane → click `Generate mask` → 2D mask renders on coronal at that Y slice → click `Commit` → mask projects to the right 3D voxels at that Y plane → ready for Phase D propagation OR brush correction.
+- Same for sagittal.
+- Mixed-axis prompt sets: dominant axis wins (so you can refine on one plane while occasionally clicking another).
+- Embedding cache key already supported `(axis, index)` since v0.8.x — v0.10.9 actually fills that out so re-encoding on a different plane doesn't trash the previous embedding.
+
+### Honest limit (not blocking)
+
+- **Phase D cross-slice propagation is still axial-only.** Propagation walks `±radius` slices and re-encodes each one as a refinement step; for non-axial sessions today it falls back to single-slice (no propagation). Cross-axis propagation is straightforward to add (walk Y for coronal, X for sagittal) — scoped for v0.10.10 once we confirm the encode/commit-per-axis flow is solid in the wild.
+- **SAM 2 video tracker mode** remains externally blocked per v0.10.8's note (no public `memory_encoder` / `memory_attention` ONNX exports). The cross-slice work above is the best non-tracker substitute.
+
+### Internal
+
+- `src/lib/sam/types.ts` — `SamPrompt` union gains optional `axis: SamPromptAxis`; new `SamPromptAxis` type alias.
+- `src/components/SamPromptOverlay.tsx` — `overlayToVoxel` returns `{x, y, axis}`; `handlePointerDown` attaches axis to point/box prompts; `boxStart`/`boxCurrent` state carries axis through the drag.
+- `src/components/SamPanel.tsx` — `handleEncode` picks extractor per dominant prompt axis + stamps embedding axis; `handleGenerate` reads `embedding.axis`; `handleCommit` projects mask back per axis with correct dim check.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.10.8] — Non-axial SAM slice extractors + honest blocker for SAM 2 video tracker
 
 ### Added — foundation for non-axial SAM (encoder rest of plumbing in v0.10.9)
