@@ -30,37 +30,38 @@ export interface SamDecoderSession {
 
 const FALLBACK_CHAIN: Provider[] = ['webgpu', 'webnn', 'wasm'];
 
-async function tryProvider(
+/**
+ * v0.10.3 — try one execution provider; return the session on success
+ * or the error message on failure. Pre-v0.10.3 we had a `tryProvider`
+ * that returned `null` on failure with the message only in
+ * console.warn; createWithFallback's thrown error then read
+ * "failed on every provider" with no actual reason. This refactor
+ * surfaces each EP's error so SAM session-create failures (which look
+ * identical to the user — WebGPU op unsupported / WebNN not
+ * registered / WASM .wasm 404) become diagnostically distinct.
+ */
+async function tryProviderWithReason(
   bytes: Bytes,
   provider: Provider,
   externalData?: SamExternalDataBlob
-): Promise<ort.InferenceSession | null> {
+): Promise<{ session: ort.InferenceSession; error?: undefined } | { session?: undefined; error: string }> {
   try {
-    /**
-     * v0.8.0 — pass external-data to ORT-Web when present. The runtime
-     * reads the graph's `external_data_location` references and resolves
-     * them against the in-memory `data` blob keyed by `path` (filename).
-     * Filename match is exact; onnx-community exports always use the
-     * basename of the sidecar URL (e.g. `vision_encoder_q4f16.onnx_data`).
-     *
-     * Type-cast: the `externalData` field is in the public ORT-Web
-     * `SessionOptions` since 1.18 but not all `@types/onnxruntime-web`
-     * versions track it. The cast keeps us forward-compatible without
-     * pinning a specific @types version.
-     */
     const opts: Record<string, unknown> = {
       executionProviders: [provider],
       graphOptimizationLevel: 'all',
     };
     if (externalData) {
-      opts.externalData = [
-        { path: externalData.filename, data: externalData.data },
-      ];
+      opts.externalData = [{ path: externalData.filename, data: externalData.data }];
     }
-    return await ort.InferenceSession.create(bytes, opts as ort.InferenceSession.SessionOptions);
+    const session = await ort.InferenceSession.create(
+      bytes,
+      opts as ort.InferenceSession.SessionOptions
+    );
+    return { session };
   } catch (err) {
+    const msg = (err as Error).message ?? String(err);
     console.warn(`[SAM] EP "${provider}" unavailable:`, err);
-    return null;
+    return { error: msg };
   }
 }
 
@@ -77,11 +78,23 @@ async function createWithFallback(
     preferred === 'auto' || !FALLBACK_CHAIN.includes(preferred)
       ? FALLBACK_CHAIN
       : [preferred, ...FALLBACK_CHAIN.filter((p) => p !== preferred)];
+  // v0.10.3 — collect per-provider failure reasons so the user can
+  // see WHY each EP rejected the model. Pre-v0.10.3 the error was
+  // just "tried webgpu, webnn, wasm" with no actual cause — the
+  // common failures (WebGPU op unsupported, WASM .wasm 404,
+  // WebNN not registered) all looked identical to the user.
+  const failures: Array<{ provider: Provider; error: string }> = [];
   for (const provider of chain) {
-    const session = await tryProvider(bytes, provider, externalData);
-    if (session) return { session, provider };
+    const r = await tryProviderWithReason(bytes, provider, externalData);
+    if (r.session) return { session: r.session, provider };
+    failures.push({ provider, error: r.error });
   }
-  throw new Error(`Failed to create SAM session on any provider (tried ${chain.join(', ')}).`);
+  const detail = failures
+    .map((f) => `  ${f.provider}: ${f.error.slice(0, 200)}`)
+    .join('\n');
+  throw new Error(
+    `Failed to create SAM session on any provider (tried ${chain.join(', ')}):\n${detail}`
+  );
 }
 
 export async function createSamEncoderSession(

@@ -6,6 +6,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.3] — Tools work even on out-of-tile clicks + SAM session-create surfaces per-provider errors
+
+### Fixed
+
+- 🎯 **Measurement tool clicks at `(227, 567)` returning "✗ Click missed any MPR tile"** — `canvasToMm` returned null when NiiVue's `tileMM` couldn't resolve the click (3D render tile, gutter between MPR panes, or single-pane sliceMode with the click outside the one visible tile). v0.10.3 falls back to the volume's current **crosshair mm position** via `nv.scene.crosshairPos + nv.frac2mm()`. Behaviour change:
+  - **Before**: click on the 3D tile / gutter / outside any pane → null → silent no-op → diagnostic chip read "missed".
+  - **After**: same click → shape anchored at the crosshair mm (the user's current view focus) with axis defaulting to axial. The shape appears immediately; user can drag handles to refine (handle-based post-edit lands in v0.10.x per the bridge migration plan).
+  - Diagnostic chip from v0.10.2 still fires so the user sees what's happening, but the click is no longer dead.
+- 🤖 **"SAM encode failed: Failed to create SAM session on any provider (tried webgpu, webnn, wasm)"** — pre-v0.10.3 the per-provider failure reasons were `console.warn`'d but never surfaced in the toast text. Users saw "failed on all three" with no actionable detail to share. v0.10.3 collects the real error message from each EP attempt and includes them in the thrown error:
+  > Failed to create SAM session on any provider (tried webgpu, webnn, wasm):
+  >   webgpu: Operator '<X>' is not implemented for this provider
+  >   webnn: Backend WebNN is not registered
+  >   wasm: Failed to load WebAssembly module
+  
+  This converts the previously-opaque failure into a copy-pasteable diagnostic. **Please share the per-provider lines on your next SAM attempt** — I can localize the actual cause (most likely a WASM `.wasm` file 404 in the Tauri build, since you're hitting it inside `tauri://localhost`).
+
+### Internal
+
+- `src/lib/viewer/niivue.ts` — `canvasToMm()` adds the crosshair fallback path when `tileMM` returns null OR the screenSlices walker fails to identify the tile axis.
+- `src/lib/sam/session.ts` — `tryProvider` replaced with `tryProviderWithReason` that returns `{ session } | { error }`; `createWithFallback` now collects `failures[]` and includes each provider's error message in the final thrown text.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.10.2] — IDC smoke test passed + RoiOverlay diagnostics so we can actually see why tools "don't work"
 
 ### Verified — IDC + TCIA download pipeline end-to-end (live smoke test 2026-05-15)

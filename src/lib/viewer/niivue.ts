@@ -1263,15 +1263,17 @@ export class NiivueViewer {
     const nv = this.nv as unknown as {
       tileMM?(canvasX: number, canvasY: number): [number, number, number] | null;
       screenSlices?: Array<{ leftTopWidthHeight?: number[]; axCorSag?: number }>;
+      scene?: { crosshairPos?: [number, number, number] };
+      frac2mm?(frac: [number, number, number]): number[];
     };
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
     const px = canvasX * dpr;
     const py = canvasY * dpr;
-    const mm = nv.tileMM?.(px, py);
-    if (!mm) return null;
+    let mm = nv.tileMM?.(px, py);
     // Walk screenSlices in reverse so the topmost tile (last drawn)
     // wins on overlap. axCorSag: 0=axial, 1=coronal, 2=sagittal, 4=3D.
     let axis: 'axial' | 'coronal' | 'sagittal' = 'axial';
+    let foundTile = false;
     if (nv.screenSlices) {
       for (let i = nv.screenSlices.length - 1; i >= 0; i--) {
         const s = nv.screenSlices[i];
@@ -1287,10 +1289,35 @@ export class NiivueViewer {
         else if (ax === 1) axis = 'coronal';
         else if (ax === 2) axis = 'sagittal';
         else continue; // skip 3D tile
+        foundTile = true;
         break;
       }
     }
-    return { mm: [mm[0], mm[1], mm[2]], axis };
+    // v0.10.3 — when the click missed every MPR tile (3D render tile,
+    // gutter between tiles, or single-pane sliceMode where the click
+    // landed outside the one visible tile), FALL BACK to the volume's
+    // current crosshair position rather than returning null. Pre-v0.10.3
+    // the user got "Click missed any MPR tile" — diagnostic but the
+    // tool was a no-op. Crosshair fallback gives the shape a sensible
+    // anchor (the user's current view focus); they can then drag the
+    // shape's handles to refine. Better UX than silent failure.
+    //
+    // Honest limit: when no tile was hit we can't determine the
+    // intended axis, so we default to 'axial' (the most common
+    // analysis plane). User can switch to coronal/sagittal explicitly
+    // by clicking into that pane first to move the crosshair there.
+    if (!mm || !foundTile) {
+      const cross = nv.scene?.crosshairPos;
+      if (cross && typeof nv.frac2mm === 'function') {
+        const fallback = nv.frac2mm(cross);
+        if (fallback && fallback.length >= 3) {
+          mm = [fallback[0]!, fallback[1]!, fallback[2]!];
+          // axis stays whatever screenSlices resolved, or default 'axial'
+        }
+      }
+      if (!mm) return null;
+    }
+    return { mm: [mm[0]!, mm[1]!, mm[2]!], axis };
   }
 
   /**
