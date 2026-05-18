@@ -6,6 +6,49 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.6] — SAM click overlay no longer false-misses + honest scope note on non-axial SAM
+
+### Verified
+
+- ✅ **v0.10.5's external-data fix landed**: your v0.10.6 console output shows ORT-Web now WARMS UP the SAM session (the only output is ORT's harmless "Some nodes were not assigned to the preferred execution providers — ORT explicitly assigns shape related ops to CPU" notice). The "Failed to load external data file" error is gone. SAM 2.1 Tiny + Base+ session-create works end-to-end.
+
+### Fixed
+
+- 🎯 **"Missed: click landed outside the axial pane" while user IS on axial** — the SAM prompt overlay was calling `canvasToAxialVoxel` strictly; when NiiVue's `tileMM` returned null (clicks on the 3D pane, between-tile gutters, or single-pane sliceModes where the axial tile bounds didn't include the click position), the overlay reported a hard MISS even when the user was on the axial layout. v0.10.6 falls back to `canvasToMm` (which has the v0.10.3 crosshair-fallback path) when the strict call returns null, then derives axial voxel coords from the resulting mm via the volume's spacing+origin. Clicks now resolve correctly even at tile boundaries.
+- 🏷️ **Diagnostic chip wording rewritten** to reflect what v0.10.6 actually does + what's still axial-only. Old text told the user to "Switch to single-axial sliceMode (Layout → Axial)" — that's wrong now because v0.10.6 falls back gracefully. New text:
+  > ✗ Missed: click did not resolve to any MPR pane. SAM currently encodes the AXIAL slice only — click on the axial pane (top-left in MPR layout). Non-axial SAM encoding is in scope for v0.10.7.
+
+### Honest — non-axial SAM encoding ("it should work independent of axial")
+
+The user is right that SAM should work on coronal/sagittal too. Today's encoder is hardcoded to axial:
+- `SamPanel.handleEncode` calls `viewerRef.current?.getCurrentAxialSlice()`.
+- `setSam({ embedding: { axis: 'axial', ... } })` hardcodes the axis tag.
+- Click-to-voxel mapping (now fixed in v0.10.6) returns axial X,Y only.
+
+Full non-axial support requires:
+1. `getCurrentCoronalSlice()` + `getCurrentSagittalSlice()` on the NiiVue wrapper (today only axial exists).
+2. `handleEncode` reads the user's current view-axis from NiiVue's scene and picks the right extractor.
+3. Per-axis voxel mapping (coronal: X,Z plane; sagittal: Y,Z plane).
+4. Per-axis mask projection (encoder returns 2D mask in slice coords; need to write back to the right 3D voxels per axis).
+
+Scoped for v0.10.7 — it's a real feature, not just a label fix. The wiring is clean (the store already has `axis: 'axial' | 'coronal' | 'sagittal'` in the embedding type) but the slice extraction + projection are 4 new functions.
+
+### Honest — "Encoding slice 78… as hardcoded for on prem ai"
+
+That "slice 78" is `slice.index + 1` from `getCurrentAxialSlice()` — it's the user's current axial Z position, not a hardcoded constant. The number changes if you scroll the axial slider. If you saw "78" every time regardless of slice, that's a separate bug (please share what slice the crosshair is on when you see it).
+
+### Internal
+
+- `src/components/SamPromptOverlay.tsx` — `overlayToVoxel` adds the `canvasToMm` fallback path; pulled `volume` into the closure via `useAppStore`.
+- Diagnostic chip text updated.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.10.5] — SAM 2.1 Tiny + Base+ external-data sidecars (root cause: missing .onnx_data downloads)
 
 ### Fixed

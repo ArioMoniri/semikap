@@ -37,6 +37,10 @@ interface Props {
 export function SamPromptOverlay({ viewerRef, mode }: Props) {
   const addPrompt = useAppStore((s) => s.addSamPrompt);
   const samPrompts = useAppStore((s) => s.sam.prompts);
+  // v0.10.6 — needed for the canvasToMm fallback below: when tileMM
+  // returns null we derive axial voxel coords from mm via the volume's
+  // spacing+origin, so we need the loaded volume in scope.
+  const volume = useAppStore((s) => s.volume);
   /** v0.8.11 — keep boxStart/boxCurrent in CLIENT pixel space (relative
    *  to the overlay rect). Pre-v0.8.11 we stored voxel coords for the
    *  prompt commit, but for the live preview rectangle we need
@@ -75,14 +79,38 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
       const overlay = overlayRef.current;
       if (!overlay) return null;
       const rect = overlay.getBoundingClientRect();
-      return (
-        viewerRef.current?.canvasToAxialVoxel?.(
-          clientX - rect.left,
-          clientY - rect.top
-        ) ?? null
-      );
+      const canvasX = clientX - rect.left;
+      const canvasY = clientY - rect.top;
+      // v0.10.6 — primary path: canvasToAxialVoxel (returns axial
+      // x,y voxel coords directly, what the encoder expects).
+      const direct = viewerRef.current?.canvasToAxialVoxel?.(canvasX, canvasY);
+      if (direct) return direct;
+      // v0.10.6 — fallback: canvasToMm has a v0.10.3 crosshair fallback
+      // that returns mm even when the click landed off-tile (3D pane,
+      // gutter, single-pane sliceMode where axial isn't visible). When
+      // we hit that path, derive axial voxel coords from mm via the
+      // volume's spacing+origin. User reported the chip kept firing
+      // "outside axial pane" even ON axial — that suggested NiiVue's
+      // tileMM was returning null for clicks the user expected to
+      // resolve. This fallback covers the recovery so SAM works even
+      // when the strict tileMM path bails.
+      const hit = viewerRef.current?.canvasToMm?.(canvasX, canvasY);
+      if (!hit) return null;
+      // Derive axial-plane voxel coords (x,y) from the mm position.
+      // This is the inverse of voxToMm in RoiOverlay: subtract origin,
+      // divide by spacing. Identity-affine math which is correct since
+      // canvasToMm returns NiiVue-space mm and the encoder is axial.
+      const vol = volume;
+      if (!vol) return null;
+      const sx = vol.meta.spacing[0];
+      const sy = vol.meta.spacing[1];
+      const ox = vol.meta.origin?.[0] ?? 0;
+      const oy = vol.meta.origin?.[1] ?? 0;
+      const voxX = Math.round((hit.mm[0] - ox) / sx);
+      const voxY = Math.round((hit.mm[1] - oy) / sy);
+      return { x: voxX, y: voxY };
     },
-    [viewerRef]
+    [viewerRef, volume]
   );
 
   const handlePointerDown = useCallback(
@@ -358,7 +386,7 @@ export function SamPromptOverlay({ viewerRef, mode }: Props) {
         >
           {lastClick.kind === 'ok'
             ? `✓ Click registered · voxel (${lastClick.vox.x}, ${lastClick.vox.y})`
-            : '✗ Missed: click landed outside the axial pane. Switch to single-axial sliceMode (Layout → Axial) and try again.'}
+            : '✗ Missed: click did not resolve to any MPR pane. SAM currently encodes the AXIAL slice only — click on the axial pane (top-left in MPR layout). Non-axial SAM encoding is in scope for v0.10.7.'}
         </div>
       )}
     </div>
