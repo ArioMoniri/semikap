@@ -6,6 +6,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.4] — Measurements no longer pile up invisibly · right-click disabled · angle/RoiOverlay mutex
+
+### Fixed
+
+- 📐 **"Measured things do not persist on the page and just adds up to the measurements"** — root cause: v0.10.3's `canvasToMm` crosshair fallback returned the same mm for BOTH drag corners when both clicks landed off-tile (3D pane / gutter), producing `min === max` rectangles with width=height=0 pixels. They were `addMeasurement`'d (counter went up) but rendered as zero-area SVG → invisible. v0.10.4 rejects degenerate shapes in `finalizeDrag` (drag delta < 1 voxel in BOTH axes → discard silently and re-fire the "missed" diagnostic chip so the user sees why nothing happened). Click-only tools (Bidirectional / Cobb / Directional) bypass the gate.
+- 🖱️ **Browser right-click context menu inside the viewer** ("deactivate the devtools right click"). Native Tauri / browser contextmenu was popping up over the viewer canvas, blocking NiiVue's right-click W/L workflow (Cornerstone/OHIF convention). v0.10.4 attaches `onContextMenu={e.preventDefault()}` to the `#viewer` section so right-click is fully reclaimed for NiiVue's `dragMode='contrast'`.
+- 📐 **"Angle measurement doesnt work on right or left click"** — armed RoiOverlay measurement tool was silently intercepting clicks before they reached NiiVue's angle code path. v0.10.4 wires mutual exclusion both ways:
+  - Activating Angle (NiiVue) disarms any RoiOverlay tool (`setPrefs({ activeTool: null })`).
+  - Picking a NiiVue drag mode (contrast / measurement / pan) also disarms RoiOverlay.
+  - Picking a RoiOverlay tool already disarmed NiiVue's dragMode in v0.9.3 (no change there).
+
+### Known — SAM session-create still failing
+
+From your last report:
+> webgpu: Can't create a session. ERROR_CODE: 1 … `/onnxruntime/core/optimizer/optimizer_execution_frame.cc:72`
+> wasm: Can't create a session. ERROR_CODE: 1 … same line
+
+Both backends hit the SAME ORT optimizer error — this is a **model-graph-level failure**, not a backend issue (the optimizer runs BEFORE backend dispatch). Most likely an external-data sidecar that ORT can't link (SAM 3 ships its weights in a `.onnx_data` file, and the path matching between the .onnx graph's reference and our `externalData[].path` is fragile).
+
+**Workaround until v0.10.5**: try **SAM 2.1 Tiny** in the SAM panel — it's bytes-only (no external-data sidecar), so the optimizer doesn't have to link external initializers. If SAM 2.1 Tiny works and SAM 3 doesn't, the external-data path-matching is confirmed as the bug and v0.10.5 will fix it (try multiple path variants: bare basename, `./basename`, full relative path).
+
+### Internal
+
+- `src/components/RoiOverlay.tsx` — `finalizeDrag` rejects shapes with `Math.max(x1-x0, y1-y0) < 1` for the seven drag-based tools.
+- `src/components/AppShell.tsx` — `onContextMenu={e.preventDefault()}` on `<section id="viewer">`.
+- `src/components/ToolsPanel.tsx` — `toggleAngle` + `apply` both call `useAppStore.getState().setPrefs({ activeTool: null })` when activating a NiiVue tool.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.10.3] — Tools work even on out-of-tile clicks + SAM session-create surfaces per-provider errors
 
 ### Fixed

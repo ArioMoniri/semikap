@@ -72,6 +72,13 @@ export function ToolsPanel({ viewerRef }: Props) {
     if (!v) return;
     const next = !v.isAngleMode();
     v.setAngleMode(next);
+    // v0.10.4 — disarm any RoiOverlay tool when activating angle so the
+    // overlay's pointer-events-auto SVG doesn't steal the angle clicks.
+    // User reported "angle measurement doesnt work on right or left
+    // click" — root cause was an armed measurement tool from the new
+    // ToolPicker silently intercepting before NiiVue's angle code path
+    // ran. Mutual exclusion makes either-or explicit.
+    if (next) useAppStore.getState().setPrefs({ activeTool: null });
     // v0.7.3: do NOT reset dragMode to 'none' on enter. The previous
     // version forced 'none' so click+drag wouldn't also pan/contrast —
     // but that broke the user's right-mouse-drag W/L (NiiVue's W/L is
@@ -88,6 +95,13 @@ export function ToolsPanel({ viewerRef }: Props) {
     (mode: DragMode) => {
       setDrag(mode);
       viewerRef.current?.setDragMode(mode);
+      // v0.10.4 — same mutex as toggleAngle: arming a NiiVue drag mode
+      // (contrast / measurement / pan) disarms any RoiOverlay tool so
+      // the new tools don't quietly steal clicks meant for NiiVue's
+      // native interactions.
+      if (mode !== 'none') {
+        useAppStore.getState().setPrefs({ activeTool: null });
+      }
     },
     [viewerRef]
   );

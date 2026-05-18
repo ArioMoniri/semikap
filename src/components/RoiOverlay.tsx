@@ -383,6 +383,37 @@ export function RoiOverlay({
     const x1 = Math.max(draftStart.voxX, end.voxX);
     const y1 = Math.max(draftStart.voxY, end.voxY);
 
+    // v0.10.4 — reject degenerate shapes (min ≈ max in BOTH axes) BEFORE
+    // committing. Pre-v0.10.4 the user could click twice without dragging
+    // (or have both clicks land on the 3D tile / gutter where the v0.10.3
+    // crosshair fallback returned the same mm), resulting in min===max
+    // rectangles with width=height=0. They were added to the measurements
+    // list but rendered invisible — user reported "measured things do not
+    // persist on the page and just adds up to the measurements". Now: any
+    // drag shape with <1 voxel delta in BOTH axes is silently discarded.
+    // Bidirectional / Cobb / Directional (click-only tools) bypass this
+    // gate via the multi-click code path above.
+    const dragDelta = Math.max(x1 - x0, y1 - y0);
+    if (
+      dragDelta < 1 &&
+      (activeTool === 'rectangle' ||
+        activeTool === 'ellipse' ||
+        activeTool === 'circle' ||
+        activeTool === 'freehand' ||
+        activeTool === 'spline' ||
+        activeTool === 'livewire' ||
+        activeTool === 'wlRegion')
+    ) {
+      // Re-fire the diagnostic chip so the user sees WHY no shape appeared.
+      setLastClick({
+        kind: 'miss',
+        px: { x: draftMove?.canvasX ?? 0, y: draftMove?.canvasY ?? 0 },
+        ts: Date.now(),
+      });
+      disarmTool();
+      return;
+    }
+
     if (activeTool === 'rectangle') {
       const stats = statsInsideShape(volume, axis, sliceIndex, { x0, y0, x1, y1 }, () => true);
       addMeasurement({

@@ -512,6 +512,16 @@ export function AppShell() {
           tabIndex={-1}
           className="relative flex-1 min-h-0 min-w-0 bg-black"
           aria-label="Image viewer"
+          /*
+           * v0.10.4 — suppress the browser default context menu inside
+           * the viewer. The user requested "deactivate the devtools
+           * right click" — radiology viewers conventionally use right-
+           * click for window/level adjust (Cornerstone, OHIF, every PACS),
+           * so a default "Inspect / Save image" menu interferes. NiiVue's
+           * right-click W/L flow (dragMode='contrast') becomes useable
+           * once the menu stops popping up.
+           */
+          onContextMenu={(e) => e.preventDefault()}
         >
           {/* Collapse / expand toggle. Floats over the viewer at top-left, so
               it remains reachable when the sidebar is hidden. */}
