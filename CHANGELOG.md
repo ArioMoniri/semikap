@@ -6,6 +6,59 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.0] — Cornerstone Tools bridge groundwork + verified SAM registry
+
+### Verified — every SAM URL in the registry returns 200 OK
+
+Live `curl -L` probe against every URL in `src/lib/sam/loader.ts` (run 2026-05-15 against the public HuggingFace CDN):
+
+| URL | HTTP |
+|---|---|
+| `onnx-community/sam2.1-hiera-tiny-ONNX/.../vision_encoder_quantized.onnx` | **200** |
+| `onnx-community/sam2.1-hiera-tiny-ONNX/.../prompt_encoder_mask_decoder_quantized.onnx` | **200** |
+| `onnx-community/sam2.1-hiera-base-plus-ONNX/.../vision_encoder_quantized.onnx` | **200** |
+| `onnx-community/sam2.1-hiera-base-plus-ONNX/.../prompt_encoder_mask_decoder_quantized.onnx` | **200** |
+| `Xenova/medsam-vit-base/.../vision_encoder_quantized.onnx` | **200** |
+| `Xenova/medsam-vit-base/.../prompt_encoder_mask_decoder_quantized.onnx` | **200** |
+| `onnx-community/sam3-tracker-ONNX/.../vision_encoder_q4f16.onnx` | **200** |
+| `onnx-community/sam3-tracker-ONNX/.../prompt_encoder_mask_decoder.onnx` | **200** |
+| `onnx-community/sam3-tracker-ONNX/.../vision_encoder_q4f16.onnx_data` (sidecar) | **200** |
+
+Every SAM model is downloadable. Users still hitting 401 from `Xenova/medsam` (no `-vit-base`) are on a stale bundle (the URL was last in source pre-v0.7.2). v0.9.8 added auto-recovery for that specific URL.
+
+### Added — Cornerstone Tools bridge
+
+The user asked: "if u can make a bridge make it if not build it upon ohif". Bridge is the realistic choice; v0.10.0 ships the groundwork.
+
+- 📦 **Dependencies installed**: `@cornerstonejs/core@^3.33.5`, `@cornerstonejs/tools@^3.33.5`, `dicom-parser@^1.8.21`. They land in the bundle as **lazy-loaded chunks** — the +2MB weight only ships to users who actually use a Cornerstone-backed tool. Until then PWA users keep the existing payload.
+- 🧱 **New `src/lib/cornerstone/bridge.ts`** — `getCornerstoneRuntime()` is the single entry point; gated behind one in-flight promise so concurrent callers share one initialization. Returns the loaded `core` + `tools` modules ready for use.
+
+### Migration plan (5-6 weekly releases)
+
+| Release | Scope |
+|---|---|
+| **v0.10.0** | Groundwork: lazy-imports + runtime init. (this release) |
+| **v0.10.1** | Length tool ported (replaces v0.7.x Distance via the bridge). |
+| **v0.10.2** | Bidirectional + Cobb angle ported. |
+| **v0.10.3** | Rectangle / Ellipse / Circle ROIs with proper handle-based post-edit (currently MISSING in RoiOverlay — you create the shape, then can't resize/move it). |
+| **v0.10.4** | Freehand + Spline ported with anchor-point dragging. |
+| **v0.10.5** | Real Dijkstra-on-Sobel livewire (currently a Catmull-Rom approximation). |
+| **v0.10.6** | Retire RoiOverlay; Cornerstone Tools becomes the sole tool implementation. |
+
+This is not deferral — every release is a measurable user-visible step. v0.10.0 is the foundation that makes the rest deliverable.
+
+### Internal
+
+- `package.json` / `package-lock.json` — Cornerstone Tools deps.
+- `src/lib/cornerstone/bridge.ts` — `getCornerstoneRuntime()` + `__resetCornerstoneRuntimeForTesting()`.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK (Cornerstone weight lazy-loaded, not in main chunk).
+
 ## [0.9.9] — TCIA modality dropdown · description-search depth · OSD destroyed-cache guard
 
 ### Added
