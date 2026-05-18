@@ -108,7 +108,9 @@ export const PRESET_SAM_MODELS: Array<{
     // LZ4-compressed and ship at <1 MB total per model. The user
     // reported "the approx size of shown models and the size shows
     // while downloading is so much different".
-    approxBytesEncoder: 441_167,
+    // v0.10.5 — encoder size now reflects .onnx_data sidecar (graph
+    // is the small `_quantized.onnx`; weights live in the sidecar).
+    approxBytesEncoder: 441_167 + 52_573_088,
     approxBytesDecoder: 290_416,
     manifest: {
       kind: 'sam',
@@ -119,6 +121,16 @@ export const PRESET_SAM_MODELS: Array<{
       modality: 'Multi',
       encoder: {
         url: 'https://huggingface.co/onnx-community/sam2.1-hiera-tiny-ONNX/resolve/main/onnx/vision_encoder_quantized.onnx',
+        // v0.10.5 — declare the external-data sidecar that the .onnx
+        // graph references. Pre-v0.10.5 we only downloaded the small
+        // graph file (~441 KB) and ORT-Web's optimizer failed at load
+        // with "Failed to load external data file
+        // 'vision_encoder_quantized.onnx_data', error:
+        // Module.MountedFiles is not available." User report nailed
+        // this — the .onnx file embeds an external_data reference but
+        // we never fetched + passed the sidecar bytes.
+        externalDataUrl:
+          'https://huggingface.co/onnx-community/sam2.1-hiera-tiny-ONNX/resolve/main/onnx/vision_encoder_quantized.onnx_data',
         inputShape: [1, 3, 1024, 1024],
         embeddingShape: [1, 256, 64, 64],
       },
@@ -133,8 +145,9 @@ export const PRESET_SAM_MODELS: Array<{
   },
   {
     id: 'sam2-base-plus',
-    // v0.8.11 — refreshed from a live HEAD; see sam2-tiny note.
-    approxBytesEncoder: 861_193,
+    // v0.10.5 — encoder size now reflects .onnx_data sidecar (graph
+    // is the small `_quantized.onnx`; weights live in the sidecar).
+    approxBytesEncoder: 861_193 + 98_862_416,
     approxBytesDecoder: 290_416,
     manifest: {
       kind: 'sam',
@@ -145,6 +158,8 @@ export const PRESET_SAM_MODELS: Array<{
       modality: 'Multi',
       encoder: {
         url: 'https://huggingface.co/onnx-community/sam2.1-hiera-base-plus-ONNX/resolve/main/onnx/vision_encoder_quantized.onnx',
+        externalDataUrl:
+          'https://huggingface.co/onnx-community/sam2.1-hiera-base-plus-ONNX/resolve/main/onnx/vision_encoder_quantized.onnx_data',
         inputShape: [1, 3, 1024, 1024],
         embeddingShape: [1, 256, 64, 64],
       },

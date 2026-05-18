@@ -6,6 +6,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.5] — SAM 2.1 Tiny + Base+ external-data sidecars (root cause: missing .onnx_data downloads)
+
+### Fixed
+
+- 🤖 **SAM session fails with "Failed to load external data file 'vision_encoder_quantized.onnx_data', error: Module.MountedFiles is not available."** Your v0.10.4 console output gave us the exact failure. Live `curl -I` against the HuggingFace repos confirmed:
+  - `onnx-community/sam2.1-hiera-tiny-ONNX/onnx/vision_encoder_quantized.onnx_data` — **52,573,088 bytes (HTTP 200)**
+  - `onnx-community/sam2.1-hiera-base-plus-ONNX/onnx/vision_encoder_quantized.onnx_data` — **98,862,416 bytes (HTTP 200)**
+  - `Xenova/medsam-vit-base/onnx/vision_encoder_quantized.onnx_data` — HTTP 404 (no sidecar; MedSAM is single-file)
+  
+  Both SAM 2.1 Hiera Tiny AND Base+ ship as `(.onnx graph, .onnx_data weights)` pairs. Pre-v0.10.5 our registry only declared the small `.onnx` graph URL; the ORT-Web optimizer found the graph's external-data reference, looked for the sidecar bytes via `Module.MountedFiles`, didn't find them, and failed at session-create. v0.10.5 adds `externalDataUrl` to both models in `src/lib/sam/loader.ts` so the sidecar gets fetched and passed alongside the graph (same mechanism we already use for SAM 3). `approxBytesEncoder` updated to reflect the real total (e.g. SAM 2.1 Tiny is now ~53 MB, not 441 KB).
+  
+  MedSAM was already correct (no sidecar exists), and SAM 3 was already declared with its external-data URL since v0.8.0.
+
+### Known (honest, not deferred — explained)
+
+- 🅰️ **"ANGLE SHOULD WORK ON 3D FILES THAT A SECTION IS BEING SHOW"** — NiiVue's angle mode requires 2D MPR clicks to capture (vertex / arm1 / arm2). When the user is in 3D-only sliceMode the only visible tile is the volumetric render, which doesn't expose voxel coords on click. Workaround until v0.10.x: switch Layout to "MPR" (axial+coronal+sagittal+3D) — angle clicks land on any of the 2D panes while the 3D render stays visible. Full "click on the 3D render to pick a vertex" needs NiiVue's per-ray voxel pick API which isn't exposed in 0.44 (tracked upstream).
+- 📝 **"SAM MODELS NON CAN ACCEPT TEXT INPUT BUT THEY SHOULD BE ABLE TO"** — text prompts (CLIP-tokenized phrase → text-embedding → SAM decoder) need a CLIP text encoder ONNX + BPE tokenizer in the worker bundle. v0.8.0 documented this as "tracked for v0.9.x" but it never shipped because the CLIP encoder adds ~250 MB to the SAM download. Currently every SAM model in the registry advertises `prompts.supports = ['point', 'box']` (no `'text'`) — that's the truth, not a UI bug. Text prompt support lands when we have a small CLIP encoder hosted (currently surveying `openai/clip-vit-base-patch16` quantized variants).
+- 📐 **"STILL THE MEASURMENTS DO NOT PERSIST"** — v0.10.4 was supposed to fix this by rejecting degenerate (zero-area) shapes from the v0.10.3 crosshair-fallback path. If you're STILL seeing measurements disappear in v0.10.5, please paste the v0.10.2 diagnostic chip text from the next attempt (`✓ Click registered ...` vs `✗ Click missed ...`). The chip will show whether your click is even resolving to a tile in v0.10.5's update — without that data I can't tell if v0.10.4's reject-degenerate kicked in or if there's a different rendering bug.
+
+### Internal
+
+- `src/lib/sam/loader.ts` — added `externalDataUrl` to both `sam2-tiny` + `sam2-base-plus` registry entries; updated `approxBytesEncoder` for both to include sidecar size.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+- Live HEAD probes: sidecar URLs return 200 + correct byte sizes.
+
 ## [0.10.4] — Measurements no longer pile up invisibly · right-click disabled · angle/RoiOverlay mutex
 
 ### Fixed
