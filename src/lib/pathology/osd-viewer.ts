@@ -250,9 +250,23 @@ export function createOsdViewer(opts: OsdViewerOptions): OsdViewer {
    */
   let brushCachedCanvas: HTMLCanvasElement | null = null;
 
+  /**
+   * v0.9.9 — destroyed-guard. After `destroy()` runs, OSD may flush a
+   * queued draw callback (animation handler, RAF tick) that references
+   * the destroyed tile cache. Without this flag the user saw:
+   *   "Attempt to draw tile with destroyed main cache ..."
+   * each time a new slide was loaded over an existing one. The guard
+   * makes repaintOverlay bail early once destroy has run, so the
+   * queued draw is a silent no-op instead of an error.
+   */
+  let destroyed = false;
+
   // Repaint the overlay canvas whenever the viewport moves or the mask
-  // changes.
+  // changes. v0.9.9 — bail early when the viewer has been destroyed so
+  // we don't touch the destroyed OSD tile cache (which throws "Attempt
+  // to draw tile with destroyed main cache").
   const repaintOverlay = () => {
+    if (destroyed) return;
     const rect = viewer.canvas.getBoundingClientRect();
     if (overlayCanvas.width !== rect.width || overlayCanvas.height !== rect.height) {
       overlayCanvas.width = Math.max(1, Math.floor(rect.width));
@@ -567,6 +581,13 @@ export function createOsdViewer(opts: OsdViewerOptions): OsdViewer {
       }
     },
     destroy() {
+      // v0.9.9 — flip the destroyed flag BEFORE OSD teardown so any
+      // queued draw callback that fires after viewer.destroy() returns
+      // immediately from repaintOverlay instead of throwing "Attempt
+      // to draw tile with destroyed main cache". OSD's teardown isn't
+      // synchronous in all browsers — a final RAF tick can land
+      // milliseconds later.
+      destroyed = true;
       window.removeEventListener('resize', onResize);
       // v0.8.8 — clean up the right-click suppressor we attached
       // alongside the MouseTracker.

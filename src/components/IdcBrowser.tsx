@@ -89,15 +89,29 @@ export function IdcBrowser({
     setExpanded(new Set());
     setSeriesByStudy({});
     try {
+      // v0.9.9 — when StudyDescription is set we post-filter the
+      // results on the client (the IDC proxy doesn't accept that filter
+      // server-side). With the default limit=50 the client-side filter
+      // would frequently return 0 even when matches existed deeper in
+      // the result set. Bump the server-side cap to 500 specifically
+      // for that path so the description filter actually narrows from
+      // a useful sample. Plain searches (no description) keep limit=50.
+      const wantsClientFilter = Boolean(studyDescription.trim());
       const studies = await searchStudies({
         ...(patientId && { PatientID: patientId.trim() }),
         ...(modality && { ModalitiesInStudy: modality.trim() }),
         ...(studyDescription && { StudyDescription: studyDescription.trim() }),
         ...(studyDate && { StudyDate: normalizeStudyDate(studyDate) }),
-        limit: 50,
+        limit: wantsClientFilter ? 500 : 50,
       });
       setResults(studies);
-      if (studies.length === 0) setError('No studies match those filters.');
+      if (studies.length === 0) {
+        setError(
+          wantsClientFilter
+            ? `No studies match — the IDC proxy doesn't filter on Study description server-side, so we scanned the first 500 results post-filtering against "${studyDescription.trim()}". Try a different keyword, combine with a Modality or date, or omit the description and browse.`
+            : 'No studies match those filters. Try removing one (e.g. Patient ID) or widening the date range.'
+        );
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -230,13 +244,39 @@ export function IdcBrowser({
             </label>
             <label className="space-y-0.5">
               <span className="text-slate-500">Modality</span>
-              <input
-                type="text"
+              {/*
+                v0.9.9 — TCIA modality dropdown. Pre-v0.9.9 this was free-text
+                that users mistyped (e.g. "PET" → 0 hits because DICOM 0008,0060
+                uses "PT"). Dropdown ships every DICOM modality TCIA / IDC
+                commonly indexes, plus an "Any" sentinel that omits the filter.
+                Modality codes are uppercase per DICOM convention.
+              */}
+              <select
                 value={modality}
                 onChange={(e) => setModality(e.target.value)}
-                placeholder="CT, MR, PT…"
                 className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
-              />
+              >
+                <option value="">Any modality</option>
+                <option value="CT">CT — Computed Tomography</option>
+                <option value="MR">MR — Magnetic Resonance</option>
+                <option value="PT">PT — Positron Emission Tomography</option>
+                <option value="CR">CR — Computed Radiography</option>
+                <option value="DX">DX — Digital Radiography</option>
+                <option value="MG">MG — Mammography</option>
+                <option value="US">US — Ultrasound</option>
+                <option value="NM">NM — Nuclear Medicine</option>
+                <option value="XA">XA — X-Ray Angiography</option>
+                <option value="RF">RF — Radio Fluoroscopy</option>
+                <option value="SC">SC — Secondary Capture</option>
+                <option value="SR">SR — Structured Report</option>
+                <option value="SEG">SEG — Segmentation</option>
+                <option value="RTSTRUCT">RTSTRUCT — RT Structure Set</option>
+                <option value="RTDOSE">RTDOSE — RT Dose</option>
+                <option value="RTPLAN">RTPLAN — RT Plan</option>
+                <option value="RTIMAGE">RTIMAGE — RT Image</option>
+                <option value="SM">SM — Slide Microscopy</option>
+                <option value="OT">OT — Other</option>
+              </select>
             </label>
             <label className="col-span-2 space-y-0.5">
               <span className="text-slate-500">Study description</span>

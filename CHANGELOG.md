@@ -6,6 +6,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.9] — TCIA modality dropdown · description-search depth · OSD destroyed-cache guard
+
+### Added
+
+- 🔬 **TCIA Modality dropdown** in the IDC browser. Replaces the v0.9.0 free-text modality field that users would mistype (e.g. "PET" → 0 hits because DICOM 0008,0060 uses "PT"). The dropdown ships every DICOM modality TCIA / IDC commonly indexes — CT, MR, PT, CR, DX, MG, US, NM, XA, RF, SC, SR, SEG, RTSTRUCT, RTDOSE, RTPLAN, RTIMAGE, SM, OT — plus an "Any modality" option that omits the filter.
+
+### Fixed
+
+- 🔎 **"No studies match those filters" with a Study description filter set** ("iDC doenadt work"). When StudyDescription is non-empty the QIDO request is bumped from `limit=50` to `limit=500` server-side (the IDC proxy doesn't accept StudyDescription as a server-side filter, so we post-filter client-side; 50 results was too small a sample for the post-filter to ever find anything for keyword searches like "abdomen"). The empty-state message is now also descriptive — explains the post-filter behaviour and suggests adding Modality / date or removing the description to broaden.
+- 🧱 **OSD "Attempt to draw tile with destroyed main cache"** when loading a new pathology slide over an existing one. After `destroy()` returns, OSD can still flush a queued draw callback (animation handler / RAF tick) that references the now-destroyed tile cache. New `destroyed` guard flag flips BEFORE OSD teardown so the queued `repaintOverlay` returns early as a silent no-op instead of throwing.
+
+### Internal
+
+- `src/components/IdcBrowser.tsx` — modality select; conditional `limit` (500 with description filter, 50 without); long-form empty-state error message.
+- `src/lib/pathology/osd-viewer.ts` — `destroyed` flag + early-bail in `repaintOverlay` + flag flip before `viewer.destroy()`.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.9.8] — SAM stale-URL recovery + honest answer on full OHIF migration
 
 ### Fixed
