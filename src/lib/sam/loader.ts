@@ -345,6 +345,30 @@ async function fetchWithProgress(
   const response = await fetch(url, { headers, redirect: 'follow' });
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
+      // v0.9.8 — detect URLs that we KNOW are defunct (the repo was
+      // renamed or made private upstream). When this fires the user is
+      // almost certainly running a stale bundle / OPFS-cached manifest
+      // from a pre-v0.7.2 install — modern source uses different URLs.
+      // Recover by telling the user explicitly + auto-clearing any
+      // OPFS-cached blob for this URL so the next attempt fetches fresh.
+      const isKnownDefunct = /huggingface\.co\/Xenova\/medsam(?:\/|$)(?!-)/.test(url);
+      if (isKnownDefunct) {
+        // Best-effort cache invalidation — caller will retry against
+        // the registry's CURRENT URL on next "Download model" click.
+        try {
+          const { clearAllSamCache } = await import('./cache');
+          await clearAllSamCache();
+        } catch {
+          /* OPFS unavailable; user can manually clear via Settings */
+        }
+        throw new Error(
+          `Fetch ${url} failed: HTTP ${response.status}. ` +
+            'This URL is from a pre-v0.7.2 version of TAMIAS and the HuggingFace repo was ' +
+            'renamed (now Xenova/medsam-vit-base). You are running a stale bundle — please ' +
+            'update via Settings → About & updates, or hard-refresh (Cmd+Shift+R / Ctrl+F5). ' +
+            'The SAM cache has been cleared automatically to unblock the next attempt.'
+        );
+      }
       throw new Error(
         `Fetch ${url} failed: HTTP ${response.status}. ` +
           (token

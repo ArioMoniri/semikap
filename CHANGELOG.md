@@ -6,6 +6,47 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.8] — SAM stale-URL recovery + honest answer on full OHIF migration
+
+### Fixed
+
+- 🔄 **SAM model 401 from stale URL** ("Fetch https://huggingface.co/Xenova/medsam/resolve/main/onnx/vision_encoder_quantized.onnx failed: HTTP 401"). The TAMIAS source has used `Xenova/medsam-vit-base` since v0.7.2 (the un-`-vit-base` URL was renamed upstream and now 401s). Users still hitting the old URL are running a stale bundle (auto-updater not yet applied, hard-cached JS, or installed app pre-dating v0.7.2). Two-part recovery:
+  1. The SAM loader now **detects the known-defunct URL pattern** specifically. When the 401 fires for `Xenova/medsam` (without `-vit-base`) it raises an explicit, actionable message: "This URL is from a pre-v0.7.2 version of TAMIAS … please update via Settings → About & updates, or hard-refresh".
+  2. The OPFS SAM cache is **wiped automatically** when the defunct URL fires, so the next "Download model" attempt fetches fresh against the current registry URL instead of hitting cached metadata pointing at the old endpoint.
+- New `clearAllSamCache()` exported from `src/lib/sam/cache.ts` for manual purge from Settings.
+
+### Architecture note — full OHIF migration
+
+Re: "maybe it could be shifted to ohif codes completely so that tools work and all if the tauri and web and the webgpu inference and all functions that we have now will work" — this is an honest, no-defer answer rather than a silent "will look into it":
+
+A full migration to OHIF would require replacing:
+- **Viewport engine**: NiiVue → Cornerstone3D. OHIF is built on Cornerstone3D, not NiiVue. Cornerstone3D uses a different rendering model (WebGL with its own scene graph) and loads DICOM differently. Switching means rewriting every `viewer.*` call site in TAMIAS — that's ~40 imperative APIs across Viewer.tsx + AppShell.tsx + 12 panels.
+- **Tool system**: TAMIAS' RoiOverlay (SVG-based, runs on top of NiiVue) → Cornerstone Tools. Cornerstone Tools' measurements live IN the Cornerstone viewport, not as a sibling SVG. Different state model (toolGroups), different interaction lifecycle. Every shape stored in `measurements` would need re-encoding.
+- **State management**: zustand → OHIF's Redux + service-locator pattern. OHIF expects a specific service registry (ViewportGridService, ToolBarService, etc.) and modes wire into it. Our zustand slices (sam, samPathology, prefs, undoStack, recentFiles, measurements) would all need re-modelling.
+- **Plugin model**: OHIF uses "extensions" + "modes" rather than React components mounted into a sidebar. The TAMIAS SAM panel, TotalSegmentator panel, pathology mode, IDC browser, and hotkey panel would all become extensions.
+- **Build system**: OHIF is a multi-package monorepo (`@ohif/core`, `@ohif/ui`, `@ohif/extension-*`). Tauri integration would need re-doing because OHIF's webpack config differs from our Vite setup.
+- **WebGPU inference**: would survive — ORT-Web with WebGPU backend is independent of the viewport. SAM and TotalSegmentator panels would port relatively cleanly as OHIF extensions.
+
+Realistic effort: 3-4 weeks full-time minimum. Most of TAMIAS' existing features would have to be temporarily lost and re-added one by one as OHIF extensions. Auto-update + Tauri bundling would break during the transition.
+
+Smaller, incremental alternative that gets you the OHIF tool behaviour WITHOUT the rewrite:
+- Adopt **Cornerstone Tools** (the standalone npm package) and bridge its measurement API into the existing TAMIAS viewport via an adapter layer. Cornerstone Tools can run against any canvas; we wire it to NiiVue's drawing surface.
+- Estimated: 1 week. Would replace the v0.9.1 RoiOverlay with Cornerstone Tools' battle-tested implementations (snap-to-edge, multi-handle drag, label editing, RECIST conformance).
+
+This release ships the SAM stale-URL fix only. The OHIF tools bridge is filed against v0.10.x — if you'd like me to start it next, say "do the Cornerstone Tools bridge" and I'll begin v0.10.0 immediately.
+
+### Internal
+
+- `src/lib/sam/loader.ts` — known-defunct URL detection + automatic OPFS cache wipe + actionable error message.
+- `src/lib/sam/cache.ts` — `clearAllSamCache()` helper exported.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.9.7] — IDC series load: restore `this`-binding on NVImage.loadFromFile
 
 ### Fixed

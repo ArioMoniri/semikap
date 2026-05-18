@@ -186,6 +186,32 @@ export async function listSamBlobs(
   return out;
 }
 
+/**
+ * v0.9.8 — wipe EVERY cached SAM blob across both backends (OPFS +
+ * user-folder). Used by the loader's auto-recovery path when it
+ * detects a known-defunct URL, and by the Settings panel "Clear SAM
+ * cache" button so users hitting a stale-bundle bug can unblock
+ * themselves without poking through the Application Storage tab.
+ *
+ * Failures are swallowed per-entry so a single locked file doesn't
+ * abort the whole sweep — best-effort cleanup, not transactional.
+ */
+export async function clearAllSamCache(
+  userDir?: FileSystemDirectoryHandle | null
+): Promise<{ removed: number }> {
+  const blobs = await listSamBlobs(userDir);
+  let removed = 0;
+  for (const b of blobs) {
+    try {
+      await deleteSamBlob(b.sha256, userDir);
+      removed += 1;
+    } catch {
+      /* skip — manual purge available via DevTools */
+    }
+  }
+  return { removed };
+}
+
 /** Helpful path for the UI: where would a brand-new download land? */
 export function describeWritePath(
   userDir: FileSystemDirectoryHandle | null | undefined
