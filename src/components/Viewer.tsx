@@ -105,6 +105,10 @@ export interface ViewerHandle {
   /** Pull the current axial slice as Float32 grayscale + dims, for SAM
    *  encoding. Returns null when no primary volume is loaded. */
   getCurrentAxialSlice(): { pixels: Float32Array; width: number; height: number; index: number } | null;
+  /** v0.10.8 — coronal slice extractor (X×Z plane at current crosshair Y). */
+  getCurrentCoronalSlice(): { pixels: Float32Array; width: number; height: number; index: number } | null;
+  /** v0.10.8 — sagittal slice extractor (Y×Z plane at current crosshair X). */
+  getCurrentSagittalSlice(): { pixels: Float32Array; width: number; height: number; index: number } | null;
   /** Same as getCurrentAxialSlice() but for a specific axial index. Used
    *  by SAM Phase D cross-slice propagation. Returns null when z is out
    *  of bounds or no primary volume is loaded. */
@@ -618,6 +622,12 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       onAngleUpdate(cb) {
         if (!viewerRef.current) return () => undefined;
         return viewerRef.current.onAngleUpdate(cb);
+      },
+      getCurrentCoronalSlice() {
+        return viewerRef.current?.getCurrentCoronalSlice() ?? null;
+      },
+      getCurrentSagittalSlice() {
+        return viewerRef.current?.getCurrentSagittalSlice() ?? null;
       },
       getCurrentAxialSlice() {
         return viewerRef.current?.getCurrentAxialSlice() ?? null;

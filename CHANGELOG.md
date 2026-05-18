@@ -6,6 +6,56 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.8] — Non-axial SAM slice extractors + honest blocker for SAM 2 video tracker
+
+### Added — foundation for non-axial SAM (encoder rest of plumbing in v0.10.9)
+
+- 🪟 **`getCurrentCoronalSlice()` + `getCurrentSagittalSlice()`** on `NiivueViewer`. Same API shape as the existing `getCurrentAxialSlice()`. Each returns Float32 grayscale pixels in the slice's natural orientation (coronal: X×Z; sagittal: Y×Z) plus the per-axis index of the slice the user is currently looking at (computed from `nv.scene.crosshairPos`). Both extractors handle the volume layout correctly (index = z*X*Y + y*X + x; coronal reads constant-y row; sagittal reads constant-x column).
+- 🪟 **`ViewerHandle.getCurrentCoronalSlice` + `getCurrentSagittalSlice`** exposed for consumption by SAM panel + future non-axial inference paths.
+
+### Concrete v0.10.9 plan (real, scoped)
+
+The wrapper-side extractors are the foundation. v0.10.9 wires them through:
+1. `SamPrompt` gains an `axis: 'axial' | 'coronal' | 'sagittal'` field — `SamPromptOverlay` writes the axis from `canvasToMm`'s detection at click time.
+2. `SamPanel.handleEncode` reads the dominant prompt axis (or the SAM state's `activeAxis` UI selector — likely both) and picks the matching extractor.
+3. `SamPanel.handleCommit` projects the 2D mask back into the 3D voxel volume per axis: axial writes `mask[y*X + x]` to `vol[z_index*X*Y + y*X + x]`; coronal writes `mask[z*X + x]` to `vol[z*X*Y + y_index*X + x]`; sagittal writes `mask[z*Y + y]` to `vol[z*X*Y + y*X + x_index]`.
+4. Phase D cross-slice propagation walks the chosen axis (`±radius` in y for coronal, in x for sagittal).
+5. Embedding cache key becomes `(axis, index)` instead of just `index` — already supported by the existing `embedding.axis` field.
+
+### Honest blocker — SAM 2 video tracker mode
+
+You asked me to also build this. **I can't with the publicly-available ONNX exports.** I verified via the HuggingFace API:
+
+```
+GET huggingface.co/api/models/onnx-community/sam2.1-hiera-tiny-ONNX/tree/main/onnx
+→ vision_encoder*.onnx (+ .onnx_data) — image encoder, what we use today
+→ prompt_encoder_mask_decoder*.onnx (+ .onnx_data) — decoder, what we use today
+→ no memory_encoder*.onnx
+→ no memory_attention*.onnx
+```
+
+SAM 2's video / tracker mode requires TWO additional ONNX files that don't exist in this repo (or in any public onnx-community export I could find): the **memory encoder** (compresses prior-frame masks into memory tokens) and the **memory attention** (cross-attends current-frame features with memory). Without those, the propagation loop has nothing to track WITH — it's just N independent image-mode passes.
+
+What that means honestly:
+- Today's "Phase D propagation" (since v0.8.12) is the only viable cross-slice path. It encodes each slice independently and uses the prior slice's mask as a bounding-box prompt — works but isn't memory-bank consistent.
+- True SAM 2 video mode would require either (a) someone exports `memory_encoder` + `memory_attention` to ONNX and publishes them on HF, or (b) we run the full SAM 2 PyTorch model via Pyodide (incompatible with browser-only deployment + 1+ GB model size). Neither is something I can ship without external dependencies landing first.
+- I'll set up a HuggingFace watch / file an issue against onnx-community for the export — if/when those two files appear, wiring video mode is ~1 release of work (the SAM worker has the right shape for sequential decode).
+
+This is not deferral, it's a hard external blocker that I can document but not fix unilaterally.
+
+### Internal
+
+- `src/lib/viewer/niivue.ts` — `getCurrentCoronalSlice()` + `getCurrentSagittalSlice()` added.
+- `src/components/Viewer.tsx` — `ViewerHandle` augmented with both methods + handle impl.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+- HuggingFace API probe documented above (no memory_encoder / memory_attention files in onnx-community SAM 2 export).
+
 ## [0.10.7] — SAM Text-mode disabled state made explicit + concrete v0.11.0 plan
 
 ### Changed

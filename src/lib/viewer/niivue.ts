@@ -1172,6 +1172,69 @@ export class NiivueViewer {
   }
 
   /**
+   * v0.10.8 — coronal slice extractor. Same API shape as
+   * `getCurrentAxialSlice`. Returns the X×Z plane at the current
+   * crosshair Y position. Volume layout: index = z*X*Y + y*X + x;
+   * coronal slice for constant y: pixels[z*X + x] = vol[z*X*Y + y*X + x].
+   */
+  getCurrentCoronalSlice(): { pixels: Float32Array; width: number; height: number; index: number } | null {
+    if (this.primaryIndex < 0) return null;
+    const v = this.nv.volumes[this.primaryIndex] as unknown as {
+      img?: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array;
+      hdr?: { dims: number[] };
+    } | undefined;
+    if (!v || !v.img || !v.hdr) return null;
+    const X = v.hdr.dims[1] ?? 1;
+    const Y = v.hdr.dims[2] ?? 1;
+    const Z = v.hdr.dims[3] ?? 1;
+    if (Y <= 0) return null;
+    const frac =
+      (this.nv as unknown as { scene?: { crosshairPos?: [number, number, number] } }).scene
+        ?.crosshairPos?.[1] ?? 0.5;
+    const y = Math.max(0, Math.min(Y - 1, Math.floor(frac * Y)));
+    const out = new Float32Array(X * Z);
+    for (let z = 0; z < Z; z++) {
+      const zRow = z * X * Y;
+      const yRow = y * X;
+      const outRow = z * X;
+      for (let x = 0; x < X; x++) {
+        out[outRow + x] = v.img[zRow + yRow + x] ?? 0;
+      }
+    }
+    return { pixels: out, width: X, height: Z, index: y };
+  }
+
+  /**
+   * v0.10.8 — sagittal slice extractor. Returns the Y×Z plane at the
+   * current crosshair X position. Slice pixels[z*Y + y] = vol[z*X*Y + y*X + x].
+   */
+  getCurrentSagittalSlice(): { pixels: Float32Array; width: number; height: number; index: number } | null {
+    if (this.primaryIndex < 0) return null;
+    const v = this.nv.volumes[this.primaryIndex] as unknown as {
+      img?: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array;
+      hdr?: { dims: number[] };
+    } | undefined;
+    if (!v || !v.img || !v.hdr) return null;
+    const X = v.hdr.dims[1] ?? 1;
+    const Y = v.hdr.dims[2] ?? 1;
+    const Z = v.hdr.dims[3] ?? 1;
+    if (X <= 0) return null;
+    const frac =
+      (this.nv as unknown as { scene?: { crosshairPos?: [number, number, number] } }).scene
+        ?.crosshairPos?.[0] ?? 0.5;
+    const x = Math.max(0, Math.min(X - 1, Math.floor(frac * X)));
+    const out = new Float32Array(Y * Z);
+    for (let z = 0; z < Z; z++) {
+      const zRow = z * X * Y;
+      const outRow = z * Y;
+      for (let y = 0; y < Y; y++) {
+        out[outRow + y] = v.img[zRow + y * X + x] ?? 0;
+      }
+    }
+    return { pixels: out, width: Y, height: Z, index: x };
+  }
+
+  /**
    * Same as `getCurrentAxialSlice` but for a specific axial index. Used
    * by SAM Phase D cross-slice propagation: the user generates a mask on
    * slice N, then we re-encode slices N±1, N±2, … with the prior mask's
