@@ -98,6 +98,31 @@ export const EXAMPLE_BUNDLES: ExampleBundle[] = [
     ],
   },
   {
+    id: 'liver-vessels-ct-abdo',
+    name: 'Hepatic vessels (CT abdomen — pair with TotalSegmentator)',
+    description: '7.75 MB CT abdomen. Image-only — run TotalSegmentator → liver_vessels class.',
+    longDescription:
+      'Loads a 7.75 MB CT abdomen (CT_Abdo.nii.gz) from niivue-demo-images. ' +
+      'Image-only — no bundled segmentation model. For hepatic-vessel ' +
+      'segmentation: open the TotalSegmentator panel (already integrated ' +
+      "since v0.7.7), pick its full model — the 117-class output includes a " +
+      '`liver_vessels` class that paints hepatic + portal vasculature as a ' +
+      'coloured overlay. v0.10.11 ships the IMAGE so the workflow is ' +
+      'one-click; bundling a small dedicated browser-runnable vessel ONNX ' +
+      'awaits a suitable upstream model (none of the surveyed public ' +
+      'options today meet both medically-valid AND <20MB-browser-runnable).',
+    imageName: 'CT_Abdo.nii.gz',
+    modelName: null,
+    manifestName: null,
+    files: [
+      {
+        name: 'CT_Abdo.nii.gz',
+        description: '7.75 MB CT abdomen for liver-vessel demo (NIfTI)',
+        url: `${NIIVUE_DEMO_BASE}/CT_Abdo.nii.gz`,
+      },
+    ],
+  },
+  {
     id: 'brain-mr-mni',
     name: 'Brain MR (MNI152 template, image-only)',
     description: '4.3 MB MNI152 brain MR template. Image-only — pair with SAM or TotalSegmentator.',

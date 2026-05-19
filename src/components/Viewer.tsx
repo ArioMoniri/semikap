@@ -448,22 +448,37 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
      * `preventDefault()` so the page doesn't also scroll.
      */
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
       /*
-       * v0.8.4 — read pinch sensitivity + direction from prefs every
-       * event so the user's Settings tweak applies immediately. No
-       * useState mirror needed; getState is cheap.
+       * v0.10.11 — split pinch (zoom) from two-finger swipe (slice scroll).
+       * Pre-v0.10.11 we hijacked EVERY wheel event for zoom, which made
+       * trackpad two-finger swipe simultaneously zoom AND scroll slices
+       * (we'd zoom while NiiVue's internal handler also scrolled).
+       * User reported "2 finger slide changes zoom and slide section in
+       * the same time and this is not useful zoom should be only with
+       * pinch". Now:
+       *   - ctrlKey TRUE  → trackpad pinch (browser converts pinch to
+       *                     ctrl+wheel) or Ctrl+wheel on desktop → ZOOM.
+       *                     We preventDefault to stop the page from
+       *                     also zooming.
+       *   - ctrlKey FALSE → two-finger swipe OR mouse wheel → LET
+       *                     NIIVUE'S NATIVE HANDLER RUN (it scrolls
+       *                     slices). Do NOT preventDefault, do NOT zoom.
        *
-       * `pinchSensitivity` is a multiplier (0.5 = half the default,
-       * 2.0 = double). `pinchInverted` flips the sign so users with
-       * "natural" trackpad scrolling reversed (or who prefer the
-       * opposite mental model) can swap in/out.
+       * Mouse-wheel zoom is now Ctrl+wheel (standard convention) rather
+       * than every wheel event. This loses the "scroll to zoom on
+       * desktop without modifier" affordance but eliminates the
+       * conflict — and the user can still zoom via the toolbar buttons
+       * or the Brightness/Contrast slider's "Auto" toggle.
        */
+      if (!e.ctrlKey) {
+        // Two-finger swipe or plain mouse wheel → slice scroll via NiiVue.
+        return;
+      }
+      e.preventDefault();
       const prefs = useAppStore.getState().prefs;
       const sens = prefs.pinchSensitivity ?? 1;
       const inverted = prefs.pinchInverted ?? false;
-      // Trackpad pinch (ctrlKey:true) gets 2× factor vs mouse wheel.
-      const baseFactor = e.ctrlKey ? 0.003 : 0.0015;
+      const baseFactor = 0.003;
       const sign = inverted ? -1 : 1;
       const ratio = Math.exp(-e.deltaY * baseFactor * sens * sign);
       const clamped = Math.max(0.5, Math.min(2, ratio));

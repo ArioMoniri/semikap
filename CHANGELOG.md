@@ -6,6 +6,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.11] — Drop-on-viewer + pinch vs two-finger swipe split + hepatic-vessel example
+
+### Fixed
+
+- 🖱️ **Two-finger trackpad swipe was simultaneously zooming AND scrolling slices.** User reported "2 finger slide changes zoom and slide section in the same time and this is not useful zoom should be only with pinch". Pre-v0.10.11 our wheel handler called `preventDefault()` and zoomed on EVERY wheel event (ctrlKey or not), so:
+  - Two-finger swipe → our handler zooms + NiiVue's slice-scroll also fires (with preventDefault on, this should have blocked NiiVue, but NiiVue's internal listener was bound elsewhere and still ran) → double action.
+  - Pinch → ctrlKey=true → only zooms (correct).
+  
+  v0.10.11 splits cleanly: `ctrlKey=true` (pinch / Ctrl+wheel) → preventDefault + zoom; `ctrlKey=false` (plain swipe / mouse wheel) → returns without preventDefault, NiiVue's native handler runs → slice scroll. Mouse-wheel zoom is now Ctrl+wheel (standard convention).
+- 📂 **Drag-drop ONTO the viewer now loads files** (not just onto the sidebar picker card). User reported "cant drag and drop nii gz and other files" with a screenshot showing they were dropping onto the viewer area. Added `onDragOver` + `onDrop` to `<section id="viewer">` that routes through the same `readDroppedFiles` → `handleImagePicked` / `handleImagesPickedMany` path the sidebar uses. Drop one file = single-volume load; drop multiple = DICOM series. Drop a folder of `.dcm` = series load. Tauri-mode `File.path` is preserved (v0.8.16 path-hint extraction still applies).
+
+### Added
+
+- 🩻 **Hepatic Vessels example bundle**: `liver-vessels-ct-abdo`. Loads a 7.75 MB CT abdomen (`CT_Abdo.nii.gz`) from `niivue/niivue-demo-images`. Image-only — for hepatic-vessel segmentation, open the TotalSegmentator panel (already integrated since v0.7.7) and use the full model (117-class output includes `liver_vessels` that paints hepatic + portal vasculature as a coloured overlay). Pick the bundle in the Examples dropdown to load the demo image with one click.
+
+### Honest — no bundled hepatic-vessel ONNX
+
+v0.10.1's note still applies: none of the surveyed public liver-vessel ONNX models (LiVNet, IRCAD-vessel, etc.) meet BOTH bars: medically valid AND <20 MB browser-runnable. Bundling the IMAGE without a model is the honest delivery — the workflow today is: load `CT_Abdo.nii.gz` via the Examples bundle → TotalSegmentator → `liver_vessels` class.
+
+### Internal
+
+- `src/components/Viewer.tsx` — `onWheel` returns early when `!e.ctrlKey`, preserves NiiVue's slice-scroll handler.
+- `src/components/AppShell.tsx` — `<section id="viewer">` gets `onDragOver` + `onDrop` handlers that hand off to `handleImagePicked` / `handleImagesPickedMany`. New `readDroppedFiles` import.
+- `src/lib/fs/examples.ts` — `liver-vessels-ct-abdo` bundle added to `EXAMPLE_BUNDLES`.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+- Live HEAD against `niivue-demo-images/CT_Abdo.nii.gz`: HTTP 200, 7,753,434 bytes.
+
 ## [0.10.10] — SAM decoder input naming + reject off-tile prompts that collapse to duplicates
 
 ### Fixed

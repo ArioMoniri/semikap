@@ -4,6 +4,10 @@ import { useAppStore } from '../lib/state/store';
 import { detectBackend } from '../lib/diagnostics/gpu';
 import type { ProbeReading } from './Viewer';
 import { LocalFilePicker } from './LocalFilePicker';
+// v0.10.11 — used by the drop-on-viewer handler so dropping a file
+// anywhere on the dark viewer area loads it (not just on the sidebar
+// picker card).
+import { readDroppedFiles } from '../lib/fs/filesystem';
 import { SecondarySeriesPicker } from './SecondarySeriesPicker';
 import { ModelPicker } from './ModelPicker';
 import { Viewer } from './Viewer';
@@ -522,6 +526,30 @@ export function AppShell() {
            * once the menu stops popping up.
            */
           onContextMenu={(e) => e.preventDefault()}
+          /*
+           * v0.10.11 — drop-on-viewer. Pre-v0.10.11 drag-drop only worked
+           * on the LocalFilePicker card in the sidebar; user reported
+           * "cant drag and drop nii gz and other files" and a screenshot
+           * showing they were trying to drop ONTO THE VIEWER ITSELF.
+           * Now every drop on the dark viewer area routes through the
+           * same `readDroppedFiles` / `handleImagePicked` /
+           * `handleImagesPickedMany` path the sidebar uses, so dropping
+           * a .nii.gz / DICOM folder / etc. anywhere over the viewer
+           * loads it identically.
+           */
+          onDragOver={(e) => {
+            e.preventDefault();
+          }}
+          onDrop={async (e) => {
+            e.preventDefault();
+            const many = await readDroppedFiles(e.nativeEvent);
+            if (many.length === 0) return;
+            if (many.length === 1) {
+              await handleImagePicked(many[0]!);
+              return;
+            }
+            await handleImagesPickedMany(many);
+          }}
         >
           {/* Collapse / expand toggle. Floats over the viewer at top-left, so
               it remains reachable when the sidebar is hidden. */}
