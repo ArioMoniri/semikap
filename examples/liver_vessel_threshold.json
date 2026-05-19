@@ -1,0 +1,15 @@
+{
+  "name": "Liver Vessel Threshold (portal-phase CT)",
+  "version": "1.0.0",
+  "license": "CC0-1.0",
+  "modality": "CT",
+  "spacing": [1.0, 1.0, 1.0],
+  "orientation": "RAS",
+  "normalization": { "type": "window", "level": 120, "width": 140 },
+  "inference": { "type": "sliding_window", "patch": [64, 64, 64], "overlap": 0.25 },
+  "output": {
+    "type": "segmentation",
+    "labels": { "0": "background", "1": "liver_vessels" },
+    "colors": { "1": "#dc2626" }
+  }
+}

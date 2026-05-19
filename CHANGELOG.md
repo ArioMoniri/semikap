@@ -6,6 +6,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.19] — Liver vessel inference, working today (zero TotalSegmentator dependency)
+
+### Added
+
+- 🫀 **Liver vessel threshold model + one-click example bundle.** User reported TotalSegmentator's 66 MB Aralario download was unreliable even with v0.10.18's OPFS cache + 10s stall + heartbeat — the panel still got stuck. They asked for an alternative liver-vessel model that just works. v0.10.19 ships one that requires zero external downloads:
+  - **New manifest** `examples/liver_vessel_threshold.json` — re-uses the existing 310-byte `threshold_seg.onnx` (the AVM bundle's model) with a `window` normalization tuned to portal-phase liver vessel HU range (`level=120`, `width=140`). HU >120 is painted as `liver_vessels` (red overlay); HU <120 is background. Runs through the existing `inference.worker.ts` sliding-window pipeline (64³ patches, 0.25 overlap).
+  - **Example bundle `liver-vessels-ct-abdo`** repurposed: was image-only, now ships image + model + manifest as a one-click "Load into app" workflow. After click: CT loads → model loads → manifest wires up → Run button in the inference panel produces a vessel mask in seconds. No 66 MB download, no CDN stall, no `pip install`, no native dependency.
+
+### Honest: what this is and isn't
+
+- **It's an intensity threshold, not a learned vessel model.** Anything denser than liver parenchyma in the 50-190 HU window paints as "vessel" — portal vein, hepatic veins, IVC, aorta, *and* bone/calcium. It works because portal-phase contrast-enhanced vessels sit at ~120-220 HU, exactly where the threshold fires. For unenhanced CT it'll mostly highlight bone.
+- **The bundled `CT_Abdo.nii.gz` is a generic torso CT, NOT portal-phase enhanced.** Vessels will be weak in the included file. Replace it with a real portal-phase CT (e.g., from the IDC + TCIA panel, search `TCGA-LIHC` + Modality=CT + series description "PORTAL VEN" or "PV PHASE") and the vessels paint brightly. The bundle description spells this out for the user.
+- **For multi-class anatomical segmentation** (separate portal vein / hepatic veins / IVC / liver / etc.), the TotalSegmentator Aralario preset remains the higher-fidelity path — when its 66 MB download actually lands. v0.10.19 doesn't remove or deprecate that; it just gives the user a working alternative for "I want to see liver vessels TODAY."
+
+### Why this took until v0.10.19
+
+I spent v0.10.15 → v0.10.18 trying to make the TotalSegmentator Aralario download reliable enough to be the recommended path (stall detector → cancel button → OPFS cache → 10s timeout + heartbeat). All of those helped but none of them eliminated the HuggingFace CDN tail-throttle as a class of failure. The user's correct read: "finding another model is also ok than soving the total segmentator." v0.10.19 takes that route — repurpose what's already shipped and reliable, paired with a manifest-only delta, instead of fighting a 66 MB external download.
+
+### Internal
+
+- `examples/liver_vessel_threshold.json` — NEW (~16 lines). Manifest only; reuses `examples/threshold_seg.onnx` already in the repo.
+- `src/lib/fs/examples.ts` — `liver-vessels-ct-abdo` bundle entry rewritten: gains `modelName: 'threshold_seg.onnx'` + `manifestName: 'liver_vessel_threshold.json'`, files list grows from 1 → 3, title and longDescription rewritten to describe the new workflow honestly.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+- Threshold math sanity-checked: HU 120 maps to model input 0.5 (exact threshold), HU 150 → 0.71 (vessel), HU 60 → 0.07 (background), HU 200 → clamped 1.0 (vessel).
+
 ## [0.10.18] — TotalSegmentator download: OPFS cache + 10s stall + stall heartbeat
 
 ### Fixed

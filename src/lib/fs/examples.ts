@@ -99,38 +99,54 @@ export const EXAMPLE_BUNDLES: ExampleBundle[] = [
   },
   {
     id: 'liver-vessels-ct-abdo',
-    name: 'Generic abdomen CT (for pipeline test; for real hepatic vessels use IDC)',
-    description: '7.75 MB CT_Abdo.nii.gz — generic torso CT. Pipeline test only.',
+    name: 'Liver vessel threshold (CT + HU-threshold ONNX)',
+    description:
+      'CT abdomen + intensity-threshold ONNX tuned for portal-phase liver vessels. One-click load + inference.',
     longDescription:
-      'Loads a 7.75 MB CT abdomen (CT_Abdo.nii.gz) from niivue-demo-images. ' +
-      'Image-only, no bundled model. v0.10.14 — HONEST disclaimer added: ' +
-      "this file is a generic torso CT (lungs prominent, liver visible at " +
-      'the bottom slices but NOT portal-phase enhanced). It is good for ' +
-      'testing the load → TotalSegmentator → mask pipeline end-to-end, but ' +
-      'the vessel mask will be weak because the input is not contrast-' +
-      'enhanced hepatic CT.\n\n' +
-      'For ACTUAL hepatic vessel visualization: open the **IDC + TCIA ' +
-      'public data** panel in the Inputs section, search Modality=CT + ' +
-      'Patient ID prefix `TCGA-LIHC`, expand any study, download a series ' +
-      "labeled 'PORTAL VEN' or 'PV PHASE'. Those have portal-phase " +
-      'contrast — vessels enhance brightly. Run TotalSegmentator (the ' +
-      'Aralario preset, now one-click since v0.10.13) on the loaded portal ' +
-      'series, and the `liver_vessels` / `portal_vein_and_splenic_vein` ' +
-      'classes paint as a coloured overlay.\n\n' +
-      "Bundling a portal-phase hepatic CT directly is blocked by hosting: " +
-      'every public dataset I surveyed (Medical Decathlon Task08, ' +
-      "IRCAD-vessel, LiTS) is either gated (registration), Google-Drive-" +
-      "hosted (no stable direct URL), or has terms that prevent " +
-      'redistribution. The IDC route is the closest equivalent — same ' +
-      'license terms, but the proxy gives us direct WADO-RS download.',
+      'v0.10.19 — first end-to-end LIVER VESSEL workflow that ships without any TotalSegmentator ' +
+      'dependency. Loads a 7.75 MB abdomen CT (CT_Abdo.nii.gz, from niivue-demo-images) plus the ' +
+      'tiny 310-byte threshold ONNX TAMIAS already ships, with a NEW manifest ' +
+      "(`liver_vessel_threshold.json`) whose window normalization (level=120 HU, width=140) maps " +
+      'the portal-phase liver vessel HU range across the model\'s 0.5 decision boundary:\n\n' +
+      '  • Voxels above ~120 HU → painted as `liver_vessels` (red overlay)\n' +
+      '  • Voxels below ~120 HU → background\n\n' +
+      'After "Load into app" the model + image + manifest are all wired; click **Run** in the ' +
+      'inference panel and the vessel mask renders directly. No 66 MB download, no CDN stall, no ' +
+      'pip install — runs end-to-end in seconds on any device.\n\n' +
+      "**HONEST about what this is and isn't:**\n" +
+      "  • This is a HU THRESHOLD, not a learned vessel model. It segments anything denser than " +
+      'liver parenchyma in the windowed range. On a portal-phase CT this picks up the portal vein, ' +
+      'hepatic veins, IVC, aorta, and (unfortunately) bone & calcium. The included CT (`CT_Abdo.nii.gz`) ' +
+      'is a generic torso CT, NOT portal-phase enhanced — vessels will be weak. Replace it with a ' +
+      'real portal-phase CT (e.g., from the IDC + TCIA panel, search `TCGA-LIHC` + Modality=CT + ' +
+      "series description 'PORTAL VEN') and re-run — vessels will paint brightly.\n" +
+      '  • For anatomical multi-class segmentation (separate portal vein / hepatic veins / IVC / aorta / ' +
+      'liver / etc.), the TotalSegmentator Aralario preset (TotalSegmentator panel, in-browser ORT) ' +
+      'remains the higher-fidelity path — when the 66 MB download actually completes.\n\n' +
+      'Why this is the v0.10.19 default: zero new bytes to download (the threshold ONNX is already in ' +
+      'the app shell), works in seconds, gives the user something interpretable on a liver CT today ' +
+      'without depending on any external network reliability.',
     imageName: 'CT_Abdo.nii.gz',
-    modelName: null,
-    manifestName: null,
+    modelName: 'threshold_seg.onnx',
+    manifestName: 'liver_vessel_threshold.json',
     files: [
       {
         name: 'CT_Abdo.nii.gz',
-        description: '7.75 MB generic abdomen CT (pipeline test only — see longDescription)',
+        description: '7.75 MB generic abdomen CT (replace with portal-phase for real vessel results)',
         url: `${NIIVUE_DEMO_BASE}/CT_Abdo.nii.gz`,
+      },
+      {
+        // v0.10.19 — re-uses the same threshold_seg.onnx the AVM bundle ships
+        // (310 bytes, already in OPFS after the first bundle load). The only
+        // thing that's different is the manifest's normalization window.
+        name: 'threshold_seg.onnx',
+        description: '310 B intensity-threshold ONNX (same model as the AVM bundle)',
+        url: `${SELF_BASE_URL}/threshold_seg.onnx`,
+      },
+      {
+        name: 'liver_vessel_threshold.json',
+        description: 'Manifest: window normalization tuned for portal-phase vessels (~120 HU)',
+        url: `${SELF_BASE_URL}/liver_vessel_threshold.json`,
       },
     ],
   },
