@@ -6,6 +6,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.13] — TotalSegmentator panel actually uses the Aralario preset
+
+### Fixed
+
+- 🩻 **TotalSegmentator panel still claimed "No automated download possible" + every preset button opened the BYO form ignoring its URL** (your screenshot showed two identical "TotalSegmentator · BYO" buttons + the discouraging description). v0.10.12 added the Aralario preset to the registry but the panel render was stuck in pre-v0.10.12 mode:
+  1. **Description text** still claimed no community ONNX existed. Rewritten to: "Pick a preset below for one-click download (currently the Aralario **total_fast** 66 MB ONNX wrapper of TotalSegmentator), or use BYO URL / local manifest for any other ONNX export."
+  2. **Button onClick** was hardcoded to `openByo` for every preset, so even the Aralario entry (which HAS a URL) opened the form. Now: presets with `manifest.model.url` non-null get a real one-click download via the new `handlePresetDownload`; presets without a URL (the BYO entry) still open the form.
+  3. **Button label** was hardcoded `"TotalSegmentator"` and badge was hardcoded `"BYO"` — making the Aralario preset visually indistinguishable from BYO. Now renders `preset.manifest.name` (so "TotalSegmentator total_fast (Aralario · 66 MB)" actually shows) + a size badge ("66 MB" in emerald for downloadable presets, "BYO URL" in slate for BYO).
+
+### What you can actually do now
+
+The hepatic-vessel workflow stays one-click but the panel correctly reflects it:
+
+1. **Examples** → `liver-vessels-ct-abdo` (Hepatic Vessels CT abdomen) → Download → Load
+2. **TotalSegmentator panel** → click the green-badged "TotalSegmentator total_fast (Aralario · 66 MB)" → downloads + caches automatically (no URL paste, no BYO form)
+3. **Inference** → Run
+
+### Internal
+
+- `src/components/TotalSegmentatorPanel.tsx` — `handlePresetDownload` callback wires the same fetch + cache pipeline as `submitByo` but using a preset's manifest directly; preset render reads `manifest.name` + uses a `hasUrl ? one-click : openByo` branch.
+- Type import: added `TotalSegPreset` to the `loader.ts` import block.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.10.12] — Aralario TotalSegmentator preset + HF `/blob/` URL auto-correct
 
 ### Fixed

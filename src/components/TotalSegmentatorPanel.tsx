@@ -13,6 +13,7 @@ import {
   buildCustomTotalSegManifest,
   loadTotalSegModel,
   type TotalSegLoadProgress,
+  type TotalSegPreset,
 } from '../lib/totalseg/loader';
 import {
   parseTotalSegManifest,
@@ -81,6 +82,59 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
   const closeByo = useCallback(() => {
     setByoForm({ open: false, name: '', modelUrl: '', sha256: '' });
   }, []);
+
+  /**
+   * v0.10.13 — one-click preset download. Pre-v0.10.13 every preset
+   * button opened the BYO URL form regardless of whether the preset
+   * already had a URL on file; the Aralario preset shipped in v0.10.12
+   * was therefore unusable from the panel (its URL was ignored).
+   * This handler runs the same fetch + cache pipeline as `submitByo`
+   * but skips the form and uses the preset's manifest directly. BYO-
+   * only entries (preset.manifest.model.url === null) still open the
+   * form via `openByo`.
+   */
+  const handlePresetDownload = useCallback(
+    async (preset: TotalSegPreset) => {
+      if (!preset.manifest.model.url) {
+        openByo();
+        return;
+      }
+      try {
+        setBusy({
+          stage: 'fetching',
+          label: `Downloading ${preset.manifest.name}…`,
+          bytesLoaded: 0,
+          ...(preset.approxBytes ? { bytesTotal: preset.approxBytes } : {}),
+        });
+        await loadTotalSegModel(preset.manifest, (p: TotalSegLoadProgress) => {
+          setBusy({
+            stage: p.stage,
+            label:
+              p.stage === 'fetching'
+                ? `Downloading ${preset.manifest.name}…`
+                : p.stage === 'verify'
+                ? 'Verifying SHA-256…'
+                : p.stage === 'cache'
+                ? 'Caching to OPFS…'
+                : 'Done',
+            bytesLoaded: p.bytesLoaded,
+            ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
+          });
+        });
+        setModelLoaded(preset.manifest);
+        setBusy(null);
+        void appendAudit({
+          kind: 'export',
+          message: `TotalSegmentator preset loaded: ${preset.manifest.name}`,
+        });
+      } catch (e) {
+        const err = e as Error;
+        pushError(`TotalSegmentator load failed: ${err.message}`);
+        setBusy(null);
+      }
+    },
+    [openByo, pushError]
+  );
 
   const submitByo = useCallback(async () => {
     if (!byoForm.name.trim() || !byoForm.modelUrl.trim()) {
@@ -222,12 +276,18 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
                 run TotalSegmentator outside Tamias (Docker image at
                 wasserth/TotalSegmentator), then load the resulting
                 `.nii.gz` mask back into Tamias as an overlay. */}
+            {/* v0.10.13 — replaced the pre-v0.10.12 "no automated
+                download possible" message. That statement was true
+                until the Aralario community ONNX export landed; v0.10.12
+                wired it as a one-click preset but this panel text still
+                claimed nothing was downloadable. Now the text reflects
+                what's actually in the registry. */}
             <div className="text-slate-600 dark:text-slate-300">
-              <strong>No automated download possible.</strong>{' '}
-              TotalSegmentator is a 5-fold nnUNet ensemble that
-              can&apos;t be cleanly exported as a single ONNX graph
-              — no community export exists on HuggingFace.
-              Recommended: run upstream{' '}
+              Pick a preset below for one-click download (currently the
+              Aralario <strong>total_fast</strong> 66 MB ONNX wrapper
+              of TotalSegmentator), or use{' '}
+              <strong>BYO URL</strong> / local manifest for any other
+              ONNX export. If neither works for you, the upstream{' '}
               <a
                 href="https://github.com/wasserth/TotalSegmentator"
                 target="_blank"
@@ -236,12 +296,11 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
               >
                 wasserth/TotalSegmentator
               </a>{' '}
-              (Docker / pip), then load the resulting{' '}
+              CLI (Docker / pip) still works — produce a{' '}
               <code className="rounded bg-slate-200 px-1 py-0.5 text-[10px] dark:bg-slate-800">
                 .nii.gz
               </code>{' '}
-              mask via the regular file picker. The BYO URL flow
-              below stays for any future community ONNX wrapper.
+              mask outside the app and load it via the file picker.
             </div>
             <div className="grid grid-cols-1 gap-1.5">
               <Button
@@ -252,28 +311,51 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
               >
                 <FolderOpen className="h-3.5 w-3.5" /> Pick local manifest .json
               </Button>
-              {/* v0.7.5 — shorten the preset label so it fits the
-                  outline button at the narrowest sidebar width. The
-                  trailing "BYO URL · Bring your own" used to overflow
-                  the button outline (same overflow class as v0.7.1's
-                  SAM 3 entry). The trailing chip is now a tiny "BYO"
-                  badge and the truncation lives on the label span. */}
-              {PRESET_TOTALSEG_MODELS.map((p) => (
-                <Button
-                  key={p.id}
-                  variant="outline"
-                  size="sm"
-                  className="justify-between gap-1.5"
-                  onClick={openByo}
-                  title={`${p.manifest.name} — opens the BYO URL form`}
-                >
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <Download className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">TotalSegmentator</span>
-                  </span>
-                  <span className="shrink-0 text-[10px] text-slate-500">BYO</span>
-                </Button>
-              ))}
+              {/* v0.10.13 — render each preset's REAL manifest.name
+                  (not the hardcoded "TotalSegmentator" stub) + use a
+                  size-or-BYO badge that distinguishes downloadable
+                  presets from URL-prompts. Pre-v0.10.13 every preset
+                  rendered identically as "TotalSegmentator · BYO" and
+                  every click opened the BYO form, ignoring the
+                  Aralario preset's URL entirely. Now: preset with a
+                  URL → one-click download via handlePresetDownload;
+                  preset without URL (BYO entry) → opens form. */}
+              {PRESET_TOTALSEG_MODELS.map((p) => {
+                const hasUrl = p.manifest.model.url !== null;
+                const sizeLabel = hasUrl
+                  ? `${(p.approxBytes / (1024 * 1024)).toFixed(0)} MB`
+                  : 'BYO URL';
+                return (
+                  <Button
+                    key={p.id}
+                    variant="outline"
+                    size="sm"
+                    className="justify-between gap-1.5"
+                    onClick={() =>
+                      hasUrl ? void handlePresetDownload(p) : openByo()
+                    }
+                    title={
+                      hasUrl
+                        ? `${p.manifest.name} — one-click download (${sizeLabel})`
+                        : `${p.manifest.name} — opens the BYO URL form`
+                    }
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <Download className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{p.manifest.name}</span>
+                    </span>
+                    <span
+                      className={`shrink-0 text-[10px] ${
+                        hasUrl
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-slate-500'
+                      }`}
+                    >
+                      {sizeLabel}
+                    </span>
+                  </Button>
+                );
+              })}
             </div>
           </div>
         )}
