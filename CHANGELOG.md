@@ -6,6 +6,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.16] — TotalSegmentator: honest "preset cached, in-browser inference not wired" notice
+
+### Fixed
+
+- 🙇 **Wrong diagnosis in v0.10.15.** v0.10.15 shipped a 30s stall detector + Cancel button on the assumption the download was hanging mid-stream. The user corrected me directly: *"but the issue is it to be not wroking and resposinfing not the case of not having abort button"* — the real problem is the model not actually working **after** the download completes, not the download itself stalling.
+- 🩺 **Root cause: there is no in-browser ONNX runner for TotalSegmentator presets in v0.10.x.** `loadTotalSegModel` (`src/lib/totalseg/loader.ts`) downloads the Aralario `total_fast` ONNX bytes (66 MB) into the existing OPFS pipeline and sets `modelLoaded` on the panel — but **nothing consumes those bytes**. The Run button in the panel (`TotalSegmentatorPanel.tsx:1056`) calls `handleRun` (line 955), which invokes the Tauri native command `totalseg_run` — that spawns the user's local `pip install totalsegmentator` CLI and ignores the cached ONNX entirely. `grep -rn "ort\.InferenceSession" src/lib/totalseg/ src/workers/totalseg*.ts` returns empty: no browser runner is wired. Pre-v0.10.16 the UI did not surface this gap — the green "model loaded" chip was misleading.
+
+### Added
+
+- 🟨 **Honest amber banner under the "model loaded" chip** when the loaded preset is an nnUNet family (the Aralario preset and any future browser-runnable nnUNet export). It states plainly:
+  > Preset bytes cached. In-browser inference not yet wired.
+  >
+  > Downloading an Aralario / nnUNet preset stores the ONNX in OPFS, but no in-browser runner consumes it today (sliding-window nnUNet inference is tracked for v0.11.x). The **Run** button below calls your local `pip install totalsegmentator` CLI via the native runner — it does *not* use the downloaded preset bytes. If the native runner is unavailable, install it with `pip install totalsegmentator` and relaunch TAMIAS.
+
+### Honest: why no in-browser nnUNet runner ships today
+
+A real browser-side TotalSegmentator runner is non-trivial: resample the input volume to the model's spacing (3 mm isotropic for `total_fast`), walk 128×112×112 sliding-window patches with Gaussian-weighted overlap, run ORT-Web inference per patch, softmax-argmax into the 118-class output, and stitch the resampled mask back to the input grid. That's ~500 lines of new code split across a worker + post-process module and needs validation on at least one portal-phase liver CT before shipping. Tracked for v0.11.x. Shipping it half-built in v0.10.16 would just replace one "stuck on working" failure mode with another.
+
+### Internal
+
+- `src/components/TotalSegmentatorPanel.tsx` — new amber notice card rendered between the "loaded" chip and `NativePyRunner` when `modelLoaded.family === 'nnunet'`. No behavior change in download or native-run code paths.
+- `CHANGELOG.md` — v0.10.16 entry with root-cause + apology for the v0.10.15 mis-fix.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.10.15] — TotalSegmentator download: stall detection + Cancel button
 
 ### Fixed

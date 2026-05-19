@@ -501,6 +501,47 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
                 <XIcon className="h-3 w-3" />
               </button>
             </div>
+            {/* v0.10.16 — HONEST notice on the gap between "model
+                downloaded" and "inference runs". Pre-v0.10.16 the panel
+                showed the green "model loaded" chip after an Aralario
+                preset download succeeded, with NO indication that the
+                downloaded ONNX bytes are not actually consumed by any
+                runner today. The user reported the panel "stuck on
+                working … not responding" — the underlying cause was
+                that they had downloaded the preset and then either:
+                  (a) saw "Native runner unavailable" because they don't
+                      have `pip install totalsegmentator` locally, or
+                  (b) clicked Run on the native runner, which spawned
+                      the local Python CLI and ignored the bytes they
+                      just spent 60 MB on.
+                Either way: there is no in-browser ORT runner for
+                TotalSegmentator presets in v0.10.x. Building one is a
+                substantial task (spacing-resample to 3 mm, sliding-
+                window 128×112×112 patches, per-patch ORT inference,
+                118-class softmax-argmax stitching) — tracked for
+                v0.11.x. Until then this banner sets expectations
+                honestly so the user isn't waiting for nothing. */}
+            {modelLoaded.family === 'nnunet' && (
+              <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[10.5px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+                <div className="font-medium">
+                  Preset bytes cached. In-browser inference not yet wired.
+                </div>
+                <div className="mt-0.5 opacity-90">
+                  Downloading an Aralario / nnUNet preset stores the
+                  ONNX in OPFS, but no in-browser runner consumes it
+                  today (sliding-window nnUNet inference is tracked for
+                  v0.11.x). The <strong>Run</strong> button below calls
+                  your local <code>pip install totalsegmentator</code> CLI
+                  via the native runner — it does <em>not</em> use the
+                  downloaded preset bytes. If the native runner is
+                  unavailable, install it with
+                  <span className="ml-1 inline-block rounded bg-amber-200/60 px-1 font-mono text-[10px] dark:bg-amber-800/40">
+                    pip install totalsegmentator
+                  </span>{' '}
+                  and relaunch TAMIAS.
+                </div>
+              </div>
+            )}
             {/* v0.7.7 — primary path is the NATIVE python runner, which
                 spawns the user's local `totalsegmentator` install via
                 a Tauri command. This is the workflow the user already
