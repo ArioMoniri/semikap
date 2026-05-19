@@ -71,10 +71,17 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
   const [runError, setRunError] = useState<string | null>(null);
   const inBrowserWorkerRef = useRef<Worker | null>(null);
   const [busy, setBusy] = useState<{
-    stage: 'fetching' | 'verify' | 'cache' | 'done';
+    // v0.10.18 — added 'cache-hit' for the OPFS-cached short-circuit so
+    // the panel can render "Loaded from cache" instead of pretending to
+    // download.
+    stage: 'cache-hit' | 'fetching' | 'verify' | 'cache' | 'done';
     label: string;
     bytesLoaded: number;
     bytesTotal?: number;
+    // v0.10.18 — surfaced from the loader's heartbeat so the UI can
+    // say "no data for Xs (auto-abort at 10s)" rather than just
+    // spinning silently while a CDN tail-throttle plays out.
+    stalledSeconds?: number;
   } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   /**
@@ -153,15 +160,20 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
             setBusy({
               stage: p.stage,
               label:
-                p.stage === 'fetching'
+                p.stage === 'cache-hit'
+                  ? `Loaded ${preset.manifest.name} from OPFS cache`
+                  : p.stage === 'fetching'
                   ? `Downloading ${preset.manifest.name}…`
                   : p.stage === 'verify'
                   ? 'Verifying SHA-256…'
                   : p.stage === 'cache'
-                  ? 'Caching to OPFS…'
+                  ? 'Saving to OPFS for next time…'
                   : 'Done',
               bytesLoaded: p.bytesLoaded,
               ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
+              ...(p.stalledSeconds !== undefined
+                ? { stalledSeconds: p.stalledSeconds }
+                : {}),
             });
           },
           abort.signal
@@ -219,15 +231,20 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
           setBusy({
             stage: p.stage,
             label:
-              p.stage === 'fetching'
+              p.stage === 'cache-hit'
+                ? 'Loaded from OPFS cache'
+                : p.stage === 'fetching'
                 ? 'Downloading TotalSegmentator model…'
                 : p.stage === 'verify'
                 ? 'Verifying SHA-256…'
                 : p.stage === 'cache'
-                ? 'Caching to OPFS…'
+                ? 'Saving to OPFS for next time…'
                 : 'Done',
             bytesLoaded: p.bytesLoaded,
             ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
+            ...(p.stalledSeconds !== undefined
+              ? { stalledSeconds: p.stalledSeconds }
+              : {}),
           });
         }
       );
@@ -761,6 +778,9 @@ type TotalSegBusy = {
   label: string;
   bytesLoaded: number;
   bytesTotal?: number;
+  /** v0.10.18 — surfaced from loader heartbeat so the busy panel can
+   *  show "no data for Xs" instead of pretending steady progress. */
+  stalledSeconds?: number;
 };
 
 /** v0.8.1 — same throttle pattern as SamPanel.ThrottledSamBusyView.
@@ -815,6 +835,21 @@ function BusyView({
             : ''}
         </div>
       )}
+      {/* v0.10.18 — stall heartbeat. The loader's read() loop heartbeats
+          every 1s while waiting; once we've been silent for ≥3s, show
+          an amber line so the user knows we're aware + counting down to
+          the 10s auto-abort. Pre-v0.10.18 the panel was silent during a
+          CDN tail-throttle and the user reasonably gave up assuming the
+          app had hung. */}
+      {busy.stage === 'fetching' &&
+        busy.stalledSeconds !== undefined &&
+        busy.stalledSeconds >= 3 && (
+          <div className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+            No data for {busy.stalledSeconds}s — HuggingFace CDN tail-throttle.
+            Auto-abort at 10s; the retry usually completes (and v0.10.18
+            caches it to OPFS so you only re-download once).
+          </div>
+        )}
     </div>
   );
 }

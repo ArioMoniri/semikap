@@ -11,6 +11,9 @@
  */
 
 import type { TotalSegManifest } from './types';
+import { readTotalSegBlob, urlKey, writeTotalSegBlob } from './cache';
+import type { Bytes } from '../../types';
+import { asBytes } from '../../types';
 
 /**
  * One entry in the preset list. Same shape as `PRESET_SAM_MODELS` so
@@ -136,9 +139,19 @@ export function buildCustomTotalSegManifest(opts: {
  * URL flow, not loadTotalSegModel directly).
  */
 export interface TotalSegLoadProgress {
-  stage: 'fetching' | 'verify' | 'cache' | 'done';
+  /**
+   * v0.10.18 — added 'cache-hit' so the panel can render "Loaded from
+   * cache" instantly instead of pretending to download. Stays
+   * backward-compatible: existing handlers that only check
+   * 'fetching' / 'cache' / 'done' still work.
+   */
+  stage: 'cache-hit' | 'fetching' | 'verify' | 'cache' | 'done';
   bytesLoaded: number;
   bytesTotal?: number;
+  /** v0.10.18 — seconds since the last chunk arrived. Lets the UI show
+   *  "no data for Xs (auto-abort at 10s)" so the user knows we're aware
+   *  of the stall and not pretending nothing's wrong. */
+  stalledSeconds?: number;
 }
 
 export async function loadTotalSegModel(
@@ -151,7 +164,7 @@ export async function loadTotalSegModel(
    * as a user-friendly message below).
    */
   signal?: AbortSignal
-): Promise<{ modelBytes: Uint8Array }> {
+): Promise<{ modelBytes: Bytes; fromCache: boolean }> {
   if (!manifest.model.url) {
     throw new Error(
       'TotalSegmentator manifest has no model URL — use the BYO URL flow.'
@@ -171,6 +184,25 @@ export async function loadTotalSegModel(
     /^https:\/\/huggingface\.co\/([^/]+\/[^/]+)\/blob\//,
     'https://huggingface.co/$1/resolve/'
   );
+
+  // v0.10.18 — OPFS cache hit short-circuit. Computed once up front so
+  // we can also use the key to write the bytes back after a fresh
+  // download succeeds. Pre-v0.10.18 every load went straight to the
+  // network even if we'd just downloaded the same URL minutes ago —
+  // the root cause of the user's stall-then-retry loop after the
+  // HuggingFace CDN tail-throttle bit in v0.10.15.
+  const key = await urlKey(url);
+  const cached = await readTotalSegBlob(key);
+  if (cached) {
+    onProgress?.({
+      stage: 'cache-hit',
+      bytesLoaded: cached.byteLength,
+      bytesTotal: cached.byteLength,
+    });
+    onProgress?.({ stage: 'done', bytesLoaded: cached.byteLength });
+    return { modelBytes: cached, fromCache: true };
+  }
+
   const res = await fetch(url, { credentials: 'omit', signal });
   if (!res.ok || !res.body) {
     throw new Error(`Fetch ${url} failed: HTTP ${res.status}`);
@@ -184,48 +216,75 @@ export async function loadTotalSegModel(
    * v0.10.15 — stall detection. Pre-v0.10.15 a network hiccup near
    * the tail of the download (HF CDN throttles the last few hundred
    * KB intermittently) left `reader.read()` blocked forever with no
-   * way for the user to see the stall and no way to cancel. User
-   * reported the panel "stuck on working" at 62.9 / 63.2 MB with no
-   * console error. Now: every `read()` is racing a 30s timer; if no
-   * chunk arrives in that window we abort the read with a clear
-   * "Download stalled" error rather than hanging forever.
+   * way for the user to see the stall and no way to cancel.
    *
-   * Reset the timer on every chunk so a slow-but-steady connection
-   * (1 KB/s) doesn't time out.
+   * v0.10.18 — tightened to 10s (was 30s). The user reported the
+   * panel stuck at 63.1/63.2 MB — they gave up well before the 30s
+   * timer fired. 10s is enough signal: a real connection will recover
+   * inside that window, a CDN tail-throttle won't. Combined with the
+   * v0.10.18 OPFS cache, a stall-then-retry from scratch now lands
+   * the bytes from the FIRST successful run forever after.
+   *
+   * Resets on every chunk so a slow-but-steady connection (1 KB/s)
+   * doesn't trip it — only true silence does.
    */
-  const STALL_MS = 30_000;
+  const STALL_MS = 10_000;
 
-  for (;;) {
-    let stallTimer: ReturnType<typeof setTimeout> | null = null;
-    const stallPromise = new Promise<never>((_, reject) => {
-      stallTimer = setTimeout(
-        () =>
-          reject(
-            new Error(
-              `Download stalled — no data received for ${STALL_MS / 1000}s ` +
-                `(${received}${total ? ' of ' + total : ''} bytes received). ` +
-                'Network throttling or HF CDN issue. Retry, or pick another model.'
-            )
-          ),
-        STALL_MS
-      );
-    });
-    let r: { done: boolean; value?: Uint8Array };
-    try {
-      r = await Promise.race([reader.read(), stallPromise]);
-    } finally {
-      if (stallTimer !== null) clearTimeout(stallTimer);
-    }
-    if (r.done) break;
-    if (r.value) {
-      chunks.push(r.value);
-      received += r.value.byteLength;
+  /** v0.10.18 — emit a heartbeat progress event every second WHILE
+   *  the read is in flight so the UI can show "no data for Xs". Pre-
+   *  v0.10.18 the UI had no signal between the last chunk and the
+   *  stall abort, so a 30s wait felt like a hang. */
+  let lastChunkAt = performance.now();
+  const heartbeat = setInterval(() => {
+    const elapsed = (performance.now() - lastChunkAt) / 1000;
+    if (elapsed >= 1) {
       onProgress?.({
         stage: 'fetching',
         bytesLoaded: received,
         ...(total !== undefined ? { bytesTotal: total } : {}),
+        stalledSeconds: Math.floor(elapsed),
       });
     }
+  }, 1000);
+
+  try {
+    for (;;) {
+      let stallTimer: ReturnType<typeof setTimeout> | null = null;
+      const stallPromise = new Promise<never>((_, reject) => {
+        stallTimer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Download stalled — no data received for ${STALL_MS / 1000}s ` +
+                  `(${received}${total ? ' of ' + total : ''} bytes received). ` +
+                  'HuggingFace CDN tail-throttle is the usual cause. ' +
+                  'Click Download again to retry — v0.10.18 caches successful ' +
+                  'downloads to OPFS so the retry that lands will be saved permanently.'
+              )
+            ),
+          STALL_MS
+        );
+      });
+      let r: { done: boolean; value?: Uint8Array };
+      try {
+        r = await Promise.race([reader.read(), stallPromise]);
+      } finally {
+        if (stallTimer !== null) clearTimeout(stallTimer);
+      }
+      if (r.done) break;
+      if (r.value) {
+        chunks.push(r.value);
+        received += r.value.byteLength;
+        lastChunkAt = performance.now();
+        onProgress?.({
+          stage: 'fetching',
+          bytesLoaded: received,
+          ...(total !== undefined ? { bytesTotal: total } : {}),
+        });
+      }
+    }
+  } finally {
+    clearInterval(heartbeat);
   }
   const merged = new Uint8Array(received);
   let offset = 0;
@@ -233,6 +292,16 @@ export async function loadTotalSegModel(
     merged.set(c, offset);
     offset += c.byteLength;
   }
+  const bytes = asBytes(merged);
+
+  // v0.10.18 — persist to OPFS so the next load skips the network.
+  // Best-effort: a write failure here doesn't fail the load (the
+  // bytes still work for this session), it just means the next
+  // session will re-download. Surface the cache stage to the panel
+  // so the user sees the "saving for next time" beat.
+  onProgress?.({ stage: 'cache', bytesLoaded: received, ...(total !== undefined ? { bytesTotal: total } : {}) });
+  await writeTotalSegBlob(key, bytes).catch(() => null);
+
   onProgress?.({ stage: 'done', bytesLoaded: received });
-  return { modelBytes: merged };
+  return { modelBytes: bytes, fromCache: false };
 }

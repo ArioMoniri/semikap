@@ -6,6 +6,48 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.18] — TotalSegmentator download: OPFS cache + 10s stall + stall heartbeat
+
+### Fixed
+
+- 🪨 **"Stuck at 63.1 / 63.2 MB" symptom returns, now actionable.** User reported the Aralario preset hanging at 63.1/63.2 MB with the Cancel button visible but the panel otherwise silent. Root cause: HuggingFace's CDN tail-throttles the last few hundred KB of long downloads — the connection stays open with ~0 bytes/sec for tens of seconds. v0.10.15 added a 30s stall detector but 30s is too long; the user gave up before it fired. v0.10.18 ships three concrete fixes:
+  - **10s stall timeout** (was 30s). Tightened because a real connection recovers inside that window and a CDN stall doesn't — the longer wait was pure UX cost. Combined with the new cache (below), a stall-then-retry now lands the bytes once and keeps them forever.
+  - **Per-second "no data for Xs" heartbeat** rendered inline as an amber chip after 3s of silence. The user finally sees the panel knows the download is stalled and is counting down to auto-abort, instead of staring at a frozen bar with no signal.
+  - **OPFS persistence on successful download.** Pre-v0.10.18 every load went to the network even if the user had just downloaded the same URL minutes ago. Now `loadTotalSegModel` checks OPFS first (keyed by `SHA-256(url)`) and short-circuits with a "Loaded from OPFS cache" label when a hit is found. On a successful fresh fetch the bytes are written to OPFS too, so the next session is instant.
+
+### Added
+
+- 📂 **`src/lib/totalseg/cache.ts`** — `readTotalSegBlob` / `writeTotalSegBlob` / `deleteTotalSegBlob` / `listTotalSegBlobs` / `clearAllTotalSegCache`. Mirrors `src/lib/sam/cache.ts` but keyed by URL hash (TotalSeg manifests rarely declare a `model.sha256`) and OPFS-only for now (the user-folder backend SAM has is overkill for a 66 MB model; can add later).
+- 🧪 **`TotalSegLoadProgress`** gained two new optional fields:
+  - `stage: 'cache-hit'` — emitted when the OPFS short-circuit fires before any network IO.
+  - `stalledSeconds?: number` — emitted every second by the heartbeat while a `read()` is in flight, so the UI can show countdown messaging.
+- 🔁 **`loadTotalSegModel` return type** now also carries `fromCache: boolean` so callers can distinguish (for audit logging) "this 66 MB landed in 5s thanks to the cache" from "this took 30s of network IO".
+
+### Honest: what this does NOT solve
+
+- **Range-request resume from a partial download.** If a download stalls at 63.1 MB and aborts, v0.10.18 still re-downloads from byte 0 on retry. The OPFS cache only kicks in after a FULL successful download. Range-resume needs streaming-to-OPFS-as-we-read, which is a real refactor — tracked for v0.10.x if the user hits stalls repeatedly. In practice the second attempt usually succeeds (HF CDN throttle is intermittent), and once one attempt lands, every subsequent session is instant.
+- **The Tauri WKWebView fetch edge cases.** If the v0.10.15-introduced stall detector fails to fire (some WKWebView builds drop the `setTimeout` event when paired with a stalled `ReadableStreamReader`), the user can still hit a true hang. Cancel button works in all cases.
+
+### Internal
+
+- `src/lib/totalseg/loader.ts`:
+  - Added OPFS pre-check at function entry; returns `{ modelBytes, fromCache: true }` on hit.
+  - Heartbeat `setInterval` emits `stalledSeconds` while the reader is waiting.
+  - Stall timeout: 30s → 10s.
+  - Post-success `writeTotalSegBlob` (best-effort, never fails the load).
+  - Stall error message updated to mention the OPFS cache so the user knows retry doesn't lose progress.
+- `src/components/TotalSegmentatorPanel.tsx`:
+  - `busy` state type extended with `'cache-hit'` + `stalledSeconds`.
+  - Both download paths (preset + BYO) plumb the new fields through.
+  - `BusyView` renders an amber "No data for Xs" chip when `stalledSeconds >= 3`.
+- `src/lib/totalseg/cache.ts` — NEW (~110 lines).
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK (5,607 KiB precache).
+
 ## [0.10.17] — TotalSegmentator: in-browser ORT-Web inference actually wired (no pip, no Tauri command)
 
 ### Added
