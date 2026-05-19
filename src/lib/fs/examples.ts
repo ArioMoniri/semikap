@@ -42,8 +42,13 @@ export interface ExampleBundle {
   /** Long-form explanation shown when the bundle is expanded. */
   longDescription?: string;
   /** Which file in the bundle is the medical image (loaded into the
-   *  primary volume slot). Filename match against `files[].name`. */
-  imageName: string;
+   *  primary volume slot). Filename match against `files[].name`.
+   *
+   *  v0.10.20 — nullable. A model-only kit (`liver-vessel-band-model`)
+   *  ships just the ONNX + manifest with no image, so the user can
+   *  load the model once and apply it to whatever volume they have
+   *  open. ExamplesPanel skips the image-load step when null. */
+  imageName: string | null;
   /** Which file is the ONNX model. Null when the bundle is image-only
    *  (e.g. for users who want to test their own model). */
   modelName: string | null;
@@ -98,37 +103,75 @@ export const EXAMPLE_BUNDLES: ExampleBundle[] = [
     ],
   },
   {
-    id: 'liver-vessels-ct-abdo',
-    name: 'Liver vessel threshold (CT + HU-threshold ONNX)',
+    id: 'liver-vessel-band-model',
+    name: 'Liver vessel band-pass MODEL ONLY (no image)',
     description:
-      'CT abdomen + intensity-threshold ONNX tuned for portal-phase liver vessels. One-click load + inference.',
+      '466 B band-pass ONNX + manifest. Load once, apply to any portal-phase CT.',
     longDescription:
-      'v0.10.19 — first end-to-end LIVER VESSEL workflow that ships without any TotalSegmentator ' +
-      'dependency. Loads a 7.75 MB abdomen CT (CT_Abdo.nii.gz, from niivue-demo-images) plus the ' +
-      'tiny 310-byte threshold ONNX TAMIAS already ships, with a NEW manifest ' +
-      "(`liver_vessel_threshold.json`) whose window normalization (level=120 HU, width=140) maps " +
-      'the portal-phase liver vessel HU range across the model\'s 0.5 decision boundary:\n\n' +
-      '  • Voxels above ~120 HU → painted as `liver_vessels` (red overlay)\n' +
-      '  • Voxels below ~120 HU → background\n\n' +
-      'After "Load into app" the model + image + manifest are all wired; click **Run** in the ' +
-      'inference panel and the vessel mask renders directly. No 66 MB download, no CDN stall, no ' +
-      'pip install — runs end-to-end in seconds on any device.\n\n' +
-      "**HONEST about what this is and isn't:**\n" +
-      "  • This is a HU THRESHOLD, not a learned vessel model. It segments anything denser than " +
-      'liver parenchyma in the windowed range. On a portal-phase CT this picks up the portal vein, ' +
-      'hepatic veins, IVC, aorta, and (unfortunately) bone & calcium. The included CT (`CT_Abdo.nii.gz`) ' +
-      'is a generic torso CT, NOT portal-phase enhanced — vessels will be weak. Replace it with a ' +
-      'real portal-phase CT (e.g., from the IDC + TCIA panel, search `TCGA-LIHC` + Modality=CT + ' +
-      "series description 'PORTAL VEN') and re-run — vessels will paint brightly.\n" +
-      '  • For anatomical multi-class segmentation (separate portal vein / hepatic veins / IVC / aorta / ' +
-      'liver / etc.), the TotalSegmentator Aralario preset (TotalSegmentator panel, in-browser ORT) ' +
-      'remains the higher-fidelity path — when the 66 MB download actually completes.\n\n' +
-      'Why this is the v0.10.19 default: zero new bytes to download (the threshold ONNX is already in ' +
-      'the app shell), works in seconds, gives the user something interpretable on a liver CT today ' +
-      'without depending on any external network reliability.',
+      'v0.10.20 — model-only example kit. Ships JUST the new liver-vessel band-pass ONNX ' +
+      "(`liver_vessel_band.onnx`, 466 bytes) + matching manifest, with NO image bundled. The " +
+      'use case: you already have your own portal-phase CT loaded (from disk, from the IDC + ' +
+      'TCIA panel, from your hospital PACS export) and you just want the inference model on top. ' +
+      'Download once, click "Load into app" — only the model + manifest are wired; the currently-' +
+      'loaded volume is left alone. Then click Run in the inference panel.\n\n' +
+      'The band-pass model is a strict upgrade over the v0.10.19 single-threshold model: it ' +
+      "segments vessels in a SPECIFIC HU BAND (100-280 HU after windowing) instead of " +
+      'everything-above-threshold, so portal-phase contrast-enhanced vessels paint but BONE and ' +
+      'over-enhanced contrast in the aorta/heart get SUPPRESSED. Sanity-checked against:\n\n' +
+      '  • air (-1000 HU) → background ✓\n' +
+      '  • fat (-100 HU) → background ✓\n' +
+      '  • liver parenchyma (50-100 HU) → background ✓\n' +
+      '  • portal vessels (150-200 HU) → VESSEL ✓\n' +
+      '  • aortic peak (280+ HU) → suppressed (above band) ✓\n' +
+      '  • calcium / bone (400+ HU) → suppressed ✓\n\n' +
+      'Tiny (under 500 bytes for both files combined) — downloads instantly, never stalls, ' +
+      'works in any browser or the Tauri desktop wrapper. If you want a one-click demo with a ' +
+      'sample CT bundled alongside, pick the `liver-vessel-band-demo` bundle instead.',
+    imageName: null,
+    modelName: 'liver_vessel_band.onnx',
+    manifestName: 'liver_vessel_band.json',
+    files: [
+      {
+        name: 'liver_vessel_band.onnx',
+        description: '466 B band-pass ONNX (Greater + Less + And + Cast + Concat)',
+        url: `${SELF_BASE_URL}/liver_vessel_band.onnx`,
+      },
+      {
+        name: 'liver_vessel_band.json',
+        description: 'Manifest: window normalization (level=175 HU, width=300) + band [0.25, 0.75]',
+        url: `${SELF_BASE_URL}/liver_vessel_band.json`,
+      },
+    ],
+  },
+  {
+    id: 'liver-vessels-ct-abdo',
+    name: 'Liver vessel band-pass + sample CT (full demo)',
+    description:
+      'CT abdomen + 466 B band-pass ONNX tuned for portal-phase liver vessels. One-click load + inference.',
+    longDescription:
+      'v0.10.20 — upgraded from the v0.10.19 single-threshold model to a BAND-PASS model that ' +
+      'suppresses bone and aortic over-enhancement instead of painting them as vessel. Loads a ' +
+      '7.75 MB abdomen CT (CT_Abdo.nii.gz, from niivue-demo-images) plus the new 466-byte ' +
+      'band-pass ONNX + manifest. After "Load into app" everything is wired; click **Run** in ' +
+      'the inference panel and the vessel mask renders.\n\n' +
+      '**Band-pass logic** (matching `liver_vessel_band.json` manifest):\n' +
+      '  • Voxels in 100-280 HU → painted as `liver_vessels` (red overlay)\n' +
+      '  • Voxels below 100 HU (parenchyma, fat, air) → background\n' +
+      '  • Voxels above 280 HU (bone, calcium, aortic peak) → SUPPRESSED (NEW vs v0.10.19) ✓\n\n' +
+      "**HONEST about the bundled CT:**\n" +
+      'The included `CT_Abdo.nii.gz` is a generic torso CT, NOT portal-phase enhanced — vessels ' +
+      'will be weak. For real liver-vessel results, EITHER:\n' +
+      '  • Load the model-only `liver-vessel-band-model` kit (above) on a portal-phase CT you ' +
+      'already have open, OR\n' +
+      "  • Replace this bundle's image: open the IDC + TCIA panel, search `TCGA-LIHC` + Modality=CT " +
+      "+ series description containing 'PORTAL VEN' or 'PV PHASE', download a series, then re-run " +
+      'the same loaded model against it (no re-download needed).\n\n' +
+      'For multi-class anatomical segmentation (portal vein / hepatic veins / IVC separated by ' +
+      'label), the TotalSegmentator Aralario preset (in-browser ORT) remains the higher-fidelity ' +
+      'path — when its 66 MB download lands.',
     imageName: 'CT_Abdo.nii.gz',
-    modelName: 'threshold_seg.onnx',
-    manifestName: 'liver_vessel_threshold.json',
+    modelName: 'liver_vessel_band.onnx',
+    manifestName: 'liver_vessel_band.json',
     files: [
       {
         name: 'CT_Abdo.nii.gz',
@@ -136,17 +179,14 @@ export const EXAMPLE_BUNDLES: ExampleBundle[] = [
         url: `${NIIVUE_DEMO_BASE}/CT_Abdo.nii.gz`,
       },
       {
-        // v0.10.19 — re-uses the same threshold_seg.onnx the AVM bundle ships
-        // (310 bytes, already in OPFS after the first bundle load). The only
-        // thing that's different is the manifest's normalization window.
-        name: 'threshold_seg.onnx',
-        description: '310 B intensity-threshold ONNX (same model as the AVM bundle)',
-        url: `${SELF_BASE_URL}/threshold_seg.onnx`,
+        name: 'liver_vessel_band.onnx',
+        description: '466 B band-pass ONNX (same file as the model-only bundle — shared OPFS cache)',
+        url: `${SELF_BASE_URL}/liver_vessel_band.onnx`,
       },
       {
-        name: 'liver_vessel_threshold.json',
-        description: 'Manifest: window normalization tuned for portal-phase vessels (~120 HU)',
-        url: `${SELF_BASE_URL}/liver_vessel_threshold.json`,
+        name: 'liver_vessel_band.json',
+        description: 'Manifest: window normalization tuned for portal-phase vessels (level=175, width=300)',
+        url: `${SELF_BASE_URL}/liver_vessel_band.json`,
       },
     ],
   },

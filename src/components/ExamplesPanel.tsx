@@ -79,18 +79,24 @@ export function ExamplesPanel({ viewerRef }: Props) {
     setBusy('apply');
     setError(null);
     try {
-      const imgBytes = await readExample(bundle.imageName);
-      if (!imgBytes) {
-        throw new Error('Cached example files missing — click Download first.');
+      // 1) Load the image, IF this bundle ships one. v0.10.20 — bundles
+      //    with `imageName === null` are model-only kits (the new
+      //    `liver-vessel-band-model` bundle) that the user wants to
+      //    apply to whatever volume is already loaded. Skip the image
+      //    step and let setModel below run against the existing volume.
+      if (bundle.imageName) {
+        const imgBytes = await readExample(bundle.imageName);
+        if (!imgBytes) {
+          throw new Error('Cached example files missing — click Download first.');
+        }
+        const loaded = await viewerRef.current.loadPrimary(bundle.imageName, imgBytes);
+        setVolume({
+          source: { name: bundle.imageName, hint: `example:${bundle.id}`, bytes: imgBytes },
+          voxels: loaded.voxels,
+          meta: loaded.meta,
+          sourceFormat: detectSourceFormat(bundle.imageName),
+        });
       }
-      // 1) Load the image into the primary volume slot.
-      const loaded = await viewerRef.current.loadPrimary(bundle.imageName, imgBytes);
-      setVolume({
-        source: { name: bundle.imageName, hint: `example:${bundle.id}`, bytes: imgBytes },
-        voxels: loaded.voxels,
-        meta: loaded.meta,
-        sourceFormat: detectSourceFormat(bundle.imageName),
-      });
       // 2) Load the model, if this bundle ships one. Image-only bundles
       //    (e.g. brain-mr-mni) skip this step — the user pairs them with
       //    a separately-loaded model (SAM / TotalSegmentator).

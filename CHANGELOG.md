@@ -6,6 +6,45 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.20] — Liver vessel BAND-PASS model + reusable model-only example kit
+
+### Added
+
+- 🎯 **Band-pass liver vessel ONNX** (`examples/liver_vessel_band.onnx`, 466 bytes). Real upgrade over the v0.10.19 single-threshold model: instead of "everything above ~120 HU = vessel" (which painted bone and aortic contrast as vessel), the band-pass model fires ONLY for voxels in a specific HU range that matches portal-phase venous enhancement. Sanity-checked on 11 HU bins:
+  - air (-1000), fat (-100), parenchyma (50, 100) → background ✓
+  - portal vessels (150, 175, 200, 240 HU) → VESSEL ✓
+  - aortic peak (280 HU) → background (above band — NEW vs v0.10.19) ✓
+  - calcium (400 HU), bone (800 HU) → background (suppressed — NEW vs v0.10.19) ✓
+  
+  Architecture: 6 nodes (Greater + Less + And + Cast + Sub + Concat), opset 17, 1 float32 input, 2-channel float32 output for argmax. Built via `scripts/build_liver_vessel_onnx.py` (self-documenting + includes the sanity-check table at the end of every run).
+- 🧩 **`liver_vessel_band.json` manifest** with window normalization (level=175 HU, width=300) that maps the portal-phase venous HU range to the model's band [0.25, 0.75] in normalized space. Same sliding-window inference (64³ patches, 0.25 overlap) as the other tiny models.
+- 📦 **Model-only example kit** (`liver-vessel-band-model` bundle). Ships JUST the new ONNX + manifest, no image. Use case: you already have a portal-phase CT loaded (from disk, IDC + TCIA, hospital export) and just want the inference model on top. Download once, click "Load into app" — only the model + manifest are wired; the loaded volume is left alone. Click Run in the inference panel.
+- 🔄 **`ExampleBundle.imageName` is now nullable.** Previously every bundle had to declare an image; v0.10.20 lets model-only kits set `imageName: null`. `ExamplesPanel.handleApply` skips the load-primary step in that case, so the user's current volume stays in place.
+- 🏗️ **`scripts/build_liver_vessel_onnx.py`** — self-contained builder script (Python + `onnx`). Self-documenting opset/IR version, deterministic output, prints a sanity-check table for every tissue bin so the threshold tuning is auditable.
+
+### Changed
+
+- 🔁 **`liver-vessels-ct-abdo` bundle upgraded** from the v0.10.19 single-threshold model to the new band-pass model. Same image (`CT_Abdo.nii.gz`), new model + manifest filenames. Honest disclaimer about the bundled CT still being generic torso (not portal-phase) stays; bundle description now also points users at the new model-only kit + IDC TCGA-LIHC route for real results.
+
+### Honest: what still doesn't work
+
+The bundled `CT_Abdo.nii.gz` is generic torso — vessels in the bundled image will still be weak because the CT itself isn't portal-phase. The model is now correct for portal-phase CTs; the demo image isn't ideal. The model-only kit fixes this: load any portal-phase CT you have, then load the model.
+
+### Internal
+
+- `examples/liver_vessel_band.onnx` — NEW (466 bytes, sha256 `31039f6a9ac08…`).
+- `examples/liver_vessel_band.json` — NEW (manifest, ~14 lines).
+- `scripts/build_liver_vessel_onnx.py` — NEW (~110 lines, builder + sanity-check).
+- `src/lib/fs/examples.ts` — `imageName` type → nullable; `liver-vessels-ct-abdo` updated to band-pass; new `liver-vessel-band-model` bundle prepended in the list so it shows first in the panel dropdown.
+- `src/components/ExamplesPanel.tsx` — `handleApply` wraps image-load in `if (bundle.imageName)` so model-only kits work.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+- Python sanity check on the band-pass model: 11/11 HU bins predict the expected class.
+
 ## [0.10.19] — Liver vessel inference, working today (zero TotalSegmentator dependency)
 
 ### Added

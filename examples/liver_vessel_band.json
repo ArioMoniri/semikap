@@ -1,0 +1,16 @@
+{
+  "name": "Liver Vessel Band-Pass (portal-phase CT)",
+  "version": "1.0.0",
+  "license": "CC0-1.0",
+  "modality": "CT",
+  "spacing": [1.0, 1.0, 1.0],
+  "orientation": "RAS",
+  "normalization": { "type": "window", "level": 175, "width": 300 },
+  "inference": { "type": "sliding_window", "patch": [64, 64, 64], "overlap": 0.25 },
+  "output": {
+    "type": "segmentation",
+    "labels": { "0": "background", "1": "liver_vessels" },
+    "colors": { "1": "#dc2626" }
+  },
+  "sha256": "31039f6a9ac081d891380424079182f5204c0473dcdc1f980cfdf58708b5e982"
+}
