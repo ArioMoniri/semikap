@@ -140,9 +140,19 @@ describe('buildCustomTotalSegManifest', () => {
 });
 
 describe('PRESET_TOTALSEG_MODELS', () => {
-  it('contains exactly one BYO entry in v0.7.4', () => {
-    expect(PRESET_TOTALSEG_MODELS).toHaveLength(1);
-    const byo = PRESET_TOTALSEG_MODELS[0]!;
+  it('ships the Aralario total_fast preset + the BYO entry (v0.10.12+)', () => {
+    // v0.10.12 — added the Aralario/totalsegmentator-onnx-total-fast
+    // preset alongside the existing BYO entry. Order matters: preset
+    // first (so it's the default in the dropdown), BYO last.
+    expect(PRESET_TOTALSEG_MODELS).toHaveLength(2);
+    const preset = PRESET_TOTALSEG_MODELS[0]!;
+    expect(preset.id).toBe('aralario-total-fast');
+    expect(preset.manifest.model.url).toMatch(
+      /huggingface\.co\/Aralario\/totalsegmentator-onnx-total-fast\/resolve\/main\/fold_0\.onnx$/
+    );
+    expect(preset.manifest.output.classes).toBe(118);
+    expect(preset.approxBytes).toBeGreaterThan(50_000_000);
+    const byo = PRESET_TOTALSEG_MODELS[1]!;
     expect(byo.id).toBe('byo-url');
     expect(byo.manifest.model.url).toBeNull();
     expect(byo.manifest.kind).toBe('totalseg');

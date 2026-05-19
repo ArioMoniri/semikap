@@ -1,7 +1,7 @@
 {
   "name": "tamias",
   "private": true,
-  "version": "0.10.11",
+  "version": "0.10.12",
   "type": "module",
   "description": "Transparent locAl Medical Image AnalysiS Tool — browser-only PWA for ONNX medical imaging models",
   "license": "Apache-2.0",

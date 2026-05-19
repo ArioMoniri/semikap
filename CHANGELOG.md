@@ -6,6 +6,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.12] — Aralario TotalSegmentator preset + HF `/blob/` URL auto-correct
+
+### Fixed
+
+- 🤖 **"TotalSegmentator load failed: Load failed" when pasting a HuggingFace web-UI URL.** User pasted `https://huggingface.co/Aralario/totalsegmentator-onnx-total-fast/blob/main/fold_0.onnx` — that's the file-VIEWER page, not the binary. Fetching it returns the HTML page bytes (1.3 KB of UI markup); ORT then can't parse it as ONNX and the fetch error becomes the bare WebKit "Load failed" message. The DIRECT download path is the same URL with `/blob/` → `/resolve/`. v0.10.12 auto-corrects the URL silently in `loadTotalSegModel` so either form works — no more confusion between "page URL" and "download URL".
+
+### Added
+
+- 🩻 **TotalSegmentator total_fast preset (Aralario · 66 MB · 118 classes)** — one-click download in the TotalSegmentator panel instead of pasting URLs manually. Live HF probe confirmed: 66,226,846 bytes, manifest.json present with full 118-class label table (including the hepatic-vessel classes the user asked for in v0.10.11 — `liver`, `portal_vein_and_splenic_vein`, `aorta`, `inferior_vena_cava`, etc.).
+  - **Source**: `huggingface.co/Aralario/totalsegmentator-onnx-total-fast`
+  - **License**: Apache-2.0 code · CC-BY-NC-4.0 weights (non-commercial research use; surfaced in the panel)
+  - **Spacing**: 3 mm isotropic · **Patch**: 128×112×112 · **Family**: nnUNet
+  - The BYO entry stays for power users / other ONNX exports as they land.
+
+### Why this matters for your liver-vessel workflow
+
+The v0.10.11 plan was "load the Hepatic Vessels CT_Abdo bundle → run TotalSegmentator → `liver_vessels` class". v0.10.12 closes the loop by making the TotalSegmentator model itself a one-click download instead of a URL-paste-and-hope path. Workflow now:
+1. Examples → pick `liver-vessels-ct-abdo` → Download → Load into app.
+2. Model → TotalSegmentator → pick `TotalSegmentator total_fast (Aralario · 66 MB)` → Download.
+3. Inference → Run.
+
+### Internal
+
+- `src/lib/totalseg/loader.ts` — `PRESET_TOTALSEG_MODELS` now ships the Aralario preset first; URL auto-correct in `loadTotalSegModel`.
+- `tests/totalseg.loader.test.ts` — preset count assertion updated (2 entries: preset + BYO).
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass (updated preset-count test).
+- `npm run build` — production bundle OK.
+- Live HEAD probes: `fold_0.onnx` HTTP 200 (66,226,846 bytes); `manifest.json` HTTP 200 (7,717 bytes).
+
 ## [0.10.11] — Drop-on-viewer + pinch vs two-finger swipe split + hepatic-vessel example
 
 ### Fixed

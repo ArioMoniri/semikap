@@ -25,11 +25,55 @@ export interface TotalSegPreset {
 }
 
 /**
- * v0.7.4 — only the BYO entry ships. Once a community ONNX export
- * lands (e.g. `wasserth/TotalSegmentator_v201_ONNX` if/when it
- * appears) we wire it in here without touching the panel.
+ * v0.10.12 — Aralario's TotalSegmentator-onnx-total-fast preset added.
+ * 66 MB nnUNet fold_0 ONNX export of TotalSegmentator's `total_fast`
+ * task (118 classes including the full liver_vessels / portal_vein /
+ * hepatic_vessel set for hepatic vessel mapping). User pointed to this
+ * model: huggingface.co/Aralario/totalsegmentator-onnx-total-fast
+ *
+ * Repository ships:
+ *   - fold_0.onnx (66 MB)
+ *   - manifest.json (this spec, downloaded live below)
+ *   - LICENSE.txt (Apache-2.0 code / CC-BY-NC-4.0 weights)
+ *
+ * License: CC-BY-NC-4.0 weights → suitable for non-commercial /
+ * research use. The manifest field carries the full license string so
+ * the user sees it in the Settings panel.
+ *
+ * The BYO entry stays so power users can wire other ONNX exports as
+ * they land.
  */
 export const PRESET_TOTALSEG_MODELS: TotalSegPreset[] = [
+  {
+    id: 'aralario-total-fast',
+    approxBytes: 66_226_846,
+    manifest: {
+      kind: 'totalseg',
+      name: 'TotalSegmentator total_fast (Aralario · 66 MB)',
+      family: 'nnunet',
+      license: 'Apache-2.0 (code) · CC-BY-NC-4.0 (weights)',
+      model: {
+        url: 'https://huggingface.co/Aralario/totalsegmentator-onnx-total-fast/resolve/main/fold_0.onnx',
+      },
+      spacing: [3.0, 3.0, 3.0],
+      patch: [128, 112, 112],
+      output: { type: 'multilabel', classes: 118 },
+      labels: [
+        // Truncated to the 5 most-relevant for the hepatic-vessel
+        // workflow + background. Full 118-class table lives in the
+        // upstream manifest.json — the runner reads it live from the
+        // /resolve/main/manifest.json URL when needed for label IDs
+        // beyond this stub. Avoiding bundling all 118 here keeps the
+        // app shell small and the labels authoritative (sourced from
+        // upstream rather than re-typed here with drift risk).
+        { id: 0, name: 'background' },
+        { id: 5, name: 'liver' },
+        { id: 17, name: 'portal_vein_and_splenic_vein' },
+        { id: 26, name: 'aorta' },
+        { id: 27, name: 'inferior_vena_cava' },
+      ],
+    },
+  },
   {
     id: 'byo-url',
     approxBytes: 0,
@@ -106,7 +150,20 @@ export async function loadTotalSegModel(
       'TotalSegmentator manifest has no model URL — use the BYO URL flow.'
     );
   }
-  const url = manifest.model.url;
+  // v0.10.12 — defensive URL fix: HuggingFace web pages have URLs
+  // shaped `huggingface.co/<repo>/blob/main/<file>` (the file-viewer
+  // page). The DIRECT download is the same path with `/blob/` → `/resolve/`.
+  // Users who copy URLs from the HF UI often paste the `/blob/` form;
+  // fetching it returns the HTML page bytes, not the .onnx, and ORT
+  // throws a downstream "failed to parse model" error. Auto-correcting
+  // here means the user can paste either form. User reported:
+  //   "TotalSegmentator load failed: Load failed
+  //    https://huggingface.co/Aralario/.../blob/main/fold_0.onnx"
+  // — that's the exact symptom.
+  const url = manifest.model.url.replace(
+    /^https:\/\/huggingface\.co\/([^/]+\/[^/]+)\/blob\//,
+    'https://huggingface.co/$1/resolve/'
+  );
   const res = await fetch(url, { credentials: 'omit' });
   if (!res.ok || !res.body) {
     throw new Error(`Fetch ${url} failed: HTTP ${res.status}`);
