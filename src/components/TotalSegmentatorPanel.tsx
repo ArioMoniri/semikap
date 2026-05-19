@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Layers, Download, FolderOpen, X as XIcon, Play, FileCheck2 } from 'lucide-react';
+import * as Comlink from 'comlink';
+import { Layers, Download, FolderOpen, X as XIcon, Play, FileCheck2, Sparkles, Loader2 } from 'lucide-react';
 import type { WorkerRequest, WorkerResponse } from '../workers/totalseg.pyodide.worker';
+import type { InferenceApi, InferenceProgressEvent } from '../workers/inference.worker';
 import { useAppStore } from '../lib/state/store';
+import type { Bytes } from '../types';
+import { totalsegToModelManifest } from '../lib/totalseg/adapter';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -50,6 +54,22 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
   const pushError = useAppStore((s) => s.pushError);
 
   const [modelLoaded, setModelLoaded] = useState<TotalSegManifest | null>(null);
+  // v0.10.17 — keep the downloaded ONNX bytes in memory so the in-browser
+  // ORT-Web runner can consume them. Pre-v0.10.17 we only kept the
+  // manifest and the bytes returned by loadTotalSegModel were silently
+  // dropped — the root cause of the "model loaded but doesn't run"
+  // symptom the user hit in v0.10.15/16. Holding the bytes here is
+  // intentionally simple (no extra OPFS write path); a future revision
+  // can add cross-session caching keyed on URL+sha256.
+  const [modelBytes, setModelBytes] = useState<Bytes | null>(null);
+  // v0.10.17 — in-browser ORT run state. Separate from `busy` (which
+  // is the download progress) so the user can see both phases distinctly
+  // and the panel never gets confused about which work is in flight.
+  const [running, setRunning] = useState(false);
+  const [runStage, setRunStage] = useState<string>('');
+  const [runFraction, setRunFraction] = useState<number>(-1);
+  const [runError, setRunError] = useState<string | null>(null);
+  const inBrowserWorkerRef = useRef<Worker | null>(null);
   const [busy, setBusy] = useState<{
     stage: 'fetching' | 'verify' | 'cache' | 'done';
     label: string;
@@ -127,7 +147,7 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
           bytesLoaded: 0,
           ...(preset.approxBytes ? { bytesTotal: preset.approxBytes } : {}),
         });
-        await loadTotalSegModel(
+        const { modelBytes: bytes } = await loadTotalSegModel(
           preset.manifest,
           (p: TotalSegLoadProgress) => {
             setBusy({
@@ -146,6 +166,11 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
           },
           abort.signal
         );
+        // v0.10.17 — keep the bytes so the in-browser ORT runner can
+        // consume them on Run. Pre-v0.10.17 these were dropped on the
+        // floor and the panel showed "loaded" without anything that
+        // could actually use the model.
+        setModelBytes(bytes as Bytes);
         setModelLoaded(preset.manifest);
         setBusy(null);
         void appendAudit({
@@ -188,21 +213,26 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
         label: 'Downloading TotalSegmentator model…',
         bytesLoaded: 0,
       });
-      await loadTotalSegModel(manifest, (p: TotalSegLoadProgress) => {
-        setBusy({
-          stage: p.stage,
-          label:
-            p.stage === 'fetching'
-              ? 'Downloading TotalSegmentator model…'
-              : p.stage === 'verify'
-              ? 'Verifying SHA-256…'
-              : p.stage === 'cache'
-              ? 'Caching to OPFS…'
-              : 'Done',
-          bytesLoaded: p.bytesLoaded,
-          ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
-        });
-      });
+      const { modelBytes: bytes } = await loadTotalSegModel(
+        manifest,
+        (p: TotalSegLoadProgress) => {
+          setBusy({
+            stage: p.stage,
+            label:
+              p.stage === 'fetching'
+                ? 'Downloading TotalSegmentator model…'
+                : p.stage === 'verify'
+                ? 'Verifying SHA-256…'
+                : p.stage === 'cache'
+                ? 'Caching to OPFS…'
+                : 'Done',
+            bytesLoaded: p.bytesLoaded,
+            ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
+          });
+        }
+      );
+      // v0.10.17 — see equivalent comment in handlePresetDownload.
+      setModelBytes(bytes as Bytes);
       setModelLoaded(manifest);
       setBusy(null);
       void appendAudit({
@@ -266,7 +296,110 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
 
   const handleForget = useCallback(() => {
     setModelLoaded(null);
+    // v0.10.17 — also drop the cached bytes so unloading is a true reset.
+    setModelBytes(null);
+    setRunError(null);
+    setRunStage('');
+    setRunFraction(-1);
   }, []);
+
+  /**
+   * v0.10.17 — IN-BROWSER ORT-Web sliding-window inference for
+   * TotalSegmentator presets.
+   *
+   * This is the path the user actually wanted in v0.10.15/16: download
+   * the Aralario ONNX once, then click Run to actually segment the
+   * loaded volume IN THE BROWSER — no `pip install totalsegmentator`,
+   * no Tauri command, no native runner. Works identically in the PWA
+   * and the Tauri desktop wrapper because everything happens via
+   * ORT-Web in a dedicated Worker.
+   *
+   * Implementation: bridges the TotalSegManifest into the radiology
+   * `ModelManifest` shape (see `lib/totalseg/adapter.ts`) and forwards
+   * to the existing `inference.worker.ts` Comlink API, which already
+   * implements:
+   *   - resampleTrilinear → manifest spacing (3 mm for total_fast)
+   *   - zscore normalization (mean=-83.61, std=200 for CT)
+   *   - sliding-window 128×112×112 patches with Gaussian blending
+   *   - argmax over 118 classes
+   *   - resampleNearest back to the source volume grid
+   *
+   * The resulting mask is published via `setResult` on the app store,
+   * so the existing overlay subscribers (mask viewer, volumetrics
+   * panel, export panel) all pick it up automatically.
+   */
+  const setResult = useAppStore((s) => s.setResult);
+  const setRunMeta = useAppStore((s) => s.setRunMeta);
+
+  const handleRunInBrowser = useCallback(async () => {
+    if (!modelLoaded || !modelBytes) {
+      setRunError('Load a TotalSegmentator preset first.');
+      return;
+    }
+    const volume = useAppStore.getState().volume;
+    if (!volume) {
+      setRunError('Load a primary volume first.');
+      return;
+    }
+    setRunError(null);
+    setRunning(true);
+    setRunStage('starting');
+    setRunFraction(-1);
+    const startedAt = new Date().toISOString();
+    const worker = new Worker(
+      new URL('../workers/inference.worker.ts', import.meta.url),
+      { type: 'module' }
+    );
+    inBrowserWorkerRef.current = worker;
+    const api = Comlink.wrap<InferenceApi>(worker);
+    try {
+      const adapted = totalsegToModelManifest(modelLoaded);
+      const onProgress = Comlink.proxy((e: InferenceProgressEvent) => {
+        setRunStage(e.stage);
+        setRunFraction(e.fraction);
+      });
+      const res = await api.run(
+        {
+          voxels: volume.voxels,
+          dims: volume.meta.dims,
+          spacing: volume.meta.spacing,
+          origin: volume.meta.origin,
+          modelBytes,
+          manifest: adapted,
+        },
+        onProgress
+      );
+      setRunMeta({ provider: res.provider, attempted: res.attempted, startedAt });
+      setResult({
+        mask: res.mask,
+        dims: res.dims,
+        spacing: res.spacing,
+        origin: res.origin,
+        labelCounts: res.labelCounts,
+        elapsedMs: res.elapsedMs,
+      });
+      setRunStage('done');
+      setRunFraction(1);
+      void appendAudit({
+        kind: 'export',
+        message:
+          `TotalSegmentator in-browser ORT run completed: ${modelLoaded.name} ` +
+          `via ${res.provider} in ${(res.elapsedMs / 1000).toFixed(1)}s`,
+      });
+    } catch (e) {
+      const err = e as Error;
+      setRunError(`In-browser inference failed: ${err.message}`);
+      pushError(`TotalSegmentator (in-browser) failed: ${err.message}`);
+      void appendAudit({
+        kind: 'app-error',
+        message: `TotalSegmentator in-browser inference failed: ${err.message}`,
+      });
+    } finally {
+      worker.terminate();
+      inBrowserWorkerRef.current = null;
+      setRunning(false);
+    }
+  }, [modelLoaded, modelBytes, pushError, setResult, setRunMeta]);
 
   return (
     <Card
@@ -501,45 +634,88 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
                 <XIcon className="h-3 w-3" />
               </button>
             </div>
-            {/* v0.10.16 — HONEST notice on the gap between "model
-                downloaded" and "inference runs". Pre-v0.10.16 the panel
-                showed the green "model loaded" chip after an Aralario
-                preset download succeeded, with NO indication that the
-                downloaded ONNX bytes are not actually consumed by any
-                runner today. The user reported the panel "stuck on
-                working … not responding" — the underlying cause was
-                that they had downloaded the preset and then either:
-                  (a) saw "Native runner unavailable" because they don't
-                      have `pip install totalsegmentator` locally, or
-                  (b) clicked Run on the native runner, which spawned
-                      the local Python CLI and ignored the bytes they
-                      just spent 60 MB on.
-                Either way: there is no in-browser ORT runner for
-                TotalSegmentator presets in v0.10.x. Building one is a
-                substantial task (spacing-resample to 3 mm, sliding-
-                window 128×112×112 patches, per-patch ORT inference,
-                118-class softmax-argmax stitching) — tracked for
-                v0.11.x. Until then this banner sets expectations
-                honestly so the user isn't waiting for nothing. */}
-            {modelLoaded.family === 'nnunet' && (
-              <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[10.5px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-                <div className="font-medium">
-                  Preset bytes cached. In-browser inference not yet wired.
+            {/* v0.10.17 — IN-BROWSER ORT-Web run path. Replaces the
+                v0.10.16 "not wired" honest-banner; the runner is now
+                wired. Works identically in PWA + Tauri (everything
+                lives inside the inference Worker), and is the same
+                pipeline radiology models use, so there's no
+                duplicated code to maintain.
+
+                Disabled when there's no volume loaded (the worker
+                needs voxels) and when there's no cached model bytes
+                (the BYO panel that loaded a manifest-only entry from
+                disk has `modelLoaded` set but `modelBytes === null` —
+                in that case the user needs to re-download via the
+                preset button or the BYO URL form). The button stays
+                rendered for nnUNet-family presets only; other
+                families (BYO `'custom'`) get a softer
+                "experimental — uses CT defaults" disclaimer because
+                the normalization in adapter.ts is CT-specific.
+
+                Disable-reasons are surfaced in the title= attribute
+                so hovering the disabled button explains exactly
+                what's missing, rather than the user clicking and
+                wondering why nothing happens. */}
+            {modelBytes && (
+              <div className="space-y-1.5 rounded border border-tamias-accent/40 bg-blue-50/80 p-2 dark:border-tamias-accent/30 dark:bg-blue-950/30">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-medium text-tamias-accent">
+                    In-browser ORT run · WebGPU / WebNN / WASM
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ink"
+                    disabled={running || !modelBytes}
+                    onClick={() => void handleRunInBrowser()}
+                    title={
+                      running
+                        ? 'Inference in progress…'
+                        : !useAppStore.getState().volume
+                        ? 'Load a primary volume first.'
+                        : 'Run TotalSegmentator in-browser on the loaded volume'
+                    }
+                    className="gap-1.5"
+                  >
+                    {running ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Running
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Run in-browser
+                      </>
+                    )}
+                  </Button>
                 </div>
-                <div className="mt-0.5 opacity-90">
-                  Downloading an Aralario / nnUNet preset stores the
-                  ONNX in OPFS, but no in-browser runner consumes it
-                  today (sliding-window nnUNet inference is tracked for
-                  v0.11.x). The <strong>Run</strong> button below calls
-                  your local <code>pip install totalsegmentator</code> CLI
-                  via the native runner — it does <em>not</em> use the
-                  downloaded preset bytes. If the native runner is
-                  unavailable, install it with
-                  <span className="ml-1 inline-block rounded bg-amber-200/60 px-1 font-mono text-[10px] dark:bg-amber-800/40">
-                    pip install totalsegmentator
-                  </span>{' '}
-                  and relaunch TAMIAS.
-                </div>
+                {running && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-slate-600 dark:text-slate-300">
+                      {runStage}
+                      {runFraction >= 0 && runFraction <= 1
+                        ? ` · ${Math.round(runFraction * 100)}%`
+                        : ''}
+                    </div>
+                    {runFraction >= 0 && runFraction <= 1 ? (
+                      <Progress value={Math.round(runFraction * 100)} />
+                    ) : (
+                      <div className="h-1.5 w-full animate-pulse rounded-full bg-slate-200 dark:bg-slate-700" />
+                    )}
+                  </div>
+                )}
+                {runError && (
+                  <div className="rounded border border-red-300 bg-red-50 px-1.5 py-1 text-[10px] text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+                    {runError}
+                  </div>
+                )}
+                {modelLoaded.family !== 'nnunet' &&
+                  modelLoaded.family !== 'totalseg' && (
+                    <div className="rounded border border-amber-200 bg-amber-50/80 px-1.5 py-0.5 text-[10px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+                      BYO family — using CT z-score normalization defaults.
+                      Override controls planned for v0.11.x.
+                    </div>
+                  )}
               </div>
             )}
             {/* v0.7.7 — primary path is the NATIVE python runner, which

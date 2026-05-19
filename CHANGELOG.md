@@ -6,6 +6,47 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.17] — TotalSegmentator: in-browser ORT-Web inference actually wired (no pip, no Tauri command)
+
+### Added
+
+- ✅ **"Run in-browser" button on the TotalSegmentator panel** for any preset (or BYO URL) whose ONNX bytes have been downloaded. One click runs sliding-window 3D inference on the loaded volume entirely in the browser via ORT-Web — no `pip install totalsegmentator`, no Tauri native command, no native dependency. Works identically in the PWA and the Tauri desktop wrapper because everything happens inside a dedicated Worker. The resulting mask publishes via `setResult` on the app store so the existing overlay subscribers (mask viewer, volumetrics, export) pick it up unchanged.
+- 🩺 **Adapter from `TotalSegManifest` → radiology `ModelManifest`** (`src/lib/totalseg/adapter.ts`) so the existing `inference.worker.ts` + `slidingWindowInference` pipeline is reused without forking. The adapter sets:
+  - `modality: 'CT'`, `orientation: 'RAS'`, `preferredEP: 'auto'`
+  - `normalization: zscore(mean=-83.61, std=200)` for `nnunet`/`totalseg` families — TotalSegmentator's published CT preprocessing preset
+  - `inference: { type: 'sliding_window', patch, overlap: 0.5 }` (MONAI/nnUNet default)
+  - Labels passed through from the manifest into `output.labels` for downstream volumetrics
+- 🔁 **`modelBytes` retained in panel state** so the downloaded ONNX isn't dropped on the floor after `loadTotalSegModel` returns. Pre-v0.10.17 only the manifest was kept; the bytes were thrown away — the root cause of the "model loaded but doesn't run" symptom the user hit in v0.10.15/16. Forget clears them.
+- ⏱️ **Per-stage progress UI** while inference runs (preprocessing → inference → postprocessing → done) with a determinate bar driven by the sliding-window fraction the existing worker already streams. Errors render inline.
+
+### Fixed
+
+- 🩹 **v0.10.16 banner replaced with a working Run button.** The honest "in-browser inference not yet wired" amber banner from v0.10.16 is gone — the runner is wired. For BYO `family: 'custom'` exports a softer "uses CT z-score defaults" disclaimer remains because the normalization is hardcoded for CT today (override controls planned for v0.11.x).
+
+### Honest: scope of this change
+
+The Aralario `total_fast` preset (118 classes, 66 MB, 3 mm spacing, 128×112×112 patches) should now segment correctly on portal-phase abdomen CT. Caveats:
+- Inference time on a typical 512×512×~100 CT is **multi-minute** under the WASM fallback (~50 patches × ~3-10s/patch). WebGPU on Apple Silicon or modern dGPUs cuts this to under a minute. The user sees a determinate progress bar so the wait is at least visible.
+- Normalization is the global TotalSegmentator CT preset, not the per-task percentile-clipped variant from the upstream nnUNet plan JSON. For `total_fast` this is close enough; results on MR or non-CT modalities will be wrong (the panel disclaims this for non-nnUNet families).
+- The native Tauri `pip install totalsegmentator` runner stays available as a parallel path for users who already have it locally and want the upstream's exact preprocessing.
+
+### Internal
+
+- `src/lib/totalseg/adapter.ts` — NEW. ~60 lines, one exported function.
+- `src/components/TotalSegmentatorPanel.tsx`:
+  - New `modelBytes` / `running` / `runStage` / `runFraction` / `runError` state.
+  - `handlePresetDownload` + `submitByo` now capture the returned bytes via `setModelBytes`.
+  - `handleForget` clears bytes + run state.
+  - New `handleRunInBrowser` — spawns `inference.worker.ts` via Comlink, sends adapted manifest + volume + bytes, awaits mask, publishes via `setResult`/`setRunMeta`.
+  - New "Run in-browser" button + progress strip + error tile rendered when `modelBytes` is present.
+- No changes to `inference.worker.ts`, `slidingWindowInference`, `preparePreprocessing`, or `createSession` — the existing radiology pipeline handles nnUNet ONNX exports unchanged.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK (5,605 KiB precache).
+
 ## [0.10.16] — TotalSegmentator: honest "preset cached, in-browser inference not wired" notice
 
 ### Fixed
