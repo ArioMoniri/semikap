@@ -143,7 +143,14 @@ export interface TotalSegLoadProgress {
 
 export async function loadTotalSegModel(
   manifest: TotalSegManifest,
-  onProgress?: (p: TotalSegLoadProgress) => void
+  onProgress?: (p: TotalSegLoadProgress) => void,
+  /**
+   * v0.10.15 — optional AbortSignal so the panel can ship a Cancel
+   * button. When the user aborts, the fetch is cancelled and the
+   * reader.read() loop exits via the AbortError (caught + re-thrown
+   * as a user-friendly message below).
+   */
+  signal?: AbortSignal
 ): Promise<{ modelBytes: Uint8Array }> {
   if (!manifest.model.url) {
     throw new Error(
@@ -164,7 +171,7 @@ export async function loadTotalSegModel(
     /^https:\/\/huggingface\.co\/([^/]+\/[^/]+)\/blob\//,
     'https://huggingface.co/$1/resolve/'
   );
-  const res = await fetch(url, { credentials: 'omit' });
+  const res = await fetch(url, { credentials: 'omit', signal });
   if (!res.ok || !res.body) {
     throw new Error(`Fetch ${url} failed: HTTP ${res.status}`);
   }
@@ -172,12 +179,47 @@ export async function loadTotalSegModel(
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let received = 0;
+
+  /**
+   * v0.10.15 — stall detection. Pre-v0.10.15 a network hiccup near
+   * the tail of the download (HF CDN throttles the last few hundred
+   * KB intermittently) left `reader.read()` blocked forever with no
+   * way for the user to see the stall and no way to cancel. User
+   * reported the panel "stuck on working" at 62.9 / 63.2 MB with no
+   * console error. Now: every `read()` is racing a 30s timer; if no
+   * chunk arrives in that window we abort the read with a clear
+   * "Download stalled" error rather than hanging forever.
+   *
+   * Reset the timer on every chunk so a slow-but-steady connection
+   * (1 KB/s) doesn't time out.
+   */
+  const STALL_MS = 30_000;
+
   for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      received += value.byteLength;
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    const stallPromise = new Promise<never>((_, reject) => {
+      stallTimer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `Download stalled — no data received for ${STALL_MS / 1000}s ` +
+                `(${received}${total ? ' of ' + total : ''} bytes received). ` +
+                'Network throttling or HF CDN issue. Retry, or pick another model.'
+            )
+          ),
+        STALL_MS
+      );
+    });
+    let r: { done: boolean; value?: Uint8Array };
+    try {
+      r = await Promise.race([reader.read(), stallPromise]);
+    } finally {
+      if (stallTimer !== null) clearTimeout(stallTimer);
+    }
+    if (r.done) break;
+    if (r.value) {
+      chunks.push(r.value);
+      received += r.value.byteLength;
       onProgress?.({
         stage: 'fetching',
         bytesLoaded: received,

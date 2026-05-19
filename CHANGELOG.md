@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.15] — TotalSegmentator download: stall detection + Cancel button
+
+### Fixed
+
+- 🪨 **Panel stuck on "Downloading…" at 62.9 / 63.2 MB with no console error.** Root cause: the HuggingFace CDN occasionally throttles the last few hundred KB of a long download to ~0 bytes/sec without disconnecting. The `reader.read()` loop in `loadTotalSegModel` blocked indefinitely waiting for the next chunk; React stayed on the `busy` state forever; no console output because nothing actually threw. User reported "stuck on working maybe took so much compute or an error but there is nothing in console and i get no answer" — that's exactly this pattern.
+
+### Added
+
+- ⏱️ **30s stall detector inside `loadTotalSegModel`.** Every `reader.read()` is now raced against a 30-second timer; if no chunk arrives in that window the loader throws an explicit error:
+  > Download stalled — no data received for 30s (62,900,000 of 63,200,000 bytes received). Network throttling or HF CDN issue. Retry, or pick another model.
+  
+  Reset on every chunk so a slow-but-steady 1 KB/s connection doesn't trip it — only true silence does. The user finally sees something actionable instead of an indefinite spinner.
+- 🛑 **Manual Cancel button in the TotalSegmentator panel** while a download is in flight. Routes through an `AbortController` whose signal is threaded to `loadTotalSegModel` (new optional 3rd arg). User can abort a stalled fetch without closing the app. Cancel produces a friendly "TotalSegmentator download cancelled" toast instead of the bare `AbortError` message.
+
+### Internal
+
+- `src/lib/totalseg/loader.ts` — `loadTotalSegModel` accepts an optional `AbortSignal`; passes it to `fetch`; wraps `reader.read()` in a `Promise.race` against a 30s timer that resets per chunk.
+- `src/components/TotalSegmentatorPanel.tsx` — `downloadAbortRef` (`useRef<AbortController>`), `handleCancelDownload`, signal threaded into the `handlePresetDownload` call site, Cancel button rendered when `busy?.stage === 'fetching'`. Catch distinguishes user-cancel from genuine errors.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.10.14] — Honest update on "Hepatic vessels" Examples bundle (CT_Abdo is generic torso, not portal-phase)
 
 ### Fixed

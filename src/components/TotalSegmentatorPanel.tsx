@@ -57,6 +57,16 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
     bytesTotal?: number;
   } | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  /**
+   * v0.10.15 — AbortController for the in-flight download so the user
+   * can cancel a stalled / unwanted fetch. Pre-v0.10.15 there was no
+   * way to escape a hung download except by closing the app. User
+   * reported the panel "stuck on working" at 62.9/63.2 MB with no
+   * console error — a network stall the loader couldn't detect on its
+   * own. Stall detection added in loader.ts; this gives the user
+   * manual control too.
+   */
+  const downloadAbortRef = useRef<AbortController | null>(null);
 
   /**
    * Inline custom-URL form. Same shape as the SAM panel form (see
@@ -93,12 +103,23 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
    * only entries (preset.manifest.model.url === null) still open the
    * form via `openByo`.
    */
+  const handleCancelDownload = useCallback(() => {
+    // v0.10.15 — user-triggered abort. Fires the AbortController which
+    // makes the fetch throw an AbortError; the catch in
+    // handlePresetDownload sets busy(null) + shows a friendly toast.
+    downloadAbortRef.current?.abort();
+  }, []);
+
   const handlePresetDownload = useCallback(
     async (preset: TotalSegPreset) => {
       if (!preset.manifest.model.url) {
         openByo();
         return;
       }
+      // v0.10.15 — wire AbortController so the Cancel button (and the
+      // 30s stall detector inside the loader) can interrupt the fetch.
+      const abort = new AbortController();
+      downloadAbortRef.current = abort;
       try {
         setBusy({
           stage: 'fetching',
@@ -106,21 +127,25 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
           bytesLoaded: 0,
           ...(preset.approxBytes ? { bytesTotal: preset.approxBytes } : {}),
         });
-        await loadTotalSegModel(preset.manifest, (p: TotalSegLoadProgress) => {
-          setBusy({
-            stage: p.stage,
-            label:
-              p.stage === 'fetching'
-                ? `Downloading ${preset.manifest.name}…`
-                : p.stage === 'verify'
-                ? 'Verifying SHA-256…'
-                : p.stage === 'cache'
-                ? 'Caching to OPFS…'
-                : 'Done',
-            bytesLoaded: p.bytesLoaded,
-            ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
-          });
-        });
+        await loadTotalSegModel(
+          preset.manifest,
+          (p: TotalSegLoadProgress) => {
+            setBusy({
+              stage: p.stage,
+              label:
+                p.stage === 'fetching'
+                  ? `Downloading ${preset.manifest.name}…`
+                  : p.stage === 'verify'
+                  ? 'Verifying SHA-256…'
+                  : p.stage === 'cache'
+                  ? 'Caching to OPFS…'
+                  : 'Done',
+              bytesLoaded: p.bytesLoaded,
+              ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
+            });
+          },
+          abort.signal
+        );
         setModelLoaded(preset.manifest);
         setBusy(null);
         void appendAudit({
@@ -129,8 +154,18 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
         });
       } catch (e) {
         const err = e as Error;
-        pushError(`TotalSegmentator load failed: ${err.message}`);
+        // v0.10.15 — distinguish user-cancel from real errors so the
+        // toast says "Download cancelled" instead of the bare
+        // AbortError message.
+        const cancelled = err.name === 'AbortError' || /aborted/i.test(err.message);
+        pushError(
+          cancelled
+            ? `TotalSegmentator download cancelled.`
+            : `TotalSegmentator load failed: ${err.message}`
+        );
         setBusy(null);
+      } finally {
+        downloadAbortRef.current = null;
       }
     },
     [openByo, pushError]
@@ -260,6 +295,21 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
         {/* v0.8.1 — throttled-visibility wrapper avoids the
             sub-150ms BusyView flash on cached / fast operations. */}
         <ThrottledBusyView busy={busy} />
+        {/* v0.10.15 — Cancel button while a download is in flight.
+            Routes through AbortController so the fetch + the loader's
+            30s stall-detector can both be interrupted by the user.
+            Renders next to the busy row when busy.stage === 'fetching'
+            (other stages are too short / not cancellable to bother). */}
+        {busy?.stage === 'fetching' && downloadAbortRef.current && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleCancelDownload}
+            className="gap-1.5 text-red-700 dark:text-red-400"
+          >
+            <XIcon className="h-3.5 w-3.5" /> Cancel download
+          </Button>
+        )}
 
         {!modelLoaded && !busy && (
           <div className="space-y-2">
