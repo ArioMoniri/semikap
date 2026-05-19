@@ -99,25 +99,37 @@ export const EXAMPLE_BUNDLES: ExampleBundle[] = [
   },
   {
     id: 'liver-vessels-ct-abdo',
-    name: 'Hepatic vessels (CT abdomen — pair with TotalSegmentator)',
-    description: '7.75 MB CT abdomen. Image-only — run TotalSegmentator → liver_vessels class.',
+    name: 'Generic abdomen CT (for pipeline test; for real hepatic vessels use IDC)',
+    description: '7.75 MB CT_Abdo.nii.gz — generic torso CT. Pipeline test only.',
     longDescription:
       'Loads a 7.75 MB CT abdomen (CT_Abdo.nii.gz) from niivue-demo-images. ' +
-      'Image-only — no bundled segmentation model. For hepatic-vessel ' +
-      'segmentation: open the TotalSegmentator panel (already integrated ' +
-      "since v0.7.7), pick its full model — the 117-class output includes a " +
-      '`liver_vessels` class that paints hepatic + portal vasculature as a ' +
-      'coloured overlay. v0.10.11 ships the IMAGE so the workflow is ' +
-      'one-click; bundling a small dedicated browser-runnable vessel ONNX ' +
-      'awaits a suitable upstream model (none of the surveyed public ' +
-      'options today meet both medically-valid AND <20MB-browser-runnable).',
+      'Image-only, no bundled model. v0.10.14 — HONEST disclaimer added: ' +
+      "this file is a generic torso CT (lungs prominent, liver visible at " +
+      'the bottom slices but NOT portal-phase enhanced). It is good for ' +
+      'testing the load → TotalSegmentator → mask pipeline end-to-end, but ' +
+      'the vessel mask will be weak because the input is not contrast-' +
+      'enhanced hepatic CT.\n\n' +
+      'For ACTUAL hepatic vessel visualization: open the **IDC + TCIA ' +
+      'public data** panel in the Inputs section, search Modality=CT + ' +
+      'Patient ID prefix `TCGA-LIHC`, expand any study, download a series ' +
+      "labeled 'PORTAL VEN' or 'PV PHASE'. Those have portal-phase " +
+      'contrast — vessels enhance brightly. Run TotalSegmentator (the ' +
+      'Aralario preset, now one-click since v0.10.13) on the loaded portal ' +
+      'series, and the `liver_vessels` / `portal_vein_and_splenic_vein` ' +
+      'classes paint as a coloured overlay.\n\n' +
+      "Bundling a portal-phase hepatic CT directly is blocked by hosting: " +
+      'every public dataset I surveyed (Medical Decathlon Task08, ' +
+      "IRCAD-vessel, LiTS) is either gated (registration), Google-Drive-" +
+      "hosted (no stable direct URL), or has terms that prevent " +
+      'redistribution. The IDC route is the closest equivalent — same ' +
+      'license terms, but the proxy gives us direct WADO-RS download.',
     imageName: 'CT_Abdo.nii.gz',
     modelName: null,
     manifestName: null,
     files: [
       {
         name: 'CT_Abdo.nii.gz',
-        description: '7.75 MB CT abdomen for liver-vessel demo (NIfTI)',
+        description: '7.75 MB generic abdomen CT (pipeline test only — see longDescription)',
         url: `${NIIVUE_DEMO_BASE}/CT_Abdo.nii.gz`,
       },
     ],

@@ -6,6 +6,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.14] — Honest update on "Hepatic vessels" Examples bundle (CT_Abdo is generic torso, not portal-phase)
+
+### Fixed
+
+- 🩻 **Misleading bundle title + description.** Your screenshot showed CT_Abdo loaded — lungs prominent, liver visible only at the bottom slices, NOT portal-phase contrast-enhanced. The v0.10.11 bundle title was "Hepatic vessels (CT abdomen — pair with TotalSegmentator)" which implied this was a hepatic-vessel-optimized sample. v0.10.14 corrects:
+  - **Title** → "Generic abdomen CT (for pipeline test; for real hepatic vessels use IDC)".
+  - **Long description** → honest disclaimer that the file is a generic torso CT (good for pipeline testing, weak for vessel inference because no portal-phase contrast).
+  - **Pointer to the real workflow**: open the IDC + TCIA panel, search `Modality=CT` + Patient ID prefix `TCGA-LIHC`, expand any study, download a series labelled `PORTAL VEN` or `PV PHASE`. Those have contrast — vessels enhance brightly. Run TotalSegmentator (the Aralario preset, now one-click since v0.10.13) on the loaded portal series and the `liver_vessels` / `portal_vein_and_splenic_vein` classes paint correctly.
+
+### Honest: why no portal-phase CT in the bundle
+
+Every public dataset I probed today is unhostable as a direct-URL bundle file:
+- **Medical Decathlon Task08** (`hepaticvessel_*.nii.gz`) — Google Drive distribution, no stable direct URL.
+- **IRCAD-vessel** — requires registration + agreement.
+- **LiTS** — Kaggle-hosted, requires login.
+- **OSF / Zenodo specific hepatic mirrors** — probed several common record IDs, all 404 or redirect through cookie-protected pages.
+
+IDC + TCIA via the in-app browser is the closest equivalent — same license terms as the original collections, but the IDC public proxy supports direct WADO-RS download (which is exactly the v0.9.5+ download path we already use end-to-end). Workflow is documented in the bundle longDescription.
+
+### Internal
+
+- `src/lib/fs/examples.ts` — `liver-vessels-ct-abdo` bundle entry retitled + longDescription rewritten with the honest disclaimer + IDC pointer.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm run lint` clean.
+- `npm test` — 16/16 vitest pass.
+- `npm run build` — production bundle OK.
+
 ## [0.10.13] — TotalSegmentator panel actually uses the Aralario preset
 
 ### Fixed
