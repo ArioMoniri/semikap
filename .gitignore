@@ -15,3 +15,7 @@ coverage
 # Tauri auto-updater signing key (NEVER commit)
 tauri-signing.key
 tauri-signing.key.pub
+
+# claude-flow tooling state (ephemeral)
+.claude-flow/
+.claude/

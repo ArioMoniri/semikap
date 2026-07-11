@@ -38,6 +38,8 @@ import { AnnotationPanel } from './AnnotationPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { AboutPanel } from './AboutPanel';
 import { ExamplesPanel } from './ExamplesPanel';
+import { BenchmarkPanel } from './BenchmarkPanel';
+import { WorkspacePicker } from './WorkspacePicker';
 import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
 import { Microscope, ScanLine } from 'lucide-react';
@@ -323,6 +325,7 @@ export function AppShell() {
             </button>
           </div>
           <NoUploadBadge />
+          <WorkspacePicker />
           {backend && (
             <Badge variant={backend.provider === 'webgpu' ? 'accent' : 'outline'}>
               {backend.provider.toUpperCase()}
@@ -387,6 +390,10 @@ export function AppShell() {
 
           <CollapsibleSection title="Inference" defaultOpen trailing={result ? 'done' : ''}>
             <InferencePanel onResultMask={handleResultMask} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Benchmark" defaultOpen={false} trailing="local">
+            <BenchmarkPanel />
           </CollapsibleSection>
 
           {/*
