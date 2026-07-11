@@ -16,7 +16,15 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text'],
-      include: ['src/lib/totalseg/**/*.ts', 'src/lib/sam/**/*.ts'],
+      include: [
+        'src/lib/totalseg/**/*.ts',
+        'src/lib/sam/**/*.ts',
+        'src/lib/metrics/**/*.ts',
+        'src/lib/workspace/**/*.ts',
+        'src/lib/datasets/**/*.ts',
+        'src/lib/benchmark/**/*.ts',
+        'src/lib/registry/**/*.ts',
+      ],
     },
   },
 });

@@ -6,6 +6,44 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.11.0] — Per-user local benchmarking for radiology (Phase 1)
+
+Turns the radiology workspace into a **per-user, local, privacy-preserving benchmarking tool**: log into a local profile, register your own ONNX models, and score them against your own imaging + reference labels with standardized metrics — all on-device, no upload, no backend. Adapts the author's `TAMIAS Benchmarking and Article Plan` (§4 feature roadmap, §5 metrics, §9 phased plan) and the ACR **Assess-AI** field schemas (Ingest Spec v2.1 + Data Dictionary) to the codebase. This is **Phase 1**; Phases 2–4 (DICOM-SEG/RTSTRUCT reference import, completeness/concordance dashboards, cohorts/subgroups, governance) are tracked in `docs/benchmark/ROADMAP.md`.
+
+### Added
+
+- 👤 **Local profiles ("login") — no backend, no upload.** A profile is a named on-device workspace that namespaces each user's models, datasets, and benchmark runs, so one machine hosts several users whose data never mixes. Optional passphrase gate stores only a **PBKDF2 verifier** (salt + derived hash) — never the passphrase, never used to decrypt anything. New `WorkspacePicker` control in the header (`👤`). `src/lib/workspace/profiles.ts`.
+- 🧪 **Metric engine (task-agnostic).** `src/lib/metrics/`:
+  - **Segmentation** (`segmentation.ts`): Dice, IoU/Jaccard, precision, recall, F1, volume difference (mL), volumetric similarity, and **spacing-aware HD95 / ASSD** surface metrics. Documented degenerate-case conventions (both-empty → Dice 1; one-empty → surface = NaN).
+  - **Classification** (`classification.ts`): confusion metrics, AUROC (tie-correct rank-sum), AUPRC, Brier, ECE — ready for a CXR-classification fast-follow.
+  - **Alignment** (`align.ts`): resamples a reference mask onto the prediction grid (nearest-neighbour, label-preserving) so mismatched grids score correctly.
+- 📇 **Per-user model registry + ONNX validator.** `src/lib/registry/`: registering a model validates the manifest AND structurally parses the ONNX protobuf (IR version, opset imports, graph input/output names, node count) to flag opset-too-new / empty-graph / non-ONNX **before** paying for a browser session. Dependency-free protobuf reader; never materializes tensor data. Registry is per-profile over the shared content-addressed OPFS cache (bytes stored once).
+- 🗂️ **Dataset / reference-label manifest** (`src/lib/datasets/manifest.ts`, `tamias.dataset.v1`). Assess-AI-inspired case fields (de-identified case id, modality, body part, study date, contrast, ground-truth availability) + strict parser + accrual/completeness summary. Names + metadata only, never PHI bytes.
+- 📊 **Benchmark records + comparison + export.** `src/lib/benchmark/`: `tamias.benchmark.v1` record (model/case refs by name+hash, runtime, metrics — same privacy stance as the repro bundle), per-profile OPFS NDJSON store, model summary/ranking, and **CSV + JSON export** of the comparison table.
+- 🖥️ **Benchmark panel** (`src/components/BenchmarkPanel.tsx`, new sidebar section, gated by the active profile): register models (with validation badges), capture a reference (a loaded ground-truth volume OR a prior model output → model-vs-model agreement), **score the current inference result** against it, and compare models side-by-side (mean Dice / IoU / HD95 / ASSD / runtime) with one-click CSV/JSON export.
+- 🗺️ **Roadmap + TDD harness docs** under `docs/benchmark/` (`ROADMAP.md`, `GOAL.md` with Definition-of-Done, `loop.md` watchdog protocol).
+
+### Honest: what this is and isn't
+
+- **"Login" is local, not cloud.** There are no accounts, no server, no cross-device sync, and no public leaderboard — that is deliberate: it preserves TAMIAS's no-upload privacy promise. "Benchmarks per user" means per-profile isolation on one device. The passphrase is an access gate, not encryption-at-rest.
+- **Phase 1 reference import is via already-loaded volumes / prior results**, not DICOM-SEG or RTSTRUCT — those (and completeness/concordance dashboards, cohorts, subgroups, governance) are Phase 2–4.
+- **HD95/ASSD are brute-force O(surfaceA·surfaceB)** and run on the main thread when you click Score; on very large volumes leave the surface-metrics checkbox on only if you can wait a few seconds (a metrics worker is a follow-up). Overlap metrics are always fast.
+- The ONNX validator is a **structural** check; the authoritative loadability test is still creating the runtime session at inference time.
+
+### Internal
+
+- New: `src/lib/metrics/{segmentation,classification,align}.ts`, `src/lib/workspace/profiles.ts`, `src/lib/datasets/manifest.ts`, `src/lib/benchmark/{types,store,export}.ts`, `src/lib/registry/{onnx-validate,registry}.ts`, `src/lib/state/benchmarkStore.ts`, `src/components/{BenchmarkPanel,WorkspacePicker}.tsx`, `docs/benchmark/{ROADMAP,GOAL,loop}.md`.
+- `src/components/AppShell.tsx` — header `WorkspacePicker` + new "Benchmark" collapsible section.
+- `vitest.config.ts` — coverage now includes the new `metrics/workspace/datasets/benchmark/registry` libs.
+- `eslint.config.js` — ignore local `.claude` worktrees and `src-tauri/target` build artifacts.
+
+### Verified
+
+- `npm run typecheck` clean.
+- `npm test` — **70/70** vitest pass (54 new: metrics with hand-computed expected values, profiles incl. passphrase gate, dataset parser, benchmark records/CSV/NDJSON, ONNX validator against a synthesized ModelProto, registry isolation).
+- `npm run lint` clean; `npm run build` — production bundle OK.
+- Manual smoke: created a local profile (header shows the signed-in name), Benchmark panel renders and is correctly gated, example CT loads + renders, no console errors.
+
 ## [0.10.20] — Liver vessel BAND-PASS model + reusable model-only example kit
 
 ### Added
