@@ -6,6 +6,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added — Radiology benchmarking Phases 2–4 (engines + UI; unreleased)
+
+Completes the `docs/benchmark/ROADMAP.md` plan on top of the v0.11.0 Phase 1
+foundation. All local, no backend, no upload. **No version bump / release** yet —
+these land under Unreleased pending the maintainer's release decision.
+
+- **Phase 2 — Assess-AI evaluation layer:**
+  - `src/lib/datasets/dicom-meta.ts` — extract Assess-AI DICOM fields (modality, body part, manufacturer, model, slice thickness, contrast, sex, age…) from a parsed tag map into `CaseMeta`.
+  - `src/lib/benchmark/completeness.ts` — per-case accrual/completeness (AI result / DICOM metadata / reference present?).
+  - `src/lib/benchmark/concordance.ts` — AI-vs-reference concordance rate with a **Wilson 95% CI** + discordant-case list.
+  - `src/lib/benchmark/report.ts` — self-contained, printable **HTML report** (HTML-escaped, no external refs).
+- **Phase 3 — Multi-model & reproducibility:**
+  - `src/lib/benchmark/cohort.ts` — cohort builder (filter records by metadata).
+  - `src/lib/benchmark/subgroup.ts` — subgroup metrics by modality / body part / contrast / manufacturer / sex / age band.
+  - `src/lib/benchmark/env.ts` — reproducibility environment capture (provider, adapter, threads, COI, UA); attached to every new record.
+  - `src/lib/benchmark/privacy.ts` — offline / no-upload privacy report (external-host + upload-method audit).
+- **Phase 4 — Registry-grade governance:**
+  - `src/lib/benchmark/definition.ts` — versioned, lockable `tamias.benchmarkdef.v1` benchmark definitions.
+  - `src/lib/registry/model-card.ts` — model card (manifest + ONNX validation + metrics) → JSON / Markdown.
+  - `src/lib/datasets/lock.ts` — reference-set locking via a content fingerprint (order-independent SHA-256).
+- **Follow-up:** `src/workers/metrics.worker.ts` + `src/lib/metrics/score.ts` — HD95/ASSD scoring now runs **off the main thread** (Comlink worker) with a synchronous fallback.
+- **UI:** the Benchmark panel gains **Analysis** (completeness, subgroup table with a key selector, concordance, privacy line) and **Governance** (model card, lock definition, lock reference set) sub-sections, plus an **HTML Report** export button. `BenchmarkAnalysisPanel.tsx`, `BenchmarkGovernancePanel.tsx`.
+
+### Verified
+
+- `npm run typecheck` + `npm run lint` clean; `npm test` — **165/165** vitest (95 new across the 11 Phase 2–4 modules, authored via a fan-out subagent workflow and adversarially watchdog-gated); `npm run build` OK.
+- Manual browser smoke: full flow (create profile → load example → run inference → capture reference → **score via the metrics worker** → macro Dice 1.000) with the Analysis/Governance/Report views all rendering from the real record and **no console errors**.
+
 ## [0.11.0] — Per-user local benchmarking for radiology (Phase 1)
 
 Turns the radiology workspace into a **per-user, local, privacy-preserving benchmarking tool**: log into a local profile, register your own ONNX models, and score them against your own imaging + reference labels with standardized metrics — all on-device, no upload, no backend. Adapts the author's `TAMIAS Benchmarking and Article Plan` (§4 feature roadmap, §5 metrics, §9 phased plan) and the ACR **Assess-AI** field schemas (Ingest Spec v2.1 + Data Dictionary) to the codebase. This is **Phase 1**; Phases 2–4 (DICOM-SEG/RTSTRUCT reference import, completeness/concordance dashboards, cohorts/subgroups, governance) are tracked in `docs/benchmark/ROADMAP.md`.

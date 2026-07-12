@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import * as Comlink from 'comlink';
 import { FlaskConical, Plus, Trash2, Crosshair, Download, Play, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { useBenchmarkStore } from '../lib/state/benchmarkStore';
@@ -22,14 +23,39 @@ import { listRegistry, registerModel, removeModel, type RegistryEntry } from '..
 import { validateOnnx } from '../lib/registry/onnx-validate';
 import { parseManifest } from '../lib/inference/manifest';
 import { cacheModel, sha256Hex } from '../lib/fs/opfs';
-import { alignToPrediction } from '../lib/metrics/align';
-import { multiLabelMetrics } from '../lib/metrics/segmentation';
+import { scoreSegmentation, type ScoreInputs } from '../lib/metrics/score';
+import type { MultiLabelResult } from '../lib/metrics/segmentation';
+import type { MetricsApi } from '../workers/metrics.worker';
+import { captureEnv } from '../lib/benchmark/env';
 import { summarizeSegmentation, type BenchmarkRecord } from '../lib/benchmark/types';
 import { recordsToCsv, recordsToJson } from '../lib/benchmark/export';
+import { generateHtmlReport } from '../lib/benchmark/report';
 import { appendRecord, listRecords, clearRecords } from '../lib/benchmark/store';
 import { asBytes } from '../types';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
+import { BenchmarkAnalysisPanel } from './BenchmarkAnalysisPanel';
+import { BenchmarkGovernancePanel } from './BenchmarkGovernancePanel';
+
+/**
+ * Score off the main thread via the metrics worker (HD95/ASSD are O(surface²));
+ * fall back to synchronous scoring if the worker can't be created.
+ */
+async function runScoring(input: ScoreInputs): Promise<MultiLabelResult> {
+  try {
+    const worker = new Worker(new URL('../workers/metrics.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    const api = Comlink.wrap<MetricsApi>(worker);
+    try {
+      return await api.computeSegmentation(input);
+    } finally {
+      worker.terminate();
+    }
+  } catch {
+    return scoreSegmentation(input);
+  }
+}
 
 function uniqueLabels(mask: Uint8Array, cap = 64): number[] {
   const set = new Set<number>();
@@ -70,6 +96,7 @@ export function BenchmarkPanel() {
   const volume = useAppStore((s) => s.volume);
   const model = useAppStore((s) => s.model);
   const runMeta = useAppStore((s) => s.runMeta);
+  const backend = useAppStore((s) => s.backend);
 
   const [entries, setEntries] = useState<RegistryEntry[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -207,17 +234,16 @@ export function BenchmarkPanel() {
     }
     setBusy('Scoring against reference…');
     try {
-      const aligned = alignToPrediction(
-        reference.mask,
-        { dims: reference.dims, spacing: reference.spacing },
-        result.mask,
-        { dims: result.dims, spacing: result.spacing }
-      );
-      const labelSet = new Set<number>([...uniqueLabels(aligned.ref), ...uniqueLabels(result.mask)]);
+      const labelSet = new Set<number>([...uniqueLabels(reference.mask), ...uniqueLabels(result.mask)]);
       const labels = [...labelSet].sort((a, b) => a - b);
       const t0 = performance.now();
-      const metrics = multiLabelMetrics(aligned.ref, result.mask, aligned.dims, aligned.spacing, labels, {
-        surface,
+      const metrics = await runScoring({
+        refMask: reference.mask,
+        refGrid: { dims: reference.dims, spacing: reference.spacing },
+        predMask: result.mask,
+        predGrid: { dims: result.dims, spacing: result.spacing },
+        labels,
+        options: { surface },
       });
       const metricMs = performance.now() - t0;
 
@@ -244,6 +270,7 @@ export function BenchmarkPanel() {
           totalMs: result.elapsedMs + metricMs,
         },
         segmentation: metrics.perLabel,
+        env: captureEnv(backend, __APP_VERSION__),
         createdAt: new Date().toISOString(),
         appVersion: __APP_VERSION__,
       };
@@ -390,6 +417,24 @@ export function BenchmarkPanel() {
               >
                 <Download className="h-3 w-3" /> JSON
               </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  download(
+                    'tamias-benchmark-report.html',
+                    generateHtmlReport({
+                      profileName: profileId!,
+                      generatedAt: new Date().toISOString(),
+                      records,
+                      summary,
+                    }),
+                    'text/html'
+                  )
+                }
+              >
+                <Download className="h-3 w-3" /> Report
+              </Button>
               <Button size="sm" variant="ghost" onClick={() => void onClearRecords()}>
                 Clear
               </Button>
@@ -431,6 +476,18 @@ export function BenchmarkPanel() {
           </div>
         )}
       </section>
+
+      {/* Phase 2-3: completeness, subgroups, concordance, privacy */}
+      <BenchmarkAnalysisPanel records={records} />
+
+      {/* Phase 4: model cards, benchmark definitions, reference-set locking */}
+      <BenchmarkGovernancePanel
+        profileId={profileId}
+        entries={entries}
+        loadedModel={model}
+        reference={reference}
+        records={records}
+      />
 
       {busy && <div className="text-tamias-accent">{busy}</div>}
       {notice && <div className="text-emerald-600 dark:text-emerald-400">{notice}</div>}
