@@ -33,6 +33,37 @@ before moving on — do not accumulate red.
 11. UI: `WorkspacePicker.tsx`, `BenchmarkPanel.tsx`, store slice, AppShell wiring
 12. Full watchdog + manual smoke → docs → version bump → release
 
-## Exit criterion
+## Exit criterion (Phase 1)
 
 All GOAL.md success criteria (G1–G7) met and the watchdog green on a clean tree.
+
+---
+
+## Phase 2–4 execution (no release until explicitly requested)
+
+Same RED → GREEN → REFACTOR → WATCHDOG loop, fanned out across agents for the
+independent pure modules, then integrated. Foundations (shared record-type
+extensions: `CaseMeta`, `ReproEnv`, concordance fields) land first, then:
+
+**Phase 2 — Assess-AI evaluation layer**
+- `lib/datasets/dicom-meta.ts` — extract Assess-AI DICOM fields from a tag map
+- `lib/benchmark/completeness.ts` — per-case AI/DICOM/reference completeness
+- `lib/benchmark/concordance.ts` — concordance rate + Wilson 95% CI + discordant list
+- `lib/benchmark/report.ts` — self-contained printable HTML report
+
+**Phase 3 — Multi-model & reproducibility**
+- `lib/benchmark/cohort.ts` — cohort filter/build over case metadata
+- `lib/benchmark/subgroup.ts` — subgroup metric aggregation
+- `lib/benchmark/env.ts` — reproducibility environment capture
+- `lib/benchmark/privacy.ts` — offline/no-upload privacy report
+
+**Phase 4 — Registry-grade governance**
+- `lib/benchmark/definition.ts` — versioned benchmark definition + parser
+- `lib/registry/model-card.ts` — model card build/serialize
+- `lib/datasets/lock.ts` — reference-set lock + verify
+
+**Follow-up**
+- `workers/metrics.worker.ts` — HD95/ASSD off the main thread
+
+**Release policy:** changes accumulate under CHANGELOG `[Unreleased]`; NO version
+bump and NO tag/release until explicitly requested. Delivery is a PR only.

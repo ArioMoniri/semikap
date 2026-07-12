@@ -10,7 +10,21 @@
 
 import type { SegMetrics } from '../metrics/segmentation';
 import type { ClassificationMetrics } from '../metrics/classification';
-import type { BenchmarkTask } from '../datasets/manifest';
+import type { BenchmarkTask, CaseMeta } from '../datasets/manifest';
+
+/**
+ * Reproducibility environment capture (Phase 3): what hardware/runtime produced
+ * a record, so results can be compared across browsers/devices. No PHI.
+ */
+export interface ReproEnv {
+  provider: string;
+  adapterVendor?: string;
+  adapterArchitecture?: string;
+  wasmThreads?: number;
+  crossOriginIsolated?: boolean;
+  userAgent?: string;
+  appVersion: string;
+}
 
 export interface BenchmarkModelRef {
   name: string;
@@ -26,6 +40,16 @@ export interface BenchmarkCaseRef {
   imageSha256?: string;
   /** Reference/ground-truth file name (segmentation). */
   referenceName?: string;
+  /** DICOM/exam metadata for subgroup + completeness analysis (Phase 2-3). */
+  meta?: CaseMeta;
+  /**
+   * Result indicator + AI result value (Assess-AI concordance, Phase 2):
+   * the code the result pertains to (e.g. "ICH") and the AI's output value.
+   */
+  resultIndicator?: string;
+  aiResult?: string;
+  /** Reference/report value for the same indicator (for concordance). */
+  referenceResult?: string;
 }
 
 export interface BenchmarkRuntime {
@@ -56,6 +80,8 @@ export interface BenchmarkRecord {
   segmentation?: SegMetrics[];
   /** Classification metrics (task === "classification"). */
   classification?: ClassificationMetrics;
+  /** Reproducibility environment (Phase 3). */
+  env?: ReproEnv;
   createdAt: string;
   appVersion: string;
 }
