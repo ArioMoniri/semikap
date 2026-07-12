@@ -31,11 +31,14 @@ import { summarizeSegmentation, type BenchmarkRecord } from '../lib/benchmark/ty
 import { recordsToCsv, recordsToJson } from '../lib/benchmark/export';
 import { generateHtmlReport } from '../lib/benchmark/report';
 import { appendRecord, listRecords, clearRecords } from '../lib/benchmark/store';
+import { readNiftiMask } from '../lib/datasets/nifti-mask';
 import { asBytes } from '../types';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { BenchmarkAnalysisPanel } from './BenchmarkAnalysisPanel';
 import { BenchmarkGovernancePanel } from './BenchmarkGovernancePanel';
+import { BenchmarkClassifyPanel } from './BenchmarkClassifyPanel';
+import { BenchmarkDetectionPanel } from './BenchmarkDetectionPanel';
 
 /**
  * Score off the main thread via the metrics worker (HD95/ASSD are O(surface²));
@@ -197,6 +200,22 @@ export function BenchmarkPanel() {
       spacing: result.spacing,
     });
     setNotice('Captured current result as the reference.');
+  }
+
+  async function onImportReferenceFile(file: File | undefined) {
+    setError(null);
+    if (!file) return;
+    setBusy('Loading reference mask…');
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const nm = await readNiftiMask(bytes, file.name);
+      setReference({ source: 'volume', label: file.name, mask: nm.mask, dims: nm.dims, spacing: nm.spacing });
+      setNotice(`Loaded reference mask "${file.name}" (${nm.dims.join('×')}).`);
+    } catch (e) {
+      setError(`Could not read reference mask: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
   }
 
   function captureVolumeReference() {
@@ -371,6 +390,15 @@ export function BenchmarkPanel() {
             <Crosshair className="h-3 w-3" /> Use current result
           </Button>
         </div>
+        <label className="block text-slate-500 dark:text-slate-400">
+          …or load a ground-truth mask file (NIfTI .nii/.nii.gz)
+          <input
+            type="file"
+            accept=".nii,.nii.gz,.gz"
+            className="mt-0.5 block w-full text-xs"
+            onChange={(e) => void onImportReferenceFile(e.target.files?.[0])}
+          />
+        </label>
         {reference ? (
           <div className="flex items-center justify-between rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
             <span className="truncate">
@@ -479,6 +507,10 @@ export function BenchmarkPanel() {
 
       {/* Phase 2-3: completeness, subgroups, concordance, privacy */}
       <BenchmarkAnalysisPanel records={records} />
+
+      {/* Classification + detection tasks (doc §5) */}
+      <BenchmarkClassifyPanel />
+      <BenchmarkDetectionPanel />
 
       {/* Phase 4: model cards, benchmark definitions, reference-set locking */}
       <BenchmarkGovernancePanel
