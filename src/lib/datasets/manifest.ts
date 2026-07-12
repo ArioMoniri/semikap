@@ -15,6 +15,31 @@ import type { Modality } from '../../types';
 
 export type BenchmarkTask = 'segmentation' | 'classification';
 
+/**
+ * Per-case DICOM/exam metadata (Assess-AI Data Dictionary fields), used for
+ * subgroup analysis, completeness tracking, and cohort building. Names +
+ * metadata only, never PHI bytes.
+ */
+export interface CaseMeta {
+  modality?: Modality;
+  bodyPart?: string;
+  contrast?: boolean;
+  /** Scanner manufacturer (DICOM 0008,0070). */
+  manufacturer?: string;
+  /** Scanner model name (DICOM 0008,1090). */
+  modelName?: string;
+  /** Scanner station name (DICOM 0008,1010). */
+  stationName?: string;
+  /** Software version(s) (DICOM 0018,1020). */
+  softwareVersion?: string;
+  /** Slice thickness in mm (DICOM 0018,0050). */
+  sliceThicknessMm?: number;
+  /** Study date, YYYYMMDD. */
+  studyDate?: string;
+  sex?: 'M' | 'F' | 'O';
+  ageYears?: number;
+}
+
 export interface CaseManifest {
   /** De-identified local case key (Assess-AI "case ID"). */
   caseId: string;
