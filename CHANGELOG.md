@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added — Benchmarking doc-completeness pass (engines + UI; unreleased)
+
+Closes the gaps between the source docs (Benchmarking Plan §5, Assess-AI, Report
+User Guide) and the implementation. See `docs/benchmark/GAP-ANALYSIS.md` for the
+full doc→status map. Authored via a fan-out subagent workflow, watchdog-gated,
+and **every feature smoke-tested in the browser** (see below).
+
+- **Reference-label import (was the biggest gap):** NIfTI-1 ground-truth **mask files** (`.nii`/`.nii.gz`, gz via `DecompressionStream`) as a benchmark reference; **CSV/JSON case labels** for classification; **bounding-box JSON** for detection. `datasets/nifti-mask.ts`, `datasets/labels.ts`, `datasets/boxes.ts`.
+- **Classification task, end-to-end:** import labels → decision-threshold slider → AUROC/AUPRC/sens/spec/PPV/NPV/F1/Brier/ECE + **ROC, PR, calibration curves and a confusion matrix**. `BenchmarkClassifyPanel.tsx`.
+- **Detection task (new):** import prediction + reference boxes → IoU-threshold slider → lesion-level sensitivity, FP/image, **mAP**, localization error, and an **FROC** curve. `metrics/detection.ts`, `BenchmarkDetectionPanel.tsx`.
+- **Plots (doc §5), dependency-free SVG:** ROC/PR/calibration/confusion (classification), **Bland-Altman + volume correlation** and inference-time **histogram** and subgroup **forest plot** (segmentation). `plots/curves.ts`, `plots/agreement.ts`, `plots/distributions.ts`, `components/plots/Plots.tsx`.
+- **Concordance depth:** discordant-case list + `benchmark/adjudication.ts` (status + reason categories, persisted per profile).
+
+### Verified (doc-completeness)
+
+- `typecheck` + `lint` clean; `npm test` — **247/247** vitest (82 new); `build` OK.
+- **Comprehensive browser smoke of every feature, no console errors:** segmentation scoring via the metrics worker (Dice 1.000); classification from an injected labels CSV (AUROC/AUPRC 1.000 on separable data + ROC/PR/calibration/confusion); detection from injected box JSON (TP/FP/FN 2/1/1, sensitivity 0.667, FP/image 0.50, mAP 0.667, loc-error 0.71, FROC); NIfTI reference-mask import (synthetic 2×2×2 parsed); Analysis completeness/subgroups/runtime-histogram/forest/privacy; Governance model card + reference-set lock (SHA-256 fingerprint) + benchmark-definition lock; registry register-loaded-model; CSV/JSON/HTML-report exports.
+- **Still deferred (documented in GAP-ANALYSIS.md):** DICOM-SEG + RTSTRUCT reference parsing, ONNX input-shape/precision extraction, and multi-site/national concordance comparison (needs data TAMIAS deliberately never collects).
+
 ### Added — Radiology benchmarking Phases 2–4 (engines + UI; unreleased)
 
 Completes the `docs/benchmark/ROADMAP.md` plan on top of the v0.11.0 Phase 1
