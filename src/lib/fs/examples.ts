@@ -103,6 +103,40 @@ export const EXAMPLE_BUNDLES: ExampleBundle[] = [
     ],
   },
   {
+    id: 'avm-vessel-bandpass-model',
+    name: 'AVM vessel band-pass — SECOND MODEL for benchmarking (no image)',
+    description:
+      '462 B band-pass ONNX + manifest. Load ON TOP of the AVM CT to compare two models.',
+    longDescription:
+      'v0.14.0 — a SECOND model for the CT_AVM example so you can compare two models on the ' +
+      'SAME image in the Benchmark panel. Model-only kit (no image): load the `avm-threshold` ' +
+      'kit first (CT_AVM + threshold model), run + score it in Benchmark, then load THIS kit ' +
+      '(model only — the CT stays loaded), run + score it, and compare the two in the ' +
+      'Benchmark → Comparison / Statistical comparison sections.\n\n' +
+      'It is a genuinely different segmenter: a BAND-PASS that keeps mid-intensity vessels ' +
+      '(normalized 0.50–0.75, raw ~128–191) but SUPPRESSES the dense bone/calcium the ' +
+      'single-threshold model paints as vessel. On CT_AVM the two masks agree at ~0.84 Dice — ' +
+      'same main vessels, but they disagree at the bright extremes, which is exactly what makes ' +
+      'the model-vs-model comparison meaningful.\n\n' +
+      'Same minmax [0,255] preprocessing as the threshold model, so it runs on CT_AVM ' +
+      'identically. Under 500 bytes — downloads instantly, no upload, browser or desktop.',
+    imageName: null,
+    modelName: 'avm_vessel_bandpass.onnx',
+    manifestName: 'avm_vessel_bandpass.json',
+    files: [
+      {
+        name: 'avm_vessel_bandpass.onnx',
+        description: '462 B band-pass ONNX (Greater + Less + And + Cast + Concat)',
+        url: `${SELF_BASE_URL}/avm_vessel_bandpass.onnx`,
+      },
+      {
+        name: 'avm_vessel_bandpass.json',
+        description: 'Manifest: minmax [0,255] + band [0.50, 0.75] (bone-suppressed vessel)',
+        url: `${SELF_BASE_URL}/avm_vessel_bandpass.json`,
+      },
+    ],
+  },
+  {
     id: 'liver-vessel-band-model',
     name: 'Liver vessel band-pass MODEL ONLY (no image)',
     description:

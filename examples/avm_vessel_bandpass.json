@@ -1,0 +1,16 @@
+{
+  "name": "AVM Vessel Band-Pass (bone-suppressed)",
+  "version": "1.0.0",
+  "license": "CC0-1.0",
+  "modality": "Other",
+  "spacing": [1.0, 1.0, 1.0],
+  "orientation": "RAS",
+  "normalization": { "type": "minmax", "min": 0, "max": 255 },
+  "inference": { "type": "sliding_window", "patch": [64, 64, 64], "overlap": 0.25 },
+  "output": {
+    "type": "segmentation",
+    "labels": { "0": "background", "1": "vessel_bandpass" },
+    "colors": { "1": "#f59e0b" }
+  },
+  "sha256": "d33bdeef3acde4e226f5fe81bd95505152c47dad0e3c4b75006d237aa3926fad"
+}
