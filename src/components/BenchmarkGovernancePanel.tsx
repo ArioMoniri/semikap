@@ -34,9 +34,13 @@ export function BenchmarkGovernancePanel({ profileId, entries, loadedModel, refe
 
   function onModelCard() {
     if (!loadedModel) return;
+    // Carry the intended-use / limitations captured at registration time.
+    const entry = entries.find((e) => e.hash === loadedModel.hash);
     const card = buildModelCard({
       manifest: loadedModel.manifest,
       validation: validateOnnx(loadedModel.bytes),
+      ...(entry?.intendedUse ? { intendedUse: entry.intendedUse } : {}),
+      ...(entry?.limitations ? { limitations: entry.limitations } : {}),
       generatedAt: new Date().toISOString(),
     });
     downloadText(
