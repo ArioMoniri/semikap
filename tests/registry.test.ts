@@ -65,6 +65,25 @@ describe('validateOnnx', () => {
     expect(v.warnings.join(' ')).toMatch(/exceeds the supported/);
   });
 
+  it('extracts input tensor shape, precision, and operator types', () => {
+    const dim = (v: number) => lenDelim(1, varintField(1, v)); // TensorShapeProto.dim = Dimension{dim_value}
+    const shapeBytes = [...dim(1), ...dim(1), ...dim(64)];
+    const tensor = [...varintField(1, 1), ...lenDelim(2, shapeBytes)]; // elem_type=1(float32) + shape
+    const typeProto = lenDelim(1, tensor); // TypeProto.tensor_type
+    const inputVi = [...lenDelim(1, strBytes('input')), ...lenDelim(2, typeProto)];
+    const node = lenDelim(4, strBytes('Conv')); // NodeProto.op_type
+    const graph = [
+      ...lenDelim(1, node),
+      ...lenDelim(11, inputVi),
+      ...lenDelim(12, lenDelim(1, strBytes('output'))),
+    ];
+    const model = new Uint8Array([...varintField(1, 7), ...lenDelim(8, varintField(2, 13)), ...lenDelim(7, graph)]);
+    const v = validateOnnx(model);
+    expect(v.inputTensors[0]!.shape).toEqual([1, 1, 64]);
+    expect(v.inputTensors[0]!.elemTypeName).toBe('float32');
+    expect(v.opTypes).toContain('Conv');
+  });
+
   it('rejects non-ONNX garbage', () => {
     const v = validateOnnx(new Uint8Array([0xff, 0xff, 0xff, 0xff, 0xff]));
     expect(v.ok).toBe(false);
@@ -108,6 +127,9 @@ const validation: OnnxValidation = {
   opsets: [{ domain: '', version: 13 }],
   inputs: ['input'],
   outputs: ['output'],
+  inputTensors: [{ name: 'input', elemType: 1, elemTypeName: 'float32', shape: [1, 1, 64, 64, 64] }],
+  outputTensors: [{ name: 'output', elemType: 1, elemTypeName: 'float32', shape: [1, 2, 64, 64, 64] }],
+  opTypes: ['Conv', 'Relu'],
   nodeCount: 5,
   errors: [],
   warnings: [],

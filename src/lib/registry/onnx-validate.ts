@@ -26,12 +26,45 @@ export interface OnnxOpset {
   version: number;
 }
 
+/** ONNX tensor element-type enum → human name (subset used by imaging models). */
+export const ELEM_TYPE_NAMES: Record<number, string> = {
+  1: 'float32',
+  2: 'uint8',
+  3: 'int8',
+  4: 'uint16',
+  5: 'int16',
+  6: 'int32',
+  7: 'int64',
+  8: 'string',
+  9: 'bool',
+  10: 'float16',
+  11: 'float64',
+  12: 'uint32',
+  13: 'uint64',
+  16: 'bfloat16',
+};
+
+export interface TensorInfo {
+  name: string;
+  /** ONNX elem_type enum (0 = unknown). */
+  elemType: number;
+  /** Human name for the precision, e.g. "float32". */
+  elemTypeName: string;
+  /** Declared shape; a string entry is a symbolic/dynamic dim (e.g. "N"), -1 = unknown. */
+  shape: (number | string)[];
+}
+
 export interface OnnxValidation {
   ok: boolean;
   irVersion?: number;
   opsets: OnnxOpset[];
   inputs: string[];
   outputs: string[];
+  /** Full input tensor descriptors (shape + precision), when the graph declares them. */
+  inputTensors: TensorInfo[];
+  outputTensors: TensorInfo[];
+  /** Distinct operator types present in the graph (for eyeballing unsupported ops). */
+  opTypes: string[];
   nodeCount?: number;
   errors: string[];
   warnings: string[];
@@ -107,41 +140,98 @@ function parseOpset(buf: Uint8Array, start: number, end: number): OnnxOpset {
   return { domain, version };
 }
 
-function parseValueInfoName(buf: Uint8Array, start: number, end: number): string {
+/** TypeProto → { elemType, shape }. TypeProto.tensor_type(1) → Tensor.elem_type(1)/shape(2); shape.dim(1) → dim_value(1)/dim_param(2). */
+function parseTypeProto(buf: Uint8Array, start: number, end: number): { elemType: number; shape: (number | string)[] } {
+  let elemType = 0;
+  const shape: (number | string)[] = [];
   for (const f of scanFields(buf, start, end)) {
-    if (f.field === 1 && f.wire === 2) return readString(buf, f.start, f.end);
+    if (f.field === 1 && f.wire === 2) {
+      // Tensor
+      for (const t of scanFields(buf, f.start, f.end)) {
+        if (t.field === 1 && t.wire === 0) elemType = t.varint;
+        else if (t.field === 2 && t.wire === 2) {
+          // TensorShapeProto
+          for (const s of scanFields(buf, t.start, t.end)) {
+            if (s.field === 1 && s.wire === 2) {
+              // Dimension
+              let dim: number | string = -1;
+              for (const d of scanFields(buf, s.start, s.end)) {
+                if (d.field === 1 && d.wire === 0) dim = d.varint;
+                else if (d.field === 2 && d.wire === 2) dim = readString(buf, d.start, d.end);
+              }
+              shape.push(dim);
+            }
+          }
+        }
+      }
+    }
   }
-  return '';
+  return { elemType, shape };
+}
+
+/** ValueInfoProto → TensorInfo. name(1), type(2). */
+function parseValueInfo(buf: Uint8Array, start: number, end: number): TensorInfo {
+  let name = '';
+  let elemType = 0;
+  let shape: (number | string)[] = [];
+  for (const f of scanFields(buf, start, end)) {
+    if (f.field === 1 && f.wire === 2) name = readString(buf, f.start, f.end);
+    else if (f.field === 2 && f.wire === 2) {
+      const t = parseTypeProto(buf, f.start, f.end);
+      elemType = t.elemType;
+      shape = t.shape;
+    }
+  }
+  return { name, elemType, elemTypeName: ELEM_TYPE_NAMES[elemType] ?? `type${elemType}`, shape };
 }
 
 function parseGraph(
   buf: Uint8Array,
   start: number,
   end: number
-): { inputs: string[]; outputs: string[]; nodeCount: number } {
-  const inputs: string[] = [];
-  const outputs: string[] = [];
+): { inputTensors: TensorInfo[]; outputTensors: TensorInfo[]; opTypes: string[]; nodeCount: number } {
+  const inputTensors: TensorInfo[] = [];
+  const outputTensors: TensorInfo[] = [];
+  const ops = new Set<string>();
   let nodeCount = 0;
   for (const f of scanFields(buf, start, end)) {
     if (f.wire !== 2) continue;
-    if (f.field === 1) nodeCount++;
-    else if (f.field === 11) inputs.push(parseValueInfoName(buf, f.start, f.end));
-    else if (f.field === 12) outputs.push(parseValueInfoName(buf, f.start, f.end));
+    if (f.field === 1) {
+      // NodeProto — op_type is field 4 (string).
+      nodeCount++;
+      for (const n of scanFields(buf, f.start, f.end)) {
+        if (n.field === 4 && n.wire === 2) ops.add(readString(buf, n.start, n.end));
+      }
+    } else if (f.field === 11) inputTensors.push(parseValueInfo(buf, f.start, f.end));
+    else if (f.field === 12) outputTensors.push(parseValueInfo(buf, f.start, f.end));
   }
-  return { inputs, outputs, nodeCount };
+  return { inputTensors, outputTensors, opTypes: [...ops].sort(), nodeCount };
 }
 
 /** Parse and sanity-check an ONNX model buffer. Never throws. */
 export function validateOnnx(bytes: Uint8Array): OnnxValidation {
-  const result: OnnxValidation = { ok: false, opsets: [], inputs: [], outputs: [], errors: [], warnings: [] };
+  const result: OnnxValidation = {
+    ok: false,
+    opsets: [],
+    inputs: [],
+    outputs: [],
+    inputTensors: [],
+    outputTensors: [],
+    opTypes: [],
+    errors: [],
+    warnings: [],
+  };
   try {
     for (const f of scanFields(bytes, 0, bytes.length)) {
       if (f.field === 1 && f.wire === 0) result.irVersion = f.varint;
       else if (f.field === 8 && f.wire === 2) result.opsets.push(parseOpset(bytes, f.start, f.end));
       else if (f.field === 7 && f.wire === 2) {
         const g = parseGraph(bytes, f.start, f.end);
-        result.inputs = g.inputs;
-        result.outputs = g.outputs;
+        result.inputTensors = g.inputTensors;
+        result.outputTensors = g.outputTensors;
+        result.inputs = g.inputTensors.map((t) => t.name);
+        result.outputs = g.outputTensors.map((t) => t.name);
+        result.opTypes = g.opTypes;
         result.nodeCount = g.nodeCount;
       }
     }

@@ -32,6 +32,8 @@ import { recordsToCsv, recordsToJson } from '../lib/benchmark/export';
 import { generateHtmlReport } from '../lib/benchmark/report';
 import { appendRecord, listRecords, clearRecords } from '../lib/benchmark/store';
 import { readNiftiMask } from '../lib/datasets/nifti-mask';
+import { readDicomSeg } from '../lib/datasets/dicom-seg-import';
+import { readRtStruct } from '../lib/datasets/rtstruct-import';
 import { asBytes } from '../types';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -106,8 +108,17 @@ export function BenchmarkPanel() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [surface, setSurface] = useState(true);
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [intendedUse, setIntendedUse] = useState('');
+  const [limitations, setLimitations] = useState('');
   const onnxRef = useRef<HTMLInputElement>(null);
   const manifestRef = useRef<HTMLInputElement>(null);
+
+  const modelMeta = () => ({
+    ...(sourceUrl.trim() ? { sourceUrl: sourceUrl.trim() } : {}),
+    ...(intendedUse.trim() ? { intendedUse: intendedUse.trim() } : {}),
+    ...(limitations.trim() ? { limitations: limitations.trim() } : {}),
+  });
 
   useEffect(() => {
     if (profileId) setEntries(listRegistry(profileId));
@@ -152,7 +163,7 @@ export function BenchmarkPanel() {
       const validation = validateOnnx(bytes);
       const hash = await sha256Hex(bytes);
       await cacheModel(bytes, manifest);
-      registerModel(profileId!, { hash, manifest, validation });
+      registerModel(profileId!, { hash, manifest, validation, ...modelMeta() });
       setEntries(listRegistry(profileId!));
       if (onnxRef.current) onnxRef.current.value = '';
       if (manifestRef.current) manifestRef.current.value = '';
@@ -176,7 +187,7 @@ export function BenchmarkPanel() {
       return;
     }
     const validation = validateOnnx(model.bytes);
-    registerModel(profileId!, { hash: model.hash, manifest: model.manifest, validation });
+    registerModel(profileId!, { hash: model.hash, manifest: model.manifest, validation, ...modelMeta() });
     setEntries(listRegistry(profileId!));
     setNotice(`Registered loaded model "${model.manifest.name}".`);
   }
@@ -208,6 +219,33 @@ export function BenchmarkPanel() {
     setBusy('Loading reference mask…');
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
+      const name = file.name.toLowerCase();
+      const isDicom = name.endsWith('.dcm') || (bytes.length > 132 && bytes[128] === 0x44 && bytes[129] === 0x49 && bytes[130] === 0x43 && bytes[131] === 0x4d);
+      if (isDicom) {
+        // Try DICOM-SEG first (self-geometric); fall back to RTSTRUCT which needs
+        // the loaded reference image's grid (origin/spacing/dims) to rasterize.
+        let out: { mask: Uint8Array; dims: [number, number, number]; spacing?: [number, number, number] };
+        try {
+          out = readDicomSeg(bytes);
+        } catch {
+          if (!volume) throw new Error('RTSTRUCT needs the reference image loaded first (for its grid).');
+          const rt = readRtStruct(bytes, {
+            origin: volume.meta.origin,
+            spacing: volume.meta.spacing,
+            dims: volume.meta.dims,
+          });
+          out = { mask: rt.mask, dims: rt.dims, spacing: volume.meta.spacing };
+        }
+        setReference({
+          source: 'volume',
+          label: file.name,
+          mask: out.mask,
+          dims: out.dims,
+          spacing: out.spacing ?? (volume?.meta.spacing ?? [1, 1, 1]),
+        });
+        setNotice(`Loaded DICOM reference "${file.name}" (${out.dims.join('×')}).`);
+        return;
+      }
       const nm = await readNiftiMask(bytes, file.name);
       setReference({ source: 'volume', label: file.name, mask: nm.mask, dims: nm.dims, spacing: nm.spacing });
       setNotice(`Loaded reference mask "${file.name}" (${nm.dims.join('×')}).`);
@@ -324,6 +362,27 @@ export function BenchmarkPanel() {
             Manifest JSON
             <input ref={manifestRef} type="file" accept=".json,application/json" className="mt-0.5 block w-full text-xs" />
           </label>
+          <input
+            type="text"
+            value={sourceUrl}
+            onChange={(ev) => setSourceUrl(ev.target.value)}
+            placeholder="Source URL (optional)"
+            className="h-6 w-full rounded border border-slate-300 px-1 text-[11px] dark:border-slate-600 dark:bg-slate-800"
+          />
+          <input
+            type="text"
+            value={intendedUse}
+            onChange={(ev) => setIntendedUse(ev.target.value)}
+            placeholder="Intended use (optional)"
+            className="h-6 w-full rounded border border-slate-300 px-1 text-[11px] dark:border-slate-600 dark:bg-slate-800"
+          />
+          <input
+            type="text"
+            value={limitations}
+            onChange={(ev) => setLimitations(ev.target.value)}
+            placeholder="Limitations (optional)"
+            className="h-6 w-full rounded border border-slate-300 px-1 text-[11px] dark:border-slate-600 dark:bg-slate-800"
+          />
           <div className="flex gap-2">
             <Button size="sm" onClick={() => void onAddModel()} disabled={!!busy}>
               <Plus className="h-3 w-3" /> Register
@@ -345,8 +404,10 @@ export function BenchmarkPanel() {
                   {e.name} <span className="text-slate-400">v{e.version}</span>
                 </div>
                 <div className="truncate text-slate-400">
-                  {e.modality} · opset {e.validation.opsets[0]?.version ?? '?'} · {e.validation.inputs.length} in /{' '}
-                  {e.validation.outputs.length} out
+                  {e.modality} · opset {e.validation.opsets[0]?.version ?? '?'}
+                  {e.validation.precision ? ` · ${e.validation.precision}` : ''}
+                  {e.validation.inputShape ? ` · [${e.validation.inputShape.join('×')}]` : ''}
+                  {e.validation.opTypes?.length ? ` · ${e.validation.opTypes.length} ops` : ''}
                 </div>
               </div>
               <div className="flex items-center gap-1">
@@ -391,10 +452,10 @@ export function BenchmarkPanel() {
           </Button>
         </div>
         <label className="block text-slate-500 dark:text-slate-400">
-          …or load a ground-truth mask file (NIfTI .nii/.nii.gz)
+          …or load a ground-truth mask file (NIfTI .nii/.nii.gz, DICOM-SEG/RTSTRUCT .dcm)
           <input
             type="file"
-            accept=".nii,.nii.gz,.gz"
+            accept=".nii,.nii.gz,.gz,.dcm"
             className="mt-0.5 block w-full text-xs"
             onChange={(e) => void onImportReferenceFile(e.target.files?.[0])}
           />
@@ -505,8 +566,8 @@ export function BenchmarkPanel() {
         )}
       </section>
 
-      {/* Phase 2-3: completeness, subgroups, concordance, privacy */}
-      <BenchmarkAnalysisPanel records={records} />
+      {/* Phase 2-3: completeness, subgroups, concordance, case review, privacy */}
+      <BenchmarkAnalysisPanel records={records} profileId={profileId} />
 
       {/* Classification + detection tasks (doc §5) */}
       <BenchmarkClassifyPanel />
