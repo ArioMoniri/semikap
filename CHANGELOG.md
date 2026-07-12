@@ -6,6 +6,59 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.15.0] — Batch benchmarking, Excel-results import & mask-difference visuals
+
+This release makes model comparison practical at scale and removes friction from
+the benchmarking workflow. Two input modes now sit behind a single toggle — **run
+your models on images**, or **import already-computed results** — and disagreements
+are shown visually. A local profile is provisioned automatically, so there is no
+sign-up step. Everything stays on-device; the no-upload CI guard now covers every
+new module and component.
+
+### Added
+
+- **Batch runner — two models over many images.** Select ~20 images (and, optionally,
+  matching ground-truth masks, paired by file-name stem), pick Model A and Model B,
+  and run. Each image is decoded and both models run **streaming one volume at a
+  time** (a 256³ float volume is never held alongside 19 others); only a small 2D
+  preview slice is retained per case. Per-case Dice/IoU/HD95/ASSD are scored when a
+  ground-truth mask is present; without one you still get model-vs-model agreement.
+  Failing cases are isolated (the batch continues) and the run is cancellable.
+  (`src/lib/benchmark/batch-runner.ts`, `src/components/BenchmarkBatchPanel.tsx`.)
+- **Mask-difference visuals.** A categorical agreement map (green = both agree,
+  blue = only A, pink = only B) rendered as a 2D slice at the point of maximum
+  disagreement — in the single-image Score panel ("Show difference", result vs
+  reference) and per case in the batch table ("view").
+  (`src/lib/metrics/mask-diff.ts`, `src/components/MaskDiffCanvas.tsx`.)
+- **Import results (the "Excel path").** Drop a CSV/TSV — one row per *(case, model)*
+  with a `dice` column (optionally `iou`/`hd95`/`assd`, comma or TAB, case-insensitive
+  headers) — and every row becomes a benchmark record, so the comparison table and
+  the full statistical-comparison suite light up with **no inference on this device**.
+  A downloadable template ships with the exact headers.
+  (`src/lib/stats/results-import.ts`, `src/lib/benchmark/import-records.ts`,
+  `src/components/BenchmarkResultsImportPanel.tsx`.)
+- **Headless NIfTI intensity decoder** (`src/lib/datasets/nifti-volume.ts`) — decodes
+  `.nii`/`.nii.gz` to native-dtype voxels (applying `scl_slope`/`scl_inter` so CT
+  Hounsfield units survive) for batch inference without the interactive viewer.
+- **Step-by-step guide** (`src/components/BenchmarkGuide.tsx`) — a collapsible
+  two-track stepper (run-on-images / import-results) at the top of the panel.
+- **Input-mode toggle** ("Run on images" / "Import results (Excel)") in the benchmark
+  panel.
+
+### Changed
+
+- **No sign-up needed.** A local `Local` profile is auto-provisioned on first use
+  (`ensureLocalDefaultProfile`), so benchmarking works immediately. Named /
+  passphrase profiles remain an opt-in switch (👤) for shared machines.
+- The volume-agreement Bland-Altman scatter in the Analysis panel now drops
+  non-finite pairs, so metric-only imported records no longer emit NaN plot coords.
+
+### Tests
+
+- New unit suites: `results-import`, `mask-diff`, `batch` (pairing), `batch-runner`,
+  `import-records`, `nifti-volume` — **400 tests total**. The on-premise/no-upload
+  invariant guard now scans all four new library modules and all four new components.
+
 ## [0.14.0] — Second model for the AVM example (two-model benchmarking)
 
 The benchmark comparison needs **two models on the same image**, but each example

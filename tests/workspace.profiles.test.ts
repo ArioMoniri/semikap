@@ -8,6 +8,8 @@ import {
   getActiveProfileId,
   setActiveProfileId,
   profileScope,
+  ensureLocalDefaultProfile,
+  DEFAULT_PROFILE_ID,
   type KVStore,
 } from '../src/lib/workspace/profiles';
 
@@ -82,6 +84,32 @@ describe('profiles — passphrase gate', () => {
     const store = memStore();
     const p = await createProfile('Open', undefined, store);
     expect(await verifyPassphrase(p.id, 'anything', store)).toBe(true);
+  });
+});
+
+describe('ensureLocalDefaultProfile (de-gated benchmarking)', () => {
+  it('auto-creates + activates the Local default when none active', () => {
+    const store = memStore();
+    const id = ensureLocalDefaultProfile(store);
+    expect(id).toBe(DEFAULT_PROFILE_ID);
+    expect(getActiveProfileId(store)).toBe(DEFAULT_PROFILE_ID);
+    expect(getProfile(DEFAULT_PROFILE_ID, store)?.name).toBe('Local');
+    expect(getProfile(DEFAULT_PROFILE_ID, store)?.hasPassphrase).toBe(false);
+  });
+  it('does not override an already-active profile', async () => {
+    const store = memStore();
+    const p = await createProfile('Dr. Rad', undefined, store);
+    setActiveProfileId(p.id, store);
+    expect(ensureLocalDefaultProfile(store)).toBe(p.id);
+    expect(listProfiles(store).some((x) => x.id === DEFAULT_PROFILE_ID)).toBe(false);
+  });
+  it('is idempotent (no duplicate default)', () => {
+    const store = memStore();
+    ensureLocalDefaultProfile(store);
+    setActiveProfileId('', store); // clear active but keep the default profile record
+    store.removeItem('tamias.activeProfile.v1');
+    ensureLocalDefaultProfile(store);
+    expect(listProfiles(store).filter((p) => p.id === DEFAULT_PROFILE_ID)).toHaveLength(1);
   });
 });
 

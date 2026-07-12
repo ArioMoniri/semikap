@@ -178,6 +178,33 @@ export function setActiveProfileId(id: string, store: KVStore | null = defaultSt
   store?.setItem(ACTIVE_KEY, id);
 }
 
+/** Stable id of the auto-provisioned default profile. */
+export const DEFAULT_PROFILE_ID = 'local-default';
+
+/**
+ * Ensure a usable active profile exists WITHOUT forcing the user to create one.
+ * If a profile is already active, return it. Otherwise activate the default
+ * "Local" profile (creating it if absent — no passphrase, purely a local
+ * namespace). Synchronous: the default has no PBKDF2 verifier. Named/passphrase
+ * profiles remain an opt-in switch in the header.
+ */
+export function ensureLocalDefaultProfile(store: KVStore | null = defaultStore()): string {
+  const active = getActiveProfileId(store);
+  if (active) return active;
+  const profiles = listProfiles(store);
+  if (!profiles.some((p) => p.id === DEFAULT_PROFILE_ID)) {
+    const def: Profile = {
+      id: DEFAULT_PROFILE_ID,
+      name: 'Local',
+      createdAt: new Date().toISOString(),
+      hasPassphrase: false,
+    };
+    writeProfiles([...profiles, def], store);
+  }
+  setActiveProfileId(DEFAULT_PROFILE_ID, store);
+  return DEFAULT_PROFILE_ID;
+}
+
 /**
  * Namespacing helpers for a profile. Use these everywhere a profile's data is
  * stored so users never collide.

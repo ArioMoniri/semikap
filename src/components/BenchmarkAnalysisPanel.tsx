@@ -83,9 +83,15 @@ export function BenchmarkAnalysisPanel({
   const netAudit = auditNetwork(netEntries, selfOrigin);
 
   // Volume agreement (Bland-Altman + correlation) over per-label voxel counts.
+  // Imported (metric-only) records carry NaN voxel counts, so drop non-finite
+  // pairs — they have no voxel data to plot.
   const volPairs: Pair[] = [];
   for (const r of records) {
-    for (const s of r.segmentation ?? []) volPairs.push({ ref: s.refVoxels, pred: s.predVoxels });
+    for (const s of r.segmentation ?? []) {
+      if (Number.isFinite(s.refVoxels) && Number.isFinite(s.predVoxels)) {
+        volPairs.push({ ref: s.refVoxels, pred: s.predVoxels });
+      }
+    }
   }
   const ba = volPairs.length >= 2 ? blandAltman(volPairs) : null;
   const corr = volPairs.length >= 2 ? pearson(volPairs) : NaN;

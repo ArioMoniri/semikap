@@ -14,7 +14,7 @@
 
 import { create } from 'zustand';
 import type { BenchmarkRecord } from '../benchmark/types';
-import { getActiveProfileId } from '../workspace/profiles';
+import { ensureLocalDefaultProfile } from '../workspace/profiles';
 
 export interface ReferenceSnapshot {
   /** Where the reference came from. */
@@ -44,7 +44,7 @@ interface BenchmarkState {
 }
 
 export const useBenchmarkStore = create<BenchmarkState>((set) => ({
-  currentProfileId: getActiveProfileId(),
+  currentProfileId: ensureLocalDefaultProfile(),
   setCurrentProfile: (id) => set({ currentProfileId: id, reference: null }),
 
   reference: null,

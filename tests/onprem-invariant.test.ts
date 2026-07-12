@@ -38,6 +38,10 @@ const EXTRA_FILES = [
   'src/components/BenchmarkDetectionPanel.tsx',
   'src/components/BenchmarkStatsPanel.tsx',
   'src/components/BenchmarkRocComparePanel.tsx',
+  'src/components/BenchmarkBatchPanel.tsx',
+  'src/components/BenchmarkResultsImportPanel.tsx',
+  'src/components/BenchmarkGuide.tsx',
+  'src/components/MaskDiffCanvas.tsx',
   'src/components/WorkspacePicker.tsx',
 ];
 
