@@ -16,7 +16,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import * as Comlink from 'comlink';
-import { FlaskConical, Plus, Trash2, Crosshair, Download, Play, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, Crosshair, Download, Play, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useAppStore } from '../lib/state/store';
 import { useBenchmarkStore } from '../lib/state/benchmarkStore';
 import { listRegistry, registerModel, removeModel, type RegistryEntry } from '../lib/registry/registry';
@@ -32,6 +32,9 @@ import { recordsToCsv, recordsToJson } from '../lib/benchmark/export';
 import { generateHtmlReport } from '../lib/benchmark/report';
 import { appendRecord, listRecords, clearRecords } from '../lib/benchmark/store';
 import { readNiftiMask } from '../lib/datasets/nifti-mask';
+import { alignToPrediction } from '../lib/metrics/align';
+import { diffVolume, maxDisagreementSlice, type DiffSlice } from '../lib/metrics/mask-diff';
+import { MaskDiffCanvas } from './MaskDiffCanvas';
 import { readDicomSeg } from '../lib/datasets/dicom-seg-import';
 import { readRtStruct } from '../lib/datasets/rtstruct-import';
 import { asBytes } from '../types';
@@ -43,6 +46,9 @@ import { BenchmarkClassifyPanel } from './BenchmarkClassifyPanel';
 import { BenchmarkDetectionPanel } from './BenchmarkDetectionPanel';
 import { BenchmarkStatsPanel } from './BenchmarkStatsPanel';
 import { BenchmarkRocComparePanel } from './BenchmarkRocComparePanel';
+import { BenchmarkGuide } from './BenchmarkGuide';
+import { BenchmarkBatchPanel } from './BenchmarkBatchPanel';
+import { BenchmarkResultsImportPanel } from './BenchmarkResultsImportPanel';
 
 /**
  * Score off the main thread via the metrics worker (HD95/ASSD are O(surface²));
@@ -110,6 +116,8 @@ export function BenchmarkPanel() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [surface, setSurface] = useState(true);
+  const [mode, setMode] = useState<'image' | 'excel'>('image');
+  const [diffSlice, setDiffSlice] = useState<DiffSlice | null>(null);
   const [sourceUrl, setSourceUrl] = useState('');
   const [intendedUse, setIntendedUse] = useState('');
   const [limitations, setLimitations] = useState('');
@@ -139,15 +147,8 @@ export function BenchmarkPanel() {
     };
   }, [profileId, setRecords]);
 
-  if (!profileId) {
-    return (
-      <div className="flex items-center gap-2 rounded-md border border-dashed border-slate-300 p-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-        <FlaskConical className="h-4 w-4" />
-        Select or create a benchmarking profile (👤 top-right) to register models and run local
-        benchmarks. Nothing leaves your device.
-      </div>
-    );
-  }
+  // No gate: a default "Local" profile is auto-provisioned (see benchmarkStore),
+  // so users benchmark immediately. Named/passphrase profiles stay opt-in (👤).
 
   async function onAddModel() {
     setError(null);
@@ -343,6 +344,30 @@ export function BenchmarkPanel() {
     }
   }
 
+  function onShowDiff() {
+    setError(null);
+    if (!result || !reference) {
+      setError('Need both a current result and a captured reference to show the difference.');
+      return;
+    }
+    try {
+      // Bring the reference onto the result's grid, then build a categorical
+      // agreement map (green = both, blue = only result, pink = only reference).
+      const aligned = alignToPrediction(
+        reference.mask,
+        { dims: reference.dims, spacing: reference.spacing },
+        result.mask,
+        { dims: result.dims, spacing: result.spacing },
+      );
+      const d = diffVolume(result.mask, aligned.ref);
+      const dims: [number, number, number] = [aligned.dims[0], aligned.dims[1], aligned.dims[2]];
+      setDiffSlice(maxDisagreementSlice(d.diff, dims));
+      setNotice(`Difference: IoU ${fmt(d.agreeFraction)} · only-result ${d.aOnly} · only-reference ${d.bOnly} voxels.`);
+    } catch (e) {
+      setError(`Could not compute difference: ${(e as Error).message}`);
+    }
+  }
+
   async function onClearRecords() {
     await clearRecords(profileId!);
     setRecords([]);
@@ -352,6 +377,30 @@ export function BenchmarkPanel() {
 
   return (
     <div className="space-y-4 text-xs">
+      <BenchmarkGuide />
+
+      {/* Input-mode fork: run models on images, or import already-computed results. */}
+      <div className="inline-flex overflow-hidden rounded border border-slate-300 dark:border-slate-600">
+        <button
+          type="button"
+          onClick={() => setMode('image')}
+          className={`px-2 py-1 ${mode === 'image' ? 'bg-tamias-accent text-white' : 'text-slate-500 dark:text-slate-400'}`}
+        >
+          Run on images
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('excel')}
+          className={`px-2 py-1 ${mode === 'excel' ? 'bg-tamias-accent text-white' : 'text-slate-500 dark:text-slate-400'}`}
+        >
+          Import results (Excel)
+        </button>
+      </div>
+
+      {mode === 'excel' && <BenchmarkResultsImportPanel />}
+
+      {mode === 'image' && (
+      <>
       {/* Registry */}
       <section className="space-y-2">
         <div className="font-semibold text-tamias-ink dark:text-slate-100">Your models</div>
@@ -483,10 +532,29 @@ export function BenchmarkPanel() {
           <input type="checkbox" checked={surface} onChange={(e) => setSurface(e.target.checked)} />
           Compute surface metrics (HD95 / ASSD) — slower on large volumes
         </label>
-        <Button size="sm" onClick={() => void onScore()} disabled={!!busy || !result || !reference}>
-          <Play className="h-3 w-3" /> Score vs reference
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => void onScore()} disabled={!!busy || !result || !reference}>
+            <Play className="h-3 w-3" /> Score vs reference
+          </Button>
+          <Button size="sm" variant="outline" onClick={onShowDiff} disabled={!result || !reference}>
+            <Crosshair className="h-3 w-3" /> Show difference
+          </Button>
+        </div>
+        {diffSlice && (
+          <div className="rounded border border-slate-100 p-2 dark:border-slate-800">
+            <MaskDiffCanvas
+              slice={diffSlice}
+              labelA="result"
+              labelB="reference"
+            />
+          </div>
+        )}
       </section>
+
+      {/* Batch — two models over many images (view one, compare all) */}
+      <BenchmarkBatchPanel profileId={profileId!} entries={entries} />
+      </>
+      )}
 
       {/* Comparison */}
       <section className="space-y-2 border-t border-slate-100 pt-3 dark:border-slate-800">
