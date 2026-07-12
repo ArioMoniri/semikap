@@ -6,6 +6,41 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.13.0] — Statistical model comparison (corrected + non-parametric + Bayesian)
+
+Adds rigorous significance testing to the benchmark comparison — because comparing
+two models on CV/resampled data with a naïve paired t-test is invalid (folds share
+data, inflating false positives). Adapts the [`correctR`](https://hendersontrent.github.io/correctR/)
+package and the methods most used in radiology-AI. All local, no dependencies.
+Full formulas + references in `docs/benchmark/STATS.md`.
+
+### Added
+
+- **Corrected t-tests** (`src/lib/stats/corrected-tests.ts`) — Nadeau & Bengio (2003)
+  variance correction for **resampled**, **k-fold CV**, and **repeated k-fold CV**,
+  with a from-scratch Student-t p-value (regularized incomplete beta — no stats lib).
+- **DeLong's test** (`roc-compare.ts`) — the medical-imaging standard for comparing
+  two **correlated ROC AUCs** on the same cases (fast midrank algorithm).
+- **McNemar's test** (`paired-tests.ts`) — paired correct/incorrect (exact binomial / χ²).
+- **Wilcoxon signed-rank**, **permutation (sign-flip)**, and **bootstrap CI** — non-parametric
+  paired comparisons (seeded → reproducible).
+- **Bayesian correlated t-test** (`bayesian.ts`) — Benavoli, Corani, Demšar & Zaffalon
+  (2017): posterior P(A worse) / P(equivalent, via a ROPE) / P(A better).
+- **UI:** `BenchmarkStatsPanel` (two models × a metric, paired by case → any of the
+  above tests) and `BenchmarkRocComparePanel` (import two models' `caseId,label,score`
+  → DeLong + McNemar). The on-prem no-upload guard now also covers `src/lib/stats/`.
+
+### Verified
+
+- `typecheck` + `lint` clean; `npm test` — **329/329** vitest, incl. **26 new** tests
+  pinned to SciPy/reference values.
+- **Independent statistician/engineer/numerical subagent panel**: the shared Student-t
+  machinery matches SciPy/mpmath to ~1e-8; a biostatistician re-derived DeLong's
+  placement-value covariance from scratch and cross-validated it against **R
+  `pROC::roc.test(method="delong")` to 10 significant figures** (with ties), and
+  confirmed McNemar / Wilcoxon / Bayesian against SciPy exactly. Verdict: ship.
+- z-based p-values use the A&S erf (~1e-7) — documented, and confirmed adequate.
+
 ## [0.12.1] — On-premise no-upload guard + benchmarking polish
 
 App behaviour is unchanged from v0.12.0; this cut hardens the privacy guarantee
