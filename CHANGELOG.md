@@ -6,6 +6,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.14.0] — Second model for the AVM example (two-model benchmarking)
+
+The benchmark comparison needs **two models on the same image**, but each example
+kit shipped only one. This adds a companion model for the CT_AVM example so you can
+run, score, and compare two models end-to-end from the example kits alone.
+
+### Added
+
+- **`avm-vessel-bandpass-model`** example kit (model-only, no image) — a genuinely
+  different second segmenter for `CT_AVM.nii.gz`: a **band-pass** that keeps
+  mid-intensity vessels (normalized 0.50–0.75) but **suppresses the dense bone/calcium**
+  that the existing single-threshold model (`avm-threshold`) paints as vessel. On
+  CT_AVM the two masks agree at **~0.84 Dice** — same main vessels, disagreeing at the
+  bright extremes, which is what makes the model-vs-model comparison meaningful.
+  - `examples/avm_vessel_bandpass.onnx` (462 B, opset 17) + `examples/avm_vessel_bandpass.json`
+    (same minmax [0,255] preprocessing as the threshold model, so it runs on CT_AVM
+    identically) + `scripts/build_avm_bandpass_onnx.py` (self-documenting builder + a
+    sanity check against the real CT_AVM data).
+  - **Flow:** load `avm-threshold` (CT + model A) → run + score in Benchmark → load this
+    kit (model only, the CT stays loaded) → run + score model B → compare in
+    Benchmark → Comparison / Statistical comparison.
+- `tests/example-avm-bandpass.test.ts` — guards that the manifest parses, the ONNX
+  validates (opset/IO/graph), and the manifest's sha256 matches the ONNX bytes.
+
+### Verified
+
+- `typecheck` + `lint` clean; `npm test` **333/333**; `build` OK.
+- Model executes in ONNX Runtime on real CT_AVM (non-empty band-pass mask); numerically
+  confirmed Dice 0.841 vs the threshold model.
+
 ## [0.13.0] — Statistical model comparison (corrected + non-parametric + Bayesian)
 
 Adds rigorous significance testing to the benchmark comparison — because comparing
