@@ -24,6 +24,7 @@ const ROOTS = [
   'src/lib/plots',
   'src/lib/registry',
   'src/lib/workspace',
+  'src/lib/stats',
   'src/components/plots',
 ];
 const EXTRA_FILES = [
@@ -35,6 +36,8 @@ const EXTRA_FILES = [
   'src/components/BenchmarkGovernancePanel.tsx',
   'src/components/BenchmarkClassifyPanel.tsx',
   'src/components/BenchmarkDetectionPanel.tsx',
+  'src/components/BenchmarkStatsPanel.tsx',
+  'src/components/BenchmarkRocComparePanel.tsx',
   'src/components/WorkspacePicker.tsx',
 ];
 

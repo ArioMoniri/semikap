@@ -41,6 +41,8 @@ import { BenchmarkAnalysisPanel } from './BenchmarkAnalysisPanel';
 import { BenchmarkGovernancePanel } from './BenchmarkGovernancePanel';
 import { BenchmarkClassifyPanel } from './BenchmarkClassifyPanel';
 import { BenchmarkDetectionPanel } from './BenchmarkDetectionPanel';
+import { BenchmarkStatsPanel } from './BenchmarkStatsPanel';
+import { BenchmarkRocComparePanel } from './BenchmarkRocComparePanel';
 
 /**
  * Score off the main thread via the metrics worker (HD95/ASSD are O(surface²));
@@ -565,6 +567,12 @@ export function BenchmarkPanel() {
           </div>
         )}
       </section>
+
+      {/* Statistical model comparison (corrected t-tests + non-parametric + Bayesian) */}
+      <BenchmarkStatsPanel records={records} />
+
+      {/* AUROC comparison (DeLong) + paired classifier (McNemar) from imported scores */}
+      <BenchmarkRocComparePanel />
 
       {/* Phase 2-3: completeness, subgroups, concordance, case review, privacy */}
       <BenchmarkAnalysisPanel records={records} profileId={profileId} />
