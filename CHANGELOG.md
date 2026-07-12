@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.12.1] — On-premise no-upload guard + benchmarking polish
+
+App behaviour is unchanged from v0.12.0; this cut hardens the privacy guarantee
+and finishes the docs/wiring.
+
 ### Added — On-premise / no-upload invariant guard (benchmarking)
 
 - **`tests/onprem-invariant.test.ts`** — a permanent watchdog that statically
@@ -20,6 +25,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   bundled dependency operating on in-memory buffers; the HTML report is fully
   self-contained; the network/privacy modules are read-only auditors; a
   registered model's `sourceUrl` is stored as metadata and never fetched.
+
+### Changed
+
+- **Model cards** now carry the intended-use + limitations captured at model
+  registration time (Governance → Model card).
+- **README** updated to reflect the full v0.12 benchmarking surface (three tasks,
+  the reference-import formats, the plots, and the CI-enforced no-upload invariant).
 
 ## [0.12.0] — Radiology benchmarking: full roadmap + full source-doc coverage
 
