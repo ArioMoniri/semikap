@@ -42,6 +42,12 @@ describe('DeLong AUROC comparison', () => {
   it('needs both classes', () => {
     expect(() => deLongTest([1, 1, 1], A.slice(0, 3), B.slice(0, 3))).toThrow();
   });
+  it('degenerate all-tied scores do not produce NaN', () => {
+    // Adversarial: model A constant → zero-variance structural components.
+    const r = deLongTest([1, 1, 1, 0, 0, 0, 1, 0], [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], [0.5, 0.5, 0.4, 0.5, 0.6, 0.5, 0.5, 0.5]);
+    expect(Number.isNaN(r.pValue)).toBe(false);
+    expect(Number.isNaN(r.z)).toBe(false);
+  });
 });
 
 describe('McNemar', () => {

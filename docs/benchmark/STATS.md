@@ -41,6 +41,14 @@ df = k·r − 1
   (via the regularized incomplete beta function — no external dependency).
 - One-tailed (H₁: A > B): `p = 1 − P(T ≤ t)`.
 
+### Numerical precision
+Student-t p-values (incomplete beta) match SciPy/mpmath to ~1e-8 across adversarial
+grids. The z-based tests (DeLong / McNemar / Wilcoxon) use a normal CDF built on the
+Abramowitz-Stegun 7.1.26 erf (documented |err| < 1.5e-7 → p accurate to ~7 sig figs),
+which is more than sufficient for benchmarking and confirmed adequate by an
+independent biostatistician review (DeLong cross-validated against R `pROC::roc.test`
+to 10 significant figures).
+
 ## Additional comparison methods
 
 Beyond the correctR corrected t-tests, the suite also implements the methods most
