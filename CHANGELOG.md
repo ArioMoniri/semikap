@@ -6,7 +6,50 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-### Added — Benchmarking doc-completeness pass (engines + UI; unreleased)
+## [0.12.0] — Radiology benchmarking: full roadmap + full source-doc coverage
+
+Ships everything from Phase 1's foundation (v0.11.0) through Phases 2–4 and a
+line-by-line completion pass against the source docs (Benchmarking Plan §4/§5/§6,
+Assess-AI Ingest Spec + Data Dictionary, Report User Guide). Still all local, no
+backend, no upload. Full doc→status map in `docs/benchmark/GAP-ANALYSIS.md`.
+
+### Added — Final source-doc gap closure
+
+- **ONNX validator** now extracts input/output tensor **shapes**, **precision**
+  (elem_type), and the graph's **operator types** (doc §4.1/§4.2) — surfaced in
+  the model registry (e.g. `opset 13 · float32 · [1×1×z×y×x] · 3 ops`).
+- **DICOM reference import** (doc §4.4): **DICOM-SEG** (self-geometric bit-packed
+  BINARY / 8-bit FRACTIONAL frame reconstruction) and **RTSTRUCT** (axial contour
+  rasterization) via dcmjs. The reconstruction/rasterization cores are pure and
+  unit-tested; see caveat below.
+- **Case-level review** (doc §4.6): sortable per-case metric table.
+- **Discordant-case adjudication write-UI** (doc §4.8): status + reason categories, persisted per profile.
+- **Richer model registry** (doc §4.1): source URL, intended use, limitations.
+- **Real privacy/network audit** (doc §4.10): audits the page's actual resource
+  timings for external hosts + upload methods; PHI/de-id scan heuristic.
+- **Failure-mode** capture + failure-rate summary (doc §4.5).
+
+### Verified (final pass)
+
+- `typecheck` + `lint` clean; `npm test` — **301/301** vitest (authored via three
+  fan-out subagent workflows + hand-written cores, watchdog-gated).
+- **Browser smoke, no console errors:** ONNX shape/precision/op badge
+  (`opset 13 · float32 · [1×1×z×y×x] · 3 ops`); DICOM `.dcm` import wiring +
+  graceful error on non-DICOM; case-level review table; failure rate `0% (0/1)`;
+  network audit (`190 requests, 3 external · no external uploads`); richer
+  registry form; plus the prior seg/classification/detection/plot/governance smoke.
+
+### Honest caveat
+
+DICOM-SEG/RTSTRUCT **reconstruction + rasterization cores are unit-tested on
+synthetic data**, and the dcmjs parse path runs in-browser, but they were **not
+round-tripped against real clinical DICOM-SEG/RTSTRUCT files** (none available in
+the build sandbox). RTSTRUCT mapping assumes an axial, axis-aligned grid.
+Multi-site/national concordance (Report User Guide) is intentionally **not**
+built — it requires uploading data to a central registry, which contradicts
+TAMIAS's no-upload design.
+
+### Added — Benchmarking doc-completeness pass (engines + UI)
 
 Closes the gaps between the source docs (Benchmarking Plan §5, Assess-AI, Report
 User Guide) and the implementation. See `docs/benchmark/GAP-ANALYSIS.md` for the
@@ -25,7 +68,7 @@ and **every feature smoke-tested in the browser** (see below).
 - **Comprehensive browser smoke of every feature, no console errors:** segmentation scoring via the metrics worker (Dice 1.000); classification from an injected labels CSV (AUROC/AUPRC 1.000 on separable data + ROC/PR/calibration/confusion); detection from injected box JSON (TP/FP/FN 2/1/1, sensitivity 0.667, FP/image 0.50, mAP 0.667, loc-error 0.71, FROC); NIfTI reference-mask import (synthetic 2×2×2 parsed); Analysis completeness/subgroups/runtime-histogram/forest/privacy; Governance model card + reference-set lock (SHA-256 fingerprint) + benchmark-definition lock; registry register-loaded-model; CSV/JSON/HTML-report exports.
 - **Still deferred (documented in GAP-ANALYSIS.md):** DICOM-SEG + RTSTRUCT reference parsing, ONNX input-shape/precision extraction, and multi-site/national concordance comparison (needs data TAMIAS deliberately never collects).
 
-### Added — Radiology benchmarking Phases 2–4 (engines + UI; unreleased)
+### Added — Radiology benchmarking Phases 2–4 (engines + UI)
 
 Completes the `docs/benchmark/ROADMAP.md` plan on top of the v0.11.0 Phase 1
 foundation. All local, no backend, no upload. **No version bump / release** yet —
