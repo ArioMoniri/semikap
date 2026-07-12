@@ -33,7 +33,11 @@ roadmap, §5 metrics, §9 phased plan) and the ACR **Assess-AI** field schemas
 | UI panels | `src/components/AppShell.tsx` `CollapsibleSection`s | `BenchmarkPanel`, `WorkspacePicker` |
 | State | `src/lib/state/store.ts` (zustand) | profile + benchmark slice |
 
-## Phase 1 — Minimum publishable benchmark (THIS RELEASE)
+> **Status:** Phase 1 shipped in **v0.11.0**. Phases 2–4 implemented as engines +
+> UI and landed under CHANGELOG `[Unreleased]` (no release yet). Remaining larger
+> items: DICOM-SEG/RTSTRUCT reference import and a full dataset-manifest import UI.
+
+## Phase 1 — Minimum publishable benchmark (SHIPPED v0.11.0)
 
 Definition-of-done gate: `npm run typecheck && npm run lint && npm test && npm run build` all green, plus a manual smoke run.
 
@@ -62,18 +66,18 @@ Definition-of-done gate: `npm run typecheck && npm run lint && npm test && npm r
    - pick model(s) from registry, pick dataset + reference, run, side-by-side
      metric table, runtime, export buttons; profile switcher in the shell header.
 
-## Phase 2 — Assess-AI-inspired evaluation layer (follow-up)
+## Phase 2 — Assess-AI-inspired evaluation layer (IMPLEMENTED, unreleased)
 
 DICOM metadata extraction into case manifest, data-completeness dashboard
 (AI result / DICOM / reference present?), concordance module (AI-vs-reference /
 AI-vs-report / model-vs-model agreement), discordant-case drilldown, PDF/DOCX report export.
 
-## Phase 3 — Multi-model & reproducibility (follow-up)
+## Phase 3 — Multi-model & reproducibility (IMPLEMENTED, unreleased)
 
 Cohort builder, subgroup metrics (by scanner/protocol/body part/age/sex/contrast),
 browser/hardware reproducibility capture, offline privacy/network-request report.
 
-## Phase 4 — Registry-grade governance (follow-up)
+## Phase 4 — Registry-grade governance (IMPLEMENTED, unreleased)
 
 Versioned benchmark definitions, model cards, audit trails, reference-set locking,
 optional local-network deployment.
