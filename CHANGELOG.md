@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added — On-premise / no-upload invariant guard (benchmarking)
+
+- **`tests/onprem-invariant.test.ts`** — a permanent watchdog that statically
+  scans every benchmarking source file and fails the build if any introduces a
+  network/egress primitive (`fetch(`, `XMLHttpRequest`, `WebSocket`,
+  `EventSource`, `sendBeacon`, remote `import()`, or an external
+  `<script>/<link>/<img>` in a generated artifact). Keeps TAMIAS's core "patient
+  bytes never leave the device" promise enforceable in CI.
+- Verified by a 5-agent adversarial privacy audit of the entire benchmarking
+  surface (datasets, benchmark core, metrics/plots/registry/workspace,
+  components, worker): **all clean, zero egress paths**. `dcmjs` is a static
+  bundled dependency operating on in-memory buffers; the HTML report is fully
+  self-contained; the network/privacy modules are read-only auditors; a
+  registered model's `sourceUrl` is stored as metadata and never fetched.
+
 ## [0.12.0] — Radiology benchmarking: full roadmap + full source-doc coverage
 
 Ships everything from Phase 1's foundation (v0.11.0) through Phases 2–4 and a

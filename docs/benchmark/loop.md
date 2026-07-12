@@ -11,9 +11,20 @@ SPEC → RED (write failing test) → GREEN (implement) → REFACTOR → WATCHDO
 ```bash
 npm run typecheck   # tsc -b --noEmit
 npm run lint        # eslint . --max-warnings=0
-npm test            # vitest run
+npm test            # vitest run  (includes the on-prem invariant guard)
 npm run build       # tsc -b && vite build   (smoke: the app compiles)
 ```
+
+### On-premise / no-upload invariant (permanent guard)
+
+`tests/onprem-invariant.test.ts` statically scans every benchmarking source
+file and FAILS the build if any of them introduces a network/egress primitive
+(`fetch(`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon`, remote
+`import()`, or an external `<script>/<link>/<img>` in a generated artifact). This
+keeps TAMIAS's core promise — patient imaging bytes never leave the device —
+enforceable in CI rather than a one-time review. Local primitives (File reads,
+OPFS, IndexedDB, localStorage, Blob downloads, Web Workers, crypto.subtle,
+DecompressionStream, performance timings) are explicitly allowed.
 
 A unit may not be marked DONE until the watchdog is green. If a gate fails, fix
 before moving on — do not accumulate red.
