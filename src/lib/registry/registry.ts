@@ -20,6 +20,11 @@ export interface RegistryEntry {
   license: string;
   modality: ModelManifest['modality'];
   addedAt: string;
+  /** Provenance URL for the model (doc §4.1). */
+  sourceUrl?: string;
+  /** Free-text intended use + limitations (doc §4.1, feeds the model card). */
+  intendedUse?: string;
+  limitations?: string;
   /** ONNX structural validation summary at registration time. */
   validation: {
     ok: boolean;
@@ -27,6 +32,11 @@ export interface RegistryEntry {
     opsets: { domain: string; version: number }[];
     inputs: string[];
     outputs: string[];
+    /** First input's declared shape + precision (doc §4.2). */
+    inputShape?: (number | string)[];
+    precision?: string;
+    /** Distinct operator types in the graph. */
+    opTypes?: string[];
     nodeCount?: number;
     errorCount: number;
     warningCount: number;
@@ -71,6 +81,9 @@ export interface RegisterInput {
   manifest: ModelManifest;
   validation: OnnxValidation;
   tags?: string[];
+  sourceUrl?: string;
+  intendedUse?: string;
+  limitations?: string;
 }
 
 /**
@@ -89,12 +102,22 @@ export function registerModel(
     license: input.manifest.license,
     modality: input.manifest.modality,
     addedAt: new Date().toISOString(),
+    ...(input.sourceUrl ? { sourceUrl: input.sourceUrl } : {}),
+    ...(input.intendedUse ? { intendedUse: input.intendedUse } : {}),
+    ...(input.limitations ? { limitations: input.limitations } : {}),
     validation: {
       ok: input.validation.ok,
       ...(input.validation.irVersion !== undefined ? { irVersion: input.validation.irVersion } : {}),
       opsets: input.validation.opsets,
       inputs: input.validation.inputs,
       outputs: input.validation.outputs,
+      ...(input.validation.inputTensors[0]?.shape.length
+        ? { inputShape: input.validation.inputTensors[0]!.shape }
+        : {}),
+      ...(input.validation.inputTensors[0]?.elemType
+        ? { precision: input.validation.inputTensors[0]!.elemTypeName }
+        : {}),
+      ...(input.validation.opTypes.length ? { opTypes: input.validation.opTypes } : {}),
       ...(input.validation.nodeCount !== undefined ? { nodeCount: input.validation.nodeCount } : {}),
       errorCount: input.validation.errors.length,
       warningCount: input.validation.warnings.length,
