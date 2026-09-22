@@ -38,6 +38,7 @@ import { AnnotationPanel } from './AnnotationPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { AboutPanel } from './AboutPanel';
 import { ExamplesPanel } from './ExamplesPanel';
+import { CataloguePanel } from './CataloguePanel';
 import { BenchmarkPanel } from './BenchmarkPanel';
 import { WorkspacePicker } from './WorkspacePicker';
 import { Logo } from './Logo';
@@ -382,6 +383,10 @@ export function AppShell() {
 
           <CollapsibleSection title="Examples" defaultOpen={!volume} trailing={volume ? '' : 'try one'}>
             <ExamplesPanel viewerRef={viewerRef} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Catalogue" defaultOpen={false} trailing="models + data">
+            <CataloguePanel viewerRef={viewerRef} />
           </CollapsibleSection>
 
           <CollapsibleSection title="Model" defaultOpen trailing={model ? 'ready' : 'pick'}>
