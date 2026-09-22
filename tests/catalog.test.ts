@@ -68,6 +68,15 @@ describe('static dataset catalogue', () => {
     expect(d!.access.kind).toBe('idc-s3');
     expect(d!.pageUrl).toBe('https://www.cancerimagingarchive.net/collection/hcc-tace-seg/');
     expect(d!.groundTruth).toContain('liver');
+    const acc = d!.access;
+    if (acc.kind !== 'idc-s3') throw new Error('expected idc-s3');
+    expect(acc.cases).toHaveLength(10);
+    for (const c of acc.cases) {
+      expect(c.ctSeriesUuid).toMatch(/^[0-9a-f-]{36}$/);
+      expect(c.segSeriesUuid).toMatch(/^[0-9a-f-]{36}$/);
+      expect(c.acquisitionNumber).toBeGreaterThan(0);
+    }
+    expect(acc.cases.map((c) => c.caseId)).not.toContain('HCC_001');
   });
 
   it('pairs models with the datasets they were trained on (in-distribution) and HCC-TACE-Seg (external)', () => {

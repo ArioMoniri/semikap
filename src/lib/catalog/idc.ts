@@ -4,6 +4,7 @@
  * lives under `<crdc_series_uuid>/<crdc_instance_uuid>.dcm`.
  */
 
+import dicomParser from 'dicom-parser';
 import type { Fetcher } from './fetch';
 
 export const IDC_BUCKET_URL = 'https://idc-open-data.s3.amazonaws.com';
@@ -63,4 +64,15 @@ export async function listIdcSeriesUrls(
     token = p.nextToken;
   }
   return urls;
+}
+
+/** AcquisitionNumber (0020,0012) of a DICOM object, or null. */
+export function readAcquisitionNumber(bytes: Uint8Array): number | null {
+  try {
+    const ds = dicomParser.parseDicom(bytes, { untilTag: 'x00200013' });
+    const v = ds.string('x00200012');
+    return v === undefined ? null : Number(v);
+  } catch {
+    return null;
+  }
 }

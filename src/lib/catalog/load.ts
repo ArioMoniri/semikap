@@ -84,3 +84,15 @@ export async function fetchIdcSeriesFiles(
   await Promise.all(Array.from({ length: n }, worker));
   return out;
 }
+
+/** Keep only DICOM objects of one AcquisitionNumber (multi-phase series). */
+export function filterByAcquisition<T extends { name: string; bytes: Uint8Array }>(
+  files: T[],
+  acquisition: number | undefined,
+  readAcquisition: (bytes: Uint8Array) => number | null
+): T[] {
+  if (acquisition === undefined) return files;
+  const kept = files.filter((f) => readAcquisition(f.bytes) === acquisition);
+  if (kept.length === 0) throw new Error(`No slices of acquisition ${acquisition} in this series.`);
+  return kept;
+}

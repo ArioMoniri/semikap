@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { loadCatalogModel, fetchIdcSeriesFiles } from '../src/lib/catalog/load';
+import { loadCatalogModel, fetchIdcSeriesFiles, filterByAcquisition } from '../src/lib/catalog/load';
 import { CATALOG_MODELS } from '../src/lib/catalog/catalog';
 import { sha256Hex } from '../src/lib/fs/opfs';
 
@@ -114,5 +114,29 @@ describe('fetchIdcSeriesFiles', () => {
     await expect(
       fetchIdcSeriesFiles('s', { list: async () => [], fetchAsset: vi.fn() })
     ).rejects.toThrow(/no DICOM/);
+  });
+});
+
+describe('filterByAcquisition', () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const files = [
+    { name: 'a.dcm', bytes: enc('1') },
+    { name: 'b.dcm', bytes: enc('2') },
+    { name: 'c.dcm', bytes: enc('2') },
+    { name: 'd.dcm', bytes: enc('x') },
+  ];
+  const read = (b: Uint8Array) => {
+    const t = new TextDecoder().decode(b);
+    return t === 'x' ? null : Number(t);
+  };
+
+  it('keeps only the requested acquisition', () => {
+    expect(filterByAcquisition(files, 2, read).map((f) => f.name)).toEqual(['b.dcm', 'c.dcm']);
+  });
+  it('is a no-op without an acquisition number', () => {
+    expect(filterByAcquisition(files, undefined, read)).toHaveLength(4);
+  });
+  it('throws when nothing matches', () => {
+    expect(() => filterByAcquisition(files, 9, read)).toThrow(/acquisition 9/);
   });
 });

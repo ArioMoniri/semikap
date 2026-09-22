@@ -82,6 +82,12 @@ export interface IdcCase {
   segSeriesUuid: string;
   ctSeriesInstanceUid?: string;
   segSeriesInstanceUid?: string;
+  /**
+   * HCC-TACE-Seg CT series hold 1–3 contrast phases at the same slice
+   * positions; only this acquisition is loaded (the portal-venous-most one
+   * that fully contains the SEG).
+   */
+  acquisitionNumber?: number;
   description?: string;
 }
 
@@ -177,7 +183,116 @@ export const CATALOG_DATASETS: readonly CatalogDataset[] = [
       'advanced imaging segmentation [Data set]. The Cancer Imaging Archive, 2021. ' +
       'doi:10.7937/TCIA.5FNA-0924',
     groundTruth: ['liver', 'tumor'],
-    access: { kind: 'idc-s3', collectionId: 'hcc_tace_seg', cases: [] },
+    access: {
+      kind: 'idc-s3',
+      collectionId: 'hcc_tace_seg',
+      // QC'd subset: GT inside CT, single annotated grid, portal-venous phase.
+      // Skipped: HCC_001 (SEG/CT slice mismatch), 008/010/011 (phases on
+      // different z-grids), 012 (arterial only). IDC series UUIDs change when
+      // IDC revises a series; SeriesInstanceUIDs are kept for re-resolution.
+      cases: [
+      {
+        caseId: 'HCC_002',
+        patientId: 'HCC_002',
+        ctSeriesUuid: '463d9b31-b4b6-4b01-897d-209ef1770324',
+        segSeriesUuid: 'fdd409a9-54d8-481c-bba3-28c3833007bc',
+        ctSeriesInstanceUid: '1.3.6.1.4.1.14519.5.2.1.1706.8374.291108858467809891631011685789',
+        segSeriesInstanceUid: '1.2.276.0.7230010.3.1.3.8323329.737.1600928582.74386',
+        acquisitionNumber: 2,
+        description: 'Recon 2: LIVER 3 PHASE (AP) · acq 2',
+      },
+      {
+        caseId: 'HCC_003',
+        patientId: 'HCC_003',
+        ctSeriesUuid: '0f198f98-6b02-4639-932c-1660791a1891',
+        segSeriesUuid: '0daa5e91-9799-4c1c-bcce-2907ec27a07f',
+        ctSeriesInstanceUid: '1.3.6.1.4.1.14519.5.2.1.1706.8374.281650679207816520863173918688',
+        segSeriesInstanceUid: '1.3.6.1.4.1.14519.5.2.1.1706.8374.106355502486885782622426045632',
+        acquisitionNumber: 2,
+        description: 'Recon 2: LIVER 3 PHASE (AP) · acq 2',
+      },
+      {
+        caseId: 'HCC_004',
+        patientId: 'HCC_004',
+        ctSeriesUuid: 'b009d1ee-15c9-4bad-ac04-201c8b58ac19',
+        segSeriesUuid: '36232fd0-f272-469d-9aac-b7aef5a374ea',
+        ctSeriesInstanceUid: '1.3.6.1.4.1.14519.5.2.1.1706.8374.285388762605622963541285440661',
+        segSeriesInstanceUid: '1.2.276.0.7230010.3.1.3.8323329.773.1600928601.639561',
+        acquisitionNumber: 2,
+        description: 'Recon 3: LIVER 3 PHASE (AP) · acq 2',
+      },
+      {
+        caseId: 'HCC_005',
+        patientId: 'HCC_005',
+        ctSeriesUuid: '9e3e7ce3-fb19-45d9-b278-d12ee5be003d',
+        segSeriesUuid: '21562084-d672-48f3-80e8-7b52944d25b2',
+        ctSeriesInstanceUid: '1.3.6.1.4.1.14519.5.2.1.1706.8374.183855053468714701811489585837',
+        segSeriesInstanceUid: '1.2.276.0.7230010.3.1.3.8323329.791.1600928608.406660',
+        acquisitionNumber: 3,
+        description: 'LIVER 3 PHASE (AP) · acq 3',
+      },
+      {
+        caseId: 'HCC_006',
+        patientId: 'HCC_006',
+        ctSeriesUuid: 'e9c83837-1ad7-4c8a-8087-54b953e1e8ad',
+        segSeriesUuid: 'a10dd44a-b1d5-4036-8c39-3bb1968e3604',
+        ctSeriesInstanceUid: '1.3.6.1.4.1.14519.5.2.1.1706.8374.169644075146766664505907245033',
+        segSeriesInstanceUid: '1.2.276.0.7230010.3.1.3.8323329.809.1600928614.958134',
+        acquisitionNumber: 3,
+        description: 'LIVER 3 PHASE (AP) · acq 3',
+      },
+      {
+        caseId: 'HCC_007',
+        patientId: 'HCC_007',
+        ctSeriesUuid: 'cb1fd5fe-1fbb-47a4-947f-b8ab4b3b8a4e',
+        segSeriesUuid: 'a45a40a1-6bc3-42a0-9704-6f80658709a9',
+        ctSeriesInstanceUid: '1.3.6.1.4.1.14519.5.2.1.1706.8374.146103304273906855574595828011',
+        segSeriesInstanceUid: '1.2.276.0.7230010.3.1.3.8323329.827.1600928625.439839',
+        acquisitionNumber: 3,
+        description: 'Recon 2: LIVER 3 PHASE (AP) · acq 3',
+      },
+      {
+        caseId: 'HCC_009',
+        patientId: 'HCC_009',
+        ctSeriesUuid: '705d51cc-51a9-497d-9558-4ada63b1f9a0',
+        segSeriesUuid: '3fda7848-7291-4c72-9fd9-b0d7c31615ae',
+        ctSeriesInstanceUid: '1.3.6.1.4.1.14519.5.2.1.1706.8374.317807071078652818055139883135',
+        segSeriesInstanceUid: '1.2.276.0.7230010.3.1.3.8323329.863.1600928649.191221',
+        acquisitionNumber: 3,
+        description: 'LIVER 3 PHASE (C/A/P) · acq 3',
+      },
+      {
+        caseId: 'HCC_013',
+        patientId: 'HCC_013',
+        ctSeriesUuid: '65db8ce9-1cdd-4576-aeab-30007213a880',
+        segSeriesUuid: 'a46cf2ec-3f3d-45c2-a431-2fdd5a195797',
+        ctSeriesInstanceUid: '1.3.6.1.4.1.14519.5.2.1.1706.8374.489872120073574349734745881040',
+        segSeriesInstanceUid: '1.2.276.0.7230010.3.1.3.8323329.935.1600928687.569940',
+        acquisitionNumber: 2,
+        description: 'Recon 3: LIVER 3 PHASE (AP) · acq 2',
+      },
+      {
+        caseId: 'HCC_014',
+        patientId: 'HCC_014',
+        ctSeriesUuid: 'c405524b-ac99-471d-a408-8febe47b6bf6',
+        segSeriesUuid: 'e8309777-003d-466c-b08a-effdd00d1fad',
+        ctSeriesInstanceUid: '1.3.6.1.4.1.14519.5.2.1.1706.8374.556779495579839917640350540451',
+        segSeriesInstanceUid: '1.2.276.0.7230010.3.1.3.8323329.953.1600928692.569229',
+        acquisitionNumber: 3,
+        description: 'LIVER 3 PHASE (AP) · acq 3',
+      },
+      {
+        caseId: 'HCC_015',
+        patientId: 'HCC_015',
+        ctSeriesUuid: 'ae1d957e-8130-4138-81ee-527bbc2d4dc5',
+        segSeriesUuid: '6223b771-010a-47c8-b238-9a35083d0051',
+        ctSeriesInstanceUid: '1.3.6.1.4.1.14519.5.2.1.1706.8374.233008122906404934405393444492',
+        segSeriesInstanceUid: '1.2.276.0.7230010.3.1.3.8323329.971.1600928697.454558',
+        acquisitionNumber: 3,
+        description: 'LIVER 3 PHASE (AP) · acq 3',
+      },
+      ],
+    },
     description:
       'Multiphase contrast CT of 105 HCC patients before TACE (MD Anderson) with curated liver, ' +
       'tumour and vessel DICOM-SEG. External test set for every catalogue model — none were ' +

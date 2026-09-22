@@ -12,8 +12,8 @@ import {
   type IdcCase,
 } from '../lib/catalog/catalog';
 import { fetchCatalogAsset, CatalogCorsError } from '../lib/catalog/fetch';
-import { listIdcSeriesUrls } from '../lib/catalog/idc';
-import { loadCatalogModel, fetchIdcSeriesFiles } from '../lib/catalog/load';
+import { listIdcSeriesUrls, readAcquisitionNumber } from '../lib/catalog/idc';
+import { loadCatalogModel, fetchIdcSeriesFiles, filterByAcquisition } from '../lib/catalog/load';
 import { cacheModel, loadCachedModel } from '../lib/fs/opfs';
 import { mapSegFramesToGrid, parseDicomSegGeometry, classifySegment } from '../lib/datasets/seg-to-grid';
 import { useAppStore } from '../lib/state/store';
@@ -120,12 +120,14 @@ export function CataloguePanel({ viewerRef }: Props) {
     setNotice(null);
     try {
       setProgress('Listing CT series on IDC…');
-      const files = await fetchIdcSeriesFiles(theCase.ctSeriesUuid, {
+      const allFiles = await fetchIdcSeriesFiles(theCase.ctSeriesUuid, {
         list: (uuid) => listIdcSeriesUrls(uuid),
         fetchAsset: (url) => fetchCatalogAsset(url),
         concurrency: 8,
         onProgress: (d, t) => setProgress(`CT ${d}/${t} slices`),
       });
+      // Multi-phase series: keep only the annotated acquisition.
+      const files = filterByAcquisition(allFiles, theCase.acquisitionNumber, readAcquisitionNumber);
       setProgress('Building volume…');
       const loaded = await viewerRef.current.loadPrimaryFromFiles(files);
       setVolume({
