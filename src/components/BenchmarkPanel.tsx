@@ -35,6 +35,7 @@ import { readNiftiMask } from '../lib/datasets/nifti-mask';
 import { alignToPrediction } from '../lib/metrics/align';
 import { diffVolume, maxDisagreementSlice, type DiffSlice } from '../lib/metrics/mask-diff';
 import { MaskDiffCanvas } from './MaskDiffCanvas';
+import { canonicalGroupMasks } from '../lib/metrics/label-groups';
 import { readDicomSeg } from '../lib/datasets/dicom-seg-import';
 import { readRtStruct } from '../lib/datasets/rtstruct-import';
 import { asBytes } from '../types';
@@ -295,24 +296,47 @@ export function BenchmarkPanel() {
     }
     setBusy('Scoring against reference…');
     try {
-      const labelSet = new Set<number>([...uniqueLabels(reference.mask), ...uniqueLabels(result.mask)]);
-      const labels = [...labelSet].sort((a, b) => a - b);
       const t0 = performance.now();
-      const metrics = await runScoring({
-        refMask: reference.mask,
-        refGrid: { dims: reference.dims, spacing: reference.spacing },
-        predMask: result.mask,
-        predGrid: { dims: result.dims, spacing: result.spacing },
-        labels,
-        options: { surface },
-      });
+      let metrics: MultiLabelResult;
+      let labels: number[];
+      if (reference.catalog?.labelSpace === 'liver-tumour' && model) {
+        // Catalogue GT: map the model's own labels (e.g. BTCV liver=6, nnU-Net
+        // liver=8 / tumour=9) onto whole liver (1) + tumour (2) and score each.
+        const groups = canonicalGroupMasks(reference.mask, result.mask, model.manifest.output.labels);
+        const perLabel: MultiLabelResult['perLabel'] = [];
+        for (const g of groups) {
+          const r = await runScoring({
+            refMask: g.ref,
+            refGrid: { dims: reference.dims, spacing: reference.spacing },
+            predMask: g.pred,
+            predGrid: { dims: result.dims, spacing: result.spacing },
+            labels: [1],
+            options: { surface },
+          });
+          perLabel.push({ ...r.perLabel[0]!, label: g.id });
+        }
+        labels = groups.map((g) => g.id);
+        const macro = (k: 'dice' | 'iou') => perLabel.reduce((s, m) => s + m[k], 0) / perLabel.length;
+        metrics = { perLabel, macroDice: macro('dice'), macroIou: macro('iou') };
+      } else {
+        const labelSet = new Set<number>([...uniqueLabels(reference.mask), ...uniqueLabels(result.mask)]);
+        labels = [...labelSet].sort((a, b) => a - b);
+        metrics = await runScoring({
+          refMask: reference.mask,
+          refGrid: { dims: reference.dims, spacing: reference.spacing },
+          predMask: result.mask,
+          predGrid: { dims: result.dims, spacing: result.spacing },
+          labels,
+          options: { surface },
+        });
+      }
       const metricMs = performance.now() - t0;
 
       const record: BenchmarkRecord = {
         schema: 'tamias.benchmark.v1',
         id: crypto.randomUUID(),
         profileId: profileId!,
-        datasetName: reference.label,
+        datasetName: reference.catalog?.datasetId ?? reference.label,
         task: 'segmentation',
         model: {
           name: model?.manifest.name ?? 'current-model',
@@ -320,7 +344,7 @@ export function BenchmarkPanel() {
           sha256: model?.hash ?? '',
         },
         case: {
-          caseId: volume?.source.name ?? 'current-case',
+          caseId: reference.catalog?.caseId ?? volume?.source.name ?? 'current-case',
           imageName: volume?.source.name ?? 'current-case',
           referenceName: reference.label,
         },

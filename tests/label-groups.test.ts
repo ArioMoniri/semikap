@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { groupMask, scoreLabelGroups, LIVER_TUMOUR_GROUPS } from '../src/lib/metrics/label-groups';
+import {
+  groupMask,
+  scoreLabelGroups,
+  LIVER_TUMOUR_GROUPS,
+  groupsForModelLabels,
+  scoreLabelGroupsMapped,
+  canonicalGroupMasks,
+} from '../src/lib/metrics/label-groups';
 
 describe('label groups', () => {
   it('groupMask binarises membership', () => {
@@ -21,5 +28,48 @@ describe('label groups', () => {
   it('exposes readable group names', () => {
     expect(LIVER_TUMOUR_GROUPS.map((g) => g.id)).toEqual([1, 2]);
     expect(LIVER_TUMOUR_GROUPS[0]!.name).toMatch(/liver/i);
+  });
+});
+
+
+describe('model-specific label mapping', () => {
+  const btcv = { 0: 'background', 1: 'spleen', 6: 'liver', 7: 'stomach' };
+  const nnunet = { 0: 'background', 7: 'tumsomething', 8: 'liver', 9: 'tumor' };
+
+  it('maps BTCV liver label 6 → whole liver; no tumour group', () => {
+    const g = groupsForModelLabels(btcv);
+    expect(g).toEqual([{ id: 1, name: expect.stringMatching(/liver/), refMembers: [1, 2], predMembers: [6] }]);
+  });
+
+  it('nnU-Net: whole liver = liver ∪ tumour labels; tumour = tumour only (not "tumsomething")', () => {
+    const g = groupsForModelLabels(nnunet);
+    expect(g[0]!.predMembers).toEqual([8, 9]);
+    expect(g[1]!.predMembers).toEqual([9]);
+  });
+
+  it('scores with different ref/pred label spaces', () => {
+    const ref = Uint8Array.from([0, 1, 1, 2]);
+    const pred = Uint8Array.from([0, 6, 6, 6]);
+    const res = scoreLabelGroupsMapped(ref, pred, [4, 1, 1], [1, 1, 1], groupsForModelLabels(btcv), { surface: false });
+    expect(res).toHaveLength(1);
+    expect(res[0]!.dice).toBeCloseTo(1, 9);
+  });
+
+  it('throws when a model has no liver label', () => {
+    expect(() => groupsForModelLabels({ 0: 'background', 1: 'spleen' })).toThrow(/liver/);
+  });
+});
+
+
+describe('canonicalGroupMasks (in-app scoring vs catalogue GT)', () => {
+  it('returns binary ref/pred per group in the shared label spaces', () => {
+    const ref = Uint8Array.from([0, 1, 2, 2]);
+    const pred = Uint8Array.from([0, 8, 9, 8]);
+    const g = canonicalGroupMasks(ref, pred, { 0: 'background', 8: 'liver', 9: 'tumor' });
+    expect(g.map((x) => x.id)).toEqual([1, 2]);
+    expect(Array.from(g[0]!.ref)).toEqual([0, 1, 1, 1]);
+    expect(Array.from(g[0]!.pred)).toEqual([0, 1, 1, 1]);
+    expect(Array.from(g[1]!.ref)).toEqual([0, 0, 1, 1]);
+    expect(Array.from(g[1]!.pred)).toEqual([0, 0, 1, 0]);
   });
 });

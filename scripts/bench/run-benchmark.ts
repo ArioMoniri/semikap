@@ -26,7 +26,7 @@ import { resampleNearest } from '../../src/lib/inference/postprocess';
 import { axisCodes, planReorientation, invertReorientation, isIdentityPlan } from '../../src/lib/inference/orient';
 import { niftiDataToVolume } from '../../src/lib/datasets/nifti-volume';
 import { niftiDataToMask, parseNiftiHeader } from '../../src/lib/datasets/nifti-mask';
-import { scoreLabelGroups, LIVER_TUMOUR_GROUPS } from '../../src/lib/metrics/label-groups';
+import { scoreLabelGroupsMapped, groupsForModelLabels } from '../../src/lib/metrics/label-groups';
 import type { BenchmarkRecord } from '../../src/lib/benchmark/types';
 import type { ModelManifest } from '../../src/types';
 
@@ -157,11 +157,11 @@ for (const id of models) {
       const tumour = niftiDataToMask(tumourRaw, parseNiftiHeader(tumourRaw));
       const ref = new Uint8Array(liver.length);
       for (let i = 0; i < ref.length; i++) ref[i] = tumour[i] ? 2 : liver[i] ? 1 : 0;
-      // Models without a tumour class: tumour group is scored only if the model has label 2.
-      const hasTumour = Object.values(manifest.output.labels).some((l) => /tum|lesion|mass/i.test(l));
-      const groups = hasTumour ? LIVER_TUMOUR_GROUPS : LIVER_TUMOUR_GROUPS.slice(0, 1);
+      // Map the model's own label space (e.g. BTCV liver=6, nnU-Net liver=8/tumour=9) onto
+      // whole liver (1) and tumour (2); the tumour group only exists for models with a tumour class.
+      const groups = groupsForModelLabels(manifest.output.labels);
       const tm = performance.now();
-      const seg = scoreLabelGroups(ref, pred, vol.dims, vol.spacing, groups);
+      const seg = scoreLabelGroupsMapped(ref, pred, vol.dims, vol.spacing, groups);
       const metricMs = performance.now() - tm;
 
       const rec: BenchmarkRecord = {

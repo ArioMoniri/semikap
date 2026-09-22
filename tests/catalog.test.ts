@@ -85,6 +85,13 @@ describe('static dataset catalogue', () => {
     expect(pairs.map((p) => p.id)).toContain('hcc-tace-seg');
     const hcc = CATALOG_DATASETS.find((d) => d.id === 'hcc-tace-seg')!;
     expect(modelsForDataset(hcc)).toHaveLength(10);
+    // Zenodo 21037952 weights are the BTCV 13-organ checkpoints; nnU-Net was trained on LiTS (= MSD Task03).
+    expect(unet.trainedOn).toEqual(['btcv']);
+    const msd = CATALOG_DATASETS.find((d) => d.id === 'msd-task03-liver')!;
+    expect(modelsForDataset(msd).map((m) => m.id)).toEqual(['nnunet_liver_lits']);
+    const btcv = CATALOG_DATASETS.find((d) => d.id === 'btcv')!;
+    expect(btcv.doi).toBe('10.5281/zenodo.1169361');
+    expect(modelsForDataset(btcv)).toHaveLength(9);
   });
 });
 

@@ -1,4 +1,5 @@
 import { Niivue, NVImage } from '@niivue/niivue';
+import { affineRows, type HeaderLike } from './affine';
 import type { Bytes, VolumeMetadata } from '../../types';
 import { writeNifti1Uint8 } from '../export/nifti';
 
@@ -44,6 +45,7 @@ interface NVImageHeader {
   srow_x?: number[];
   srow_y?: number[];
   srow_z?: number[];
+  affine?: number[][];
 }
 
 export interface ProbeReading {
@@ -1673,17 +1675,8 @@ function extractVolume(image: NVImage): LoadedVolume {
   const origin: [number, number, number] = hdr
     ? [hdr.qoffset_x ?? 0, hdr.qoffset_y ?? 0, hdr.qoffset_z ?? 0]
     : [0, 0, 0];
-  // Capture the source NIfTI's sform rows so the AI mask can be written with
-  // the same voxel→world affine and overlays correctly in NiiVue's MPR + 3D.
-  const toSrow = (
-    arr: number[] | undefined
-  ): [number, number, number, number] | undefined =>
-    arr && arr.length >= 4
-      ? [arr[0]!, arr[1]!, arr[2]!, arr[3]!]
-      : undefined;
-  const srowX = toSrow(hdr?.srow_x);
-  const srowY = toSrow(hdr?.srow_y);
-  const srowZ = toSrow(hdr?.srow_z);
+  // Voxel→world affine so the AI mask / GT overlay align in MPR + 3D.
+  const { srowX, srowY, srowZ } = affineRows(hdr as HeaderLike | undefined);
   const img = image.img;
   if (!img) throw new Error('NiiVue produced no voxel data for this volume.');
   const dtype = inferDtype(img);

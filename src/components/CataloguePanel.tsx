@@ -162,6 +162,7 @@ export function CataloguePanel({ viewerRef }: Props) {
         mask: mapped.mask,
         dims: mapped.dims,
         spacing: meta.spacing,
+        catalog: { datasetId: dataset.id, caseId: theCase.caseId, labelSpace: 'liver-tumour' },
       });
       viewerRef.current.addMaskOverlay('ground truth', mapped.mask, mapped.dims, meta.spacing, undefined, 0.35, {
         srowX: meta.srowX,

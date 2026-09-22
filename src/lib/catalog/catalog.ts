@@ -131,7 +131,7 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
   ...LMS3D_ARCHS.map(
     ({ arch, name, kind }): CatalogModel => ({
       id: `lms3d_${arch}`,
-      name: `LightningMedSeg3D ${name} (liver)`,
+      name: `LightningMedSeg3D ${name} (BTCV 13-organ)`,
       family: 'lightningmedseg3d',
       arch,
       kind,
@@ -142,7 +142,8 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
       license: 'See Zenodo record (weights) · AGPL-3.0 (code)',
       citation: LMS3D_CITATION,
       codeUrl: 'https://github.com/Removirt/LightningMedSeg3D',
-      trainedOn: ['msd-task03-liver'],
+      // The Zenodo checkpoints are the BTCV 13-organ models (liver = label 6, no tumour class).
+      trainedOn: ['btcv'],
       ...assetUrls(`lms3d_${arch}`),
       status: 'unpublished',
     })
@@ -299,6 +300,27 @@ export const CATALOG_DATASETS: readonly CatalogDataset[] = [
       'trained on it. Pulled directly from TCIA via the NCI Imaging Data Commons public bucket.',
   },
   {
+    id: 'btcv',
+    name: 'BTCV multi-organ abdominal CT',
+    modality: 'CT',
+    subjects: 90,
+    license: 'CC-BY-4.0',
+    doi: '10.5281/zenodo.1169361',
+    pageUrl: 'https://zenodo.org/records/1169361',
+    citation:
+      'Gibson E, Giganti F, Hu Y, et al. Multi-organ Abdominal CT Reference Standard Segmentations (1.0). ' +
+      'Zenodo, 2018. doi:10.5281/zenodo.1169361',
+    groundTruth: ['liver', 'spleen', 'kidney', 'pancreas', 'stomach', 'gallbladder', 'esophagus', 'duodenum'],
+    access: {
+      kind: 'download',
+      url: 'https://zenodo.org/records/1169361',
+      note: 'Training distribution of the LightningMedSeg3D checkpoints (in-distribution reference for them).',
+    },
+    description:
+      'Multi-organ reference segmentations (TCIA Pancreas-CT + BTCV). In-distribution for the nine ' +
+      'LightningMedSeg3D checkpoints; external for nnU-Net.',
+  },
+  {
     id: 'msd-task03-liver',
     name: 'MSD Task03 Liver (LiTS)',
     modality: 'CT',
@@ -314,11 +336,11 @@ export const CATALOG_DATASETS: readonly CatalogDataset[] = [
       kind: 'download',
       url: 'https://msd-for-monai.s3-us-west-2.amazonaws.com/Task03_Liver.tar',
       sizeBytes: 28_925_891_584,
-      note: 'Training distribution of every catalogue model (in-distribution reference). 29 GB tar — extract a few cases locally and load the NIfTI files.',
+      note: 'Training distribution of the nnU-Net model (LiTS); external for the BTCV-trained LightningMedSeg3D nets. 29 GB tar — extract a few cases locally and load the NIfTI files.',
     },
     description:
-      'Portal-venous CT with liver + tumour labels. The catalogue models were trained on this ' +
-      'data, so scores here are an in-distribution reference, not a generalisation estimate.',
+      'Portal-venous CT with liver + tumour labels (LiTS). In-distribution for the nnU-Net model, ' +
+      'external for the BTCV-trained LightningMedSeg3D nets.',
   },
 ];
 

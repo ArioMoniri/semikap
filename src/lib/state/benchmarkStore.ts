@@ -25,6 +25,12 @@ export interface ReferenceSnapshot {
   mask: Uint8Array;
   dims: [number, number, number];
   spacing: [number, number, number];
+  /**
+   * Catalogue ground truth: canonical liver/tumour label space (1 liver,
+   * 2 tumour) + provenance, so predictions are mapped from the model's own
+   * labels and records are grouped per dataset/case.
+   */
+  catalog?: { datasetId: string; caseId: string; labelSpace: 'liver-tumour' };
 }
 
 interface BenchmarkState {
