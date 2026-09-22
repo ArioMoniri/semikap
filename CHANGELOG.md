@@ -6,6 +6,52 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.16.0] — Model & dataset catalogue, multi-model statistics, orientation-correct inference
+
+TAMIAS becomes a model benchmarking platform for published models: pick models and
+public datasets from a catalogue, run them all on the same cases, and compare them with
+the right statistics — per dataset and across datasets.
+
+### Added
+
+- **Model & Dataset Catalogue** (sidebar → Catalogue). Ten published liver-CT models from
+  Zenodo — the nine LightningMedSeg3D nets (doi:10.5281/zenodo.21037952; BTCV 13-organ) and
+  nnU-Net v2 liver + lesions (doi:10.5281/zenodo.11582728; LiTS) — exported to ONNX by
+  `.github/workflows/zenodo-models.yml` with a PyTorch-vs-ONNX parity check and published
+  as the `zenodo-models-v1` release. Load any model with one click (sha256-verified,
+  OPFS-cached); the desktop app downloads through a native command (`catalog_fetch`,
+  host allowlist enforced on every redirect).
+- **HCC-TACE-Seg straight from TCIA** (doi:10.7937/TCIA.5FNA-0924) via the NCI Imaging
+  Data Commons public bucket: 10 QC'd cases, CT + expert DICOM-SEG ground truth, the
+  annotated contrast phase selected automatically, GT placed on the CT grid by DICOM
+  geometry and set as the Benchmark reference. Plus MSD Task03 Liver and BTCV entries.
+- **Multi-model & cross-dataset comparison** (Benchmark → comparison panel + full-width
+  report): Friedman test with mean ranks and Nemenyi critical difference, Holm-corrected
+  pairwise Wilcoxon heatmap, per-case strip/box plots, and per-model dataset shift
+  (Mann-Whitney U). Import `tamias.benchmark.v1` NDJSON/JSON records.
+- **Headless benchmark runner** (`scripts/bench/run-benchmark.ts`) using TAMIAS's own
+  preprocessing, sliding-window inference and scoring (onnxruntime-node backend), and a
+  CI workflow (`benchmark.yml`) that runs every catalogue model on every catalogue dataset.
+- `zscore_volume` normalisation (nnU-Net ZScoreNormalization).
+- Label-group scoring: each model's own label space mapped to whole liver (liver ∪
+  tumour) and tumour.
+
+### Fixed
+
+- **`manifest.orientation` was ignored** — volumes were fed in file voxel order. Inference
+  now reorients to the model's training orientation (nibabel-exact axis codes) and maps
+  the mask back.
+- DICOM series loaded through NiiVue exposed no voxel→world affine (sform only); the
+  viewer now falls back to NiiVue's 4×4 affine.
+- DICOM-SEG import could place sparse SEG frames on the wrong CT slices; the catalogue
+  uses a geometry-aware mapper (ImagePositionPatient/Orientation), cross-checked against
+  highdicom (Dice 1.000 on all HCC cases).
+
+### Performance
+
+- HD95/ASSD use an exact anisotropic Euclidean distance transform (O(N)) instead of an
+  O(|A|·|B|) brute-force search — full-resolution CT scores in about a second.
+
 ## [0.15.0] — Batch benchmarking, Excel-results import & mask-difference visuals
 
 This release makes model comparison practical at scale and removes friction from
