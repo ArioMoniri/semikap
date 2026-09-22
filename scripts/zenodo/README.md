@@ -36,11 +36,12 @@ Load a model in TAMIAS with its `.onnx` and `.json` together.
   - It wraps each network so that it matches the TAMIAS contract. The input is float32 `[1,1,PZ,PY,PX]` in stored voxel order. The output is logits `[1,C,PZ,PY,PX]`. The export uses opset 17, fixed shapes and fp32.
     - **LightningMedSeg3D:** the graph permutes the axes `[z,y,x]→[x,y,z]` (MONAI) and back. The model's `ScaleIntensityRange(-175..250 → 0..1, clip)` is exactly TAMIAS `window` normalisation with level 37.5 and width 425, so the manifest carries it and it is not baked in. Spacing is 1.5×1.5×2.0 mm and the patch is 96³.
     - **nnU-Net:** Dataset006_Liver is `3d_fullres`. Its plans give patch 128³, spacing z,y,x = 1.0, 0.7676, 0.7676 mm, `transpose_forward=[0,1,2]` and **`ZScoreNormalization`**.
-      - ZScoreNormalization is applied per volume: `(x - mean(volume)) / std(volume)`. TAMIAS' `NormalizationSpec` cannot express that.
-      - The manifest therefore uses a fixed `zscore` with mean -500 and std 495. These are the median whole-volume statistics of 8 LiTS/MSD-Task03 CTs. Their per-volume means range from -408 to -610 HU and their standard deviations from 480 to 520 HU.
-      - The index records `exactNormalization: {type: zscore_per_volume}` so TAMIAS can apply exact per-volume normalization later.
+      - ZScoreNormalization is applied per volume: `(x - mean(volume)) / std(volume)`.
+      - The manifest therefore uses TAMIAS `{"type":"zscore_volume"}`, and the index sets `exactNormalization: true`.
+      - If `zscore_volume` is unavailable, you can use a fixed `zscore` with mean -500 and std 495 instead. These are the median whole-volume statistics of 8 LiTS/MSD-Task03 CTs.
       - If a future plan uses `CTNormalization`, the script bakes the clip at [p0.5, p99.5] followed by a z-score into the graph instead.
       - The script exports fold `all` if it exists, otherwise fold 0. Folds 0 to 4 ship, and the ensemble is not exported.
+      - `dataset.json` declares **10 labels**: 0 background, 1 spleen, 2 kidneys, 3 pancreas, 4 stomach, 5 heart, 6 duodenum, 7 `tumsomething`, 8 liver, 9 tumor. The names are copied verbatim, including `tumsomething`. Liver is label 8 and the liver lesion is label 9.
   - It runs a parity check. PyTorch runs each model's own reference preprocessing (MONAI-style `[x,y,z]` for LightningMedSeg3D, nnU-Net's `CTNormalization` class for nnU-Net). ONNX Runtime runs the TAMIAS-side preprocessing. Both run on a random-HU patch and a synthetic CT phantom. The check reports the largest absolute difference in logits and the fraction of voxels where the argmax agrees.
 
 ## Orientation

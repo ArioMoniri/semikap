@@ -82,7 +82,9 @@ BTCV14_COLORS = {
 # (liver_1/28/32/41/43/53/75/77: means -408..-610 HU, stds 480..520 HU).
 LITS_VOLUME_ZSCORE = {"mean": -500.0, "std": 495.0}
 
-LIVER_COLORS = {"liver": "#b45309", "tumor": "#dc2626", "tumour": "#dc2626", "lesion": "#dc2626"}
+LIVER_COLORS = {"liver": "#b45309", "tumor": "#dc2626", "tumour": "#dc2626", "lesion": "#dc2626",
+                "spleen": "#8b5cf6", "kidneys": "#f59e0b", "kidney": "#f59e0b", "pancreas": "#facc15",
+                "stomach": "#f97316", "heart": "#e11d48", "duodenum": "#14b8a6"}
 
 LMS3D_ARCHS = {
     # file stem -> (factory architecture name, display name, metadata.json key)
@@ -683,17 +685,18 @@ def run_nnunet(args) -> int:
             if bake_ct:
                 man_norm = {"type": "none"}
                 norm_note = f"baked CTNormalization: clip[{lo}, {hi}] then (x-{mean})/{std}"
-                exact_norm = {"type": "none", "baked": "CTNormalization"}
+                exact_norm = True
             else:
-                zs = LITS_VOLUME_ZSCORE
-                man_norm = {"type": "zscore", "mean": zs["mean"], "std": zs["std"]}
                 use_mask = bool(getattr(cm, "use_mask_for_norm", [False])[0])
+                base["use_mask_for_norm"] = use_mask
+                # TAMIAS zscore_volume: per-volume mean/std over the whole resampled volume
+                # (== nnU-Net ZScoreNormalization with use_mask_for_norm=False).
+                man_norm = {"type": "zscore_volume"}
                 norm_note = (f"plans use ZScoreNormalization (use_mask_for_norm={use_mask}): per-volume "
-                             f"(x - mean(volume)) / std(volume), not expressible as a fixed NormalizationSpec. "
-                             f"Manifest uses a fixed zscore mean={zs['mean']} std={zs['std']} = median whole-volume "
-                             f"stats of 8 LiTS/MSD-Task03 CTs (per-volume means -408..-610, stds 480..520). "
-                             f"Exact behaviour needs per-volume z-scoring (see exactNormalization).")
-                exact_norm = {"type": "zscore_per_volume", "use_mask_for_norm": use_mask}
+                             f"(x - mean(volume)) / max(std(volume), 1e-8) -> manifest zscore_volume. "
+                             f"Fallback fixed zscore if needed: mean={LITS_VOLUME_ZSCORE['mean']} "
+                             f"std={LITS_VOLUME_ZSCORE['std']} (median whole-volume stats of 8 LiTS CTs).")
+                exact_norm = not use_mask  # with use_mask_for_norm the stats come from mask>0 only
             perm = list(pm.transpose_forward)
             patch_net = list(cm.patch_size)
             spacing_net = list(cm.spacing)
@@ -725,8 +728,11 @@ def run_nnunet(args) -> int:
                 if bake_ct:  # reference = nnU-Net's own CTNormalization; ORT gets raw HU
                     ref_in = normer.run(hu.copy().astype(np.float32), None).astype(np.float32)
                     ort_in = hu
-                else:  # graph has no normalization: both sides get TAMIAS' fixed zscore
-                    ref_in = ((hu - LITS_VOLUME_ZSCORE["mean"]) / LITS_VOLUME_ZSCORE["std"]).astype(np.float32)
+                else:  # graph has no normalization: both sides get nnU-Net's per-volume z-score
+                    from nnunetv2.preprocessing.normalization.default_normalization_schemes import ZScoreNormalization
+
+                    zn = ZScoreNormalization(use_mask_for_norm=False, intensityproperties=props)
+                    ref_in = zn.run(hu.copy().astype(np.float32), None).astype(np.float32)
                     ort_in = ref_in
                 ref_in = np.ascontiguousarray(ref_in.transpose(perm))
                 with torch.no_grad():
@@ -740,7 +746,7 @@ def run_nnunet(args) -> int:
 
             onnx_sha = sha256(onnx_path)
             manifest = {
-                "name": f"nnU-Net v2 Liver+Lesion (LiTS, {config_name}, fold {fold})",
+                "name": f"nnU-Net v2 Liver+Lesion (BAMF, LiTS, {config_name}, fold {fold}, {C}-class)",
                 "version": "1.0.0",
                 "license": "CC-BY-4.0",
                 "modality": "CT",
@@ -818,6 +824,7 @@ def run_index(args) -> int:
             "normalization": r.get("normalization"),
             "normalizationNote": r.get("normalization_note"),
             "exactNormalization": r.get("exact_normalization"),
+            "useMaskForNorm": r.get("use_mask_for_norm"),
             "orientationNote": r.get("orientation"),
             "baked": r.get("baked"),
             "hyperparamsFrom": r.get("hyperparams_from"),
