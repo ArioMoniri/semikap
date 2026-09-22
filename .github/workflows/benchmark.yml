@@ -1,0 +1,110 @@
+name: Catalogue benchmark
+
+# Runs every catalogue model (Zenodo → ONNX release) on the catalogue datasets
+# with TAMIAS's own inference + scoring pipeline (scripts/bench/run-benchmark.ts)
+# and publishes tamias.benchmark.v1 records + predicted masks as release assets.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/gifted-einstein-o3jzg1]
+    paths:
+      - .github/workflows/benchmark.yml
+      - scripts/bench/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: catalogue-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MODEL_RELEASE: zenodo-models-v1
+  RESULTS_RELEASE: benchmark-results-v1
+
+jobs:
+  data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Install data tooling
+        run: pip install idc-index s5cmd pydicom SimpleITK nibabel numpy pandas
+      - name: HCC-TACE-Seg (TCIA via IDC public bucket)
+        run: python scripts/bench/data/fetch_hcc_tace_seg.py --n 10 --out data/hcc_tace_seg --work raw/hcc
+      - name: MSD Task03 Liver (pinned byte ranges)
+        run: python scripts/bench/data/fetch_msd_cases.py --out data/msd_task03_liver
+      - name: Case list + checksums
+        run: |
+          cp scripts/bench/data/cases.csv data/cases.csv
+          (cd data && find . -name '*.nii.gz' | sort | xargs sha256sum) > data/SHA256SUMS
+          du -sh data
+      - uses: actions/upload-artifact@v4
+        with: { name: bench-data, path: data, retention-days: 3, compression-level: 0 }
+
+  bench:
+    needs: data
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [lms3d_unet, lms3d_vnet, lms3d_resunet, lms3d_attention_unet, lms3d_unetpp, lms3d_unetr, lms3d_swin_unetr, lms3d_medformer, lms3d_segformer, nnunet_liver_lits]
+        dataset: [hcc_tace_seg, msd_task03_liver]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: onnxruntime-node (runner backend)
+        run: mkdir -p /tmp/ortnode && cd /tmp/ortnode && npm init -y >/dev/null && npm i onnxruntime-node@1.20.1
+      - uses: actions/download-artifact@v4
+        with: { name: bench-data, path: data }
+      - name: Model from release
+        run: |
+          mkdir -p models
+          for ext in onnx json; do
+            curl -fsSL -o models/${{ matrix.model }}.$ext https://github.com/${{ github.repository }}/releases/download/$MODEL_RELEASE/${{ matrix.model }}.$ext
+          done
+      - name: Select dataset cases
+        run: |
+          python3 - <<'PY'
+          import csv
+          rows=list(csv.DictReader(open('data/cases.csv')))
+          keep=[r for r in rows if r['source']=='${{ matrix.dataset }}']
+          w=csv.DictWriter(open('data/cases.csv','w',newline=''),fieldnames=rows[0].keys()); w.writeheader(); w.writerows(keep)
+          print(len(keep),'cases')
+          PY
+      - name: Run TAMIAS benchmark
+        env: { ORT_NODE: /tmp/ortnode/node_modules/onnxruntime-node }
+        run: >
+          npx vite-node --config scripts/bench/vite.config.ts scripts/bench/run-benchmark.ts --
+          --data data --models models --out out --threads 4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: 'res-${{ matrix.model }}-${{ matrix.dataset }}', path: out, retention-days: 7 }
+
+  publish:
+    needs: bench
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { pattern: 'res-*', path: res }
+      - name: Merge
+        run: |
+          mkdir -p pub/masks
+          cat res/*/records.ndjson > pub/records.ndjson || true
+          cat res/*/run.log > pub/run.log || true
+          find res -path '*/masks/*.nii.gz' -exec cp {} pub/masks/ \;
+          (cd pub && zip -qr masks.zip masks && rm -rf masks)
+          wc -l pub/records.ndjson; grep -c FAIL pub/run.log || true; ls -la pub
+      - name: Publish ${{ env.RESULTS_RELEASE }}
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          gh release view $RESULTS_RELEASE -R ${{ github.repository }} >/dev/null 2>&1 || \
+            gh release create $RESULTS_RELEASE -R ${{ github.repository }} --prerelease --target ${{ github.sha }} \
+              --title "Catalogue benchmark results" --notes "tamias.benchmark.v1 records + predicted masks from .github/workflows/benchmark.yml (commit ${{ github.sha }})."
+          gh release upload $RESULTS_RELEASE pub/* -R ${{ github.repository }} --clobber
