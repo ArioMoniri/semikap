@@ -139,7 +139,7 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
       zenodoUrl: 'https://zenodo.org/records/21037952',
       doi: '10.5281/zenodo.21037952',
       sourceFile: `${arch}.pth`,
-      license: 'See Zenodo record (weights) · AGPL-3.0 (code)',
+      license: 'CC-BY-4.0 (weights) · AGPL-3.0 (code)',
       citation: LMS3D_CITATION,
       codeUrl: 'https://github.com/Removirt/LightningMedSeg3D',
       // The Zenodo checkpoints are the BTCV 13-organ models (liver = label 6, no tumour class).
@@ -158,7 +158,7 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
     zenodoUrl: 'https://zenodo.org/records/11582728',
     doi: '10.5281/zenodo.11582728',
     sourceFile: 'Dataset006_Liver.zip',
-    license: 'See Zenodo record',
+    license: 'CC-BY-4.0 (weights) · Apache-2.0 (code)',
     citation:
       'Murugesan GK, Van Oss J, McCrumb D. Pretrained model for 3D semantic image segmentation of ' +
       'the liver and liver lesions from CT scan (nnU-Net v2, LiTS 2017). Zenodo, 2024. ' +
