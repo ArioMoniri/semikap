@@ -11,6 +11,7 @@
 // downloads it, and offers the user a one-click install. See README → Auto
 // updates.
 
+mod catalog;
 mod totalseg;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -25,6 +26,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             about,
+            catalog::catalog_fetch,
             totalseg::totalseg_detect,
             totalseg::totalseg_run,
             totalseg::totalseg_read_mask,

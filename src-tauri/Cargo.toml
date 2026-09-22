@@ -29,6 +29,12 @@ tauri-plugin-shell = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Catalogue downloader (`catalog_fetch`): GitHub release assets send no CORS
+# headers, so the WebView can't fetch them — Rust downloads instead. Same
+# rustls + ring stack the updater plugin already compiles (no aws-lc/cmake).
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+url = "2"
 
 [features]
 default = ["custom-protocol"]
