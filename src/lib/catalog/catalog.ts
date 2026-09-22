@@ -23,6 +23,13 @@
 export const MODEL_RELEASE_TAG = 'zenodo-models-v1';
 export const MODEL_RELEASE_BASE = `https://github.com/ArioMoniri/semikap/releases/download/${MODEL_RELEASE_TAG}`;
 export const MODEL_INDEX_URL = `${MODEL_RELEASE_BASE}/zenodo-models-index.json`;
+/**
+ * CORS-friendly Hugging Face mirror, populated by the export workflow when the
+ * repo has an HF_TOKEN secret. Tried first (browser builds can't read GitHub
+ * release assets); the GitHub release index is the fallback.
+ */
+export const HF_MIRROR_BASE = 'https://huggingface.co/Aralario/tamias-zenodo-liver-models/resolve/main';
+export const MODEL_INDEX_URLS = [`${HF_MIRROR_BASE}/zenodo-models-index.json`, MODEL_INDEX_URL];
 
 export type ModelStatus = 'ok' | 'failed' | 'unpublished';
 
@@ -45,6 +52,9 @@ export interface CatalogModel {
   trainedOn: string[];
   onnxUrl: string;
   manifestUrl: string;
+  /** GitHub-release URLs kept as a fallback when a CORS mirror is preferred. */
+  fallbackOnnxUrl?: string;
+  fallbackManifestUrl?: string;
   /** Filled from the release index. */
   sha256?: string;
   bytes?: number;
@@ -228,6 +238,15 @@ export interface ModelIndexEntry {
 export interface ModelIndex {
   release: string;
   models: ModelIndexEntry[];
+  /** CORS-friendly mirror bases (Hugging Face only), preferred over the release. */
+  mirrors: string[];
+}
+
+const MIRROR_RE =
+  /^https:\/\/huggingface\.co\/[A-Za-z0-9][A-Za-z0-9._-]*\/tamias-zenodo-liver-models\/resolve\/[A-Za-z0-9._-]+$/;
+
+export function isValidMirror(base: unknown): base is string {
+  return typeof base === 'string' && MIRROR_RE.test(base);
 }
 
 function isObj(x: unknown): x is Record<string, unknown> {
@@ -274,7 +293,8 @@ export function parseModelIndex(raw: unknown): ModelIndex {
       license: typeof m.license === 'string' ? m.license : undefined,
     };
   });
-  return { release: typeof raw.release === 'string' ? raw.release : MODEL_RELEASE_TAG, models };
+  const mirrors = Array.isArray(raw.mirrors) ? raw.mirrors.filter(isValidMirror) : [];
+  return { release: typeof raw.release === 'string' ? raw.release : MODEL_RELEASE_TAG, models, mirrors };
 }
 
 /**
@@ -287,8 +307,18 @@ export function mergeModelIndex(models: readonly CatalogModel[], index: ModelInd
   return models.map((m) => {
     const e = byId.get(m.id);
     if (!e) return { ...m, status: 'unpublished' as const };
+    const mirror = index.mirrors[0];
+    const urls = mirror
+      ? {
+          onnxUrl: `${mirror}/${m.id}.onnx`,
+          manifestUrl: `${mirror}/${m.id}.json`,
+          fallbackOnnxUrl: m.onnxUrl,
+          fallbackManifestUrl: m.manifestUrl,
+        }
+      : {};
     return {
       ...m,
+      ...urls,
       sha256: e.sha256 ?? m.sha256,
       bytes: e.bytes ?? m.bytes,
       labels: e.labels ?? m.labels,

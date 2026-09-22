@@ -12,8 +12,14 @@
 use tauri::ipc::Response;
 use url::Url;
 
-const EXACT_HOSTS: &[&str] = &["github.com", "zenodo.org", "idc-open-data.s3.amazonaws.com"];
-const SUFFIX_HOSTS: &[&str] = &[".githubusercontent.com"];
+const EXACT_HOSTS: &[&str] = &[
+    "github.com",
+    "zenodo.org",
+    "idc-open-data.s3.amazonaws.com",
+    "huggingface.co",
+];
+// HF serves LFS/xet blobs from CDN subdomains after a redirect.
+const SUFFIX_HOSTS: &[&str] = &[".githubusercontent.com", ".huggingface.co", ".hf.co"];
 /// Largest single catalogue asset we accept (UNETR ONNX is ~370 MB).
 const MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 

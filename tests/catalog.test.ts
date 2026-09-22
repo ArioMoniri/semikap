@@ -135,4 +135,25 @@ describe('parseModelIndex', () => {
     expect(merged.find((m) => m.id === 'lms3d_vnet')!.status).toBe('unpublished');
     expect(merged).toHaveLength(CATALOG_MODELS.length);
   });
+
+  it('prefers a Hugging Face mirror (CORS-friendly) and keeps the GitHub release as fallback', () => {
+    const base = 'https://huggingface.co/Aralario/tamias-zenodo-liver-models/resolve/main';
+    const idx = parseModelIndex({ ...good, mirrors: [base] });
+    const unet = mergeModelIndex(CATALOG_MODELS, idx).find((m) => m.id === 'lms3d_unet')!;
+    expect(unet.onnxUrl).toBe(`${base}/lms3d_unet.onnx`);
+    expect(unet.manifestUrl).toBe(`${base}/lms3d_unet.json`);
+    expect(unet.fallbackOnnxUrl).toBe(`${MODEL_RELEASE_BASE}/lms3d_unet.onnx`);
+  });
+
+  it('ignores mirrors that are not huggingface.co tamias model repos', () => {
+    for (const bad of [
+      'https://evil.example/tamias-zenodo-liver-models/resolve/main',
+      'http://huggingface.co/a/tamias-zenodo-liver-models/resolve/main',
+      'https://huggingface.co/a/other-repo/resolve/main',
+      'https://huggingface.co.evil.io/a/tamias-zenodo-liver-models/resolve/main',
+    ]) {
+      const idx = parseModelIndex({ ...good, mirrors: [bad] });
+      expect(idx.mirrors).toEqual([]);
+    }
+  });
 });

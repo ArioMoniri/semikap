@@ -16,8 +16,9 @@ import type { Bytes } from '../../types';
 import { asBytes } from '../../types';
 import { sha256Hex } from '../fs/opfs';
 
-const EXACT_HOSTS = new Set(['github.com', 'zenodo.org', 'idc-open-data.s3.amazonaws.com']);
-const SUFFIX_HOSTS = ['.githubusercontent.com'];
+const EXACT_HOSTS = new Set(['github.com', 'zenodo.org', 'idc-open-data.s3.amazonaws.com', 'huggingface.co']);
+// HF serves LFS/xet blobs from CDN subdomains after a redirect.
+const SUFFIX_HOSTS = ['.githubusercontent.com', '.huggingface.co', '.hf.co'];
 
 export function isAllowedCatalogUrl(raw: string): boolean {
   let u: URL;
