@@ -357,8 +357,8 @@ export interface ModelIndex {
   mirrors: string[];
 }
 
-const MIRROR_RE =
-  /^https:\/\/huggingface\.co\/[A-Za-z0-9][A-Za-z0-9._-]*\/tamias-zenodo-liver-models\/resolve\/[A-Za-z0-9._-]+$/;
+// Pinned to the project's own HF repo: the index may choose the revision, never the owner.
+const MIRROR_RE = /^https:\/\/huggingface\.co\/Aralario\/tamias-zenodo-liver-models\/resolve\/[A-Za-z0-9._-]+$/;
 
 export function isValidMirror(base: unknown): base is string {
   return typeof base === 'string' && MIRROR_RE.test(base);
@@ -422,7 +422,8 @@ export function mergeModelIndex(models: readonly CatalogModel[], index: ModelInd
   return models.map((m) => {
     const e = byId.get(m.id);
     if (!e) return { ...m, status: 'unpublished' as const };
-    const mirror = index.mirrors[0];
+    // A mirror is only trusted for entries whose bytes are pinned by sha256.
+    const mirror = e.sha256 ? index.mirrors[0] : undefined;
     const urls = mirror
       ? {
           onnxUrl: `${mirror}/${m.id}.onnx`,

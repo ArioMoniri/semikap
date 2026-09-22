@@ -57,6 +57,11 @@ describe('multi-model statistics (SciPy-pinned)', () => {
     expect(r.medianA).toBeCloseTo(0.91, 9);
   });
 
+  it('Mann-Whitney p is exactly 1 when |U − μ| < 0.5 (scipy parity)', () => {
+    expect(mannWhitneyU([2, 5], [1, 3, 4, 6]).pValue).toBe(1);
+    expect(mannWhitneyU([1, 2, 3], [1.5, 2.5]).pValue).toBe(1);
+  });
+
   it('Nemenyi critical difference (Demšar 2006)', () => {
     // k=4, N=7: q0.05 = 2.569 → CD = 2.569*sqrt(4*5/(6*7))
     expect(nemenyiCriticalDifference(4, 7)).toBeCloseTo(2.569 * Math.sqrt(20 / 42), 6);

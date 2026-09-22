@@ -62,3 +62,19 @@ describe('importRecordsText', () => {
     expect(() => importRecordsText('{"schema":"other"}', [])).toThrow(/schema/);
   });
 });
+
+describe('recordsToMatrix keying (verifier findings)', () => {
+  it('does not merge the same caseId from two datasets when no dataset filter is given', () => {
+    const r = [rec('A', 'hcc', 'c1', 0.9), rec('B', 'hcc', 'c1', 0.8), rec('A', 'msd', 'c1', 0.1), rec('B', 'msd', 'c1', 0.4)];
+    const m = recordsToMatrix(r, { label: 1, metric: 'dice' });
+    expect(m.cases).toEqual(['hcc/c1', 'msd/c1']);
+    expect(m.values).toEqual([[0.9, 0.8], [0.1, 0.4]]);
+  });
+  it('model keys cannot collide through the separator', () => {
+    const a = rec('a@b', 'hcc', 'c1', 0.9);
+    const b = { ...rec('a', 'hcc', 'c1', 0.8), model: { name: 'a', version: 'b@c', sha256: 'x'.repeat(64) } };
+    a.model.version = 'c';
+    const m = recordsToMatrix([a, b], { dataset: 'hcc', label: 1, metric: 'dice' });
+    expect(m.models).toHaveLength(2);
+  });
+});

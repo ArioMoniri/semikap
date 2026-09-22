@@ -193,7 +193,7 @@ export function mannWhitneyU(a: readonly number[], b: readonly number[]): MannWh
   const mu = (n1 * n2) / 2;
   const sigma = Math.sqrt(((n1 * n2) / 12) * (n + 1 - tie / (n * (n - 1))));
   const u = Math.max(u1, n1 * n2 - u1);
-  const z = sigma === 0 ? 0 : (u - mu - 0.5) / sigma;
+  const z = sigma === 0 ? 0 : Math.max(0, u - mu - 0.5) / sigma;
   return {
     statistic: u1,
     pValue: sigma === 0 ? 1 : Math.min(1, normalTwoTailedP(z)),

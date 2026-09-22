@@ -37,7 +37,8 @@ const LABELS = [
 ];
 
 function short(model: string): string {
-  return model.replace(/@.*$/, '').replace(/^LightningMedSeg3D /, 'LMS3D ').replace(/ \(liver\)$/, '');
+  const s = model.replace(/@.*$/, '').replace(/^LightningMedSeg3D /, 'LMS3D ').replace(/ \(liver\)$/, '');
+  return s.length > 26 ? `${s.slice(0, 25)}…` : s;
 }
 const f = (v: number, d = 3) => (Number.isFinite(v) ? v.toFixed(d) : '—');
 const fp = (p: number) => (!Number.isFinite(p) ? '—' : p < 0.001 ? '<0.001' : p.toFixed(3));
@@ -69,7 +70,7 @@ function RankPlot({ names, ranks, cd }: { names: string[]; ranks: number[]; cd: 
   const x = (r: number) => L + ((r - 1) / Math.max(1, k - 1)) * (W - L - R);
   const order = names.map((n, i) => ({ n, r: ranks[i]! })).sort((a, b) => a.r - b.r);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Mean rank per model (1 = best)">
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} className="h-auto max-w-full" role="img" aria-label="Mean rank per model (1 = best)">
       {Array.from({ length: k }, (_, i) => i + 1).map((t) => (
         <g key={t}>
           <line x1={x(t)} x2={x(t)} y1={top - 6} y2={H - 20} className="stroke-slate-200 dark:stroke-slate-700" />
@@ -127,7 +128,7 @@ function StripPlot({ m, metricLabel }: { m: ScoreMatrix; metricLabel: string }) 
   const x = (v: number) => L + ((v - lo) / (hi - lo)) * (W - L - R);
   const ticks = Array.from({ length: 5 }, (_, i) => lo + ((hi - lo) * i) / 4);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`Per-case ${metricLabel} per model`}>
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} className="h-auto max-w-full" role="img" aria-label={`Per-case ${metricLabel} per model`}>
       {ticks.map((t) => (
         <g key={t}>
           <line x1={x(t)} x2={x(t)} y1={top} y2={H - 20} className="stroke-slate-200 dark:stroke-slate-700" />
@@ -162,7 +163,7 @@ function StripPlot({ m, metricLabel }: { m: ScoreMatrix; metricLabel: string }) 
 function PairHeatmap({ names, pw }: { names: string[]; pw: ReturnType<typeof pairwiseWilcoxonHolm> }) {
   const k = names.length;
   const cell = 34;
-  const L = 150;
+  const L = 170;
   const T = 8;
   const W = L + k * cell + 10;
   const H = T + k * cell + 90;
@@ -170,7 +171,7 @@ function PairHeatmap({ names, pw }: { names: string[]; pw: ReturnType<typeof pai
   // sequential single hue on −log10(p_Holm), capped at 4
   const shade = (p: number) => Math.min(1, -Math.log10(Math.max(p, 1e-4)) / 4);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[560px]" role="img" aria-label="Holm-adjusted pairwise Wilcoxon p-values">
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} className="h-auto max-w-full" role="img" aria-label="Holm-adjusted pairwise Wilcoxon p-values">
       {names.map((a, i) => (
         <g key={a}>
           <text x={L - 6} y={T + i * cell + cell / 2 + 3} textAnchor="end" className="fill-slate-700 text-[10px] dark:fill-slate-200">
@@ -233,11 +234,11 @@ function Dumbbell({
   const top = 26;
   const H = top + rows.length * rowH + 24;
   const all = rows.flatMap((r) => r.median).filter(Number.isFinite);
-  const lo = Math.min(...all, 1);
-  const hi = Math.max(...all);
+  const lo = all.length ? Math.min(...all) : 0;
+  const hi = all.length ? Math.max(...all, lo + 1e-6) : 1;
   const x = (v: number) => L + ((v - lo) / Math.max(1e-9, hi - lo)) * (W - L - R);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`Median ${metricLabel} per model on each dataset`}>
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} className="h-auto max-w-full" role="img" aria-label={`Median ${metricLabel} per model on each dataset`}>
       <g className="text-[10px]">
         <circle cx={L} cy={10} r={5} className="viz-s1" />
         <text x={L + 9} y={13} className="fill-slate-700 dark:fill-slate-200">{datasets[0]}</text>
@@ -363,7 +364,12 @@ function DatasetBlock({ records, dataset, label, metric }: { records: BenchmarkR
 function Report({ records, label, metric }: { records: BenchmarkRecord[]; label: number; metric: SegMetricKey }) {
   const datasets = useMemo(() => recordsToMatrix(records, { label, metric }).datasets, [records, label, metric]);
   const cross = useMemo(
-    () => (datasets.length >= 2 ? crossDatasetSummary(records, { label, metric, datasets: datasets.slice(0, 2) }) : []),
+    () =>
+      datasets.length >= 2
+        ? crossDatasetSummary(records, { label, metric, datasets: datasets.slice(0, 2) }).filter((r) =>
+            r.median.some(Number.isFinite)
+          )
+        : [],
     [records, label, metric, datasets]
   );
   const metricLabel = METRICS.find((x) => x.key === metric)!.label;

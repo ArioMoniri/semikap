@@ -11,8 +11,11 @@ import { mannWhitneyU } from '../stats/multi-model';
 export type SegMetricKey = 'dice' | 'iou' | 'hd95Mm' | 'assdMm' | 'volumetricSimilarity' | 'precision' | 'recall';
 const LOWER_IS_BETTER = new Set<SegMetricKey>(['hd95Mm', 'assdMm']);
 
+/** Display key for a model; JSON tuple under the hood so names can't collide via the separator. */
 export function modelKey(r: BenchmarkRecord): string {
-  return `${r.model.name}@${r.model.version}`;
+  return r.model.version.includes('@') || r.model.name.includes('@')
+    ? JSON.stringify([r.model.name, r.model.version])
+    : `${r.model.name}@${r.model.version}`;
 }
 
 function metricOf(r: BenchmarkRecord, label: number, metric: SegMetricKey): number | null {
@@ -42,13 +45,15 @@ export function recordsToMatrix(records: readonly BenchmarkRecord[], q: MatrixQu
   const datasets = [...new Set(seg.map((r) => r.datasetName))].sort();
   const inDs = q.dataset ? seg.filter((r) => r.datasetName === q.dataset) : seg;
   const models = [...new Set(inDs.map(modelKey))].sort();
+  // Rows are keyed by dataset + case so identical case ids from two sources never merge.
+  const caseKey = (r: BenchmarkRecord) => (q.dataset ? r.case.caseId : `${r.datasetName}/${r.case.caseId}`);
   const byCase = new Map<string, Map<string, number>>();
   for (const r of inDs) {
     const v = metricOf(r, q.label, q.metric);
     if (v === null) continue;
-    const row = byCase.get(r.case.caseId) ?? new Map<string, number>();
-    row.set(modelKey(r), v);
-    byCase.set(r.case.caseId, row);
+    const row = byCase.get(caseKey(r)) ?? new Map<string, number>();
+    row.set(modelKey(r), v); // re-runs of the same model/case: latest record wins
+    byCase.set(caseKey(r), row);
   }
   const cases: string[] = [];
   const values: number[][] = [];

@@ -76,3 +76,15 @@ describe('reorientation', () => {
 });
 
 export type { Row };
+
+describe('axisCodes on oblique, anisotropic grids (nibabel parity)', () => {
+  it('normalises column lengths before assigning axes', () => {
+    // voxel axis 1 has 5 mm spacing, rotated ~30° between y and z; axis 2 is 0.7 mm along y/z.
+    // nibabel: column 1 → mostly z (S), column 2 → mostly y (A)
+    // Found by randomized comparison against nibabel.aff2axcodes (verifier).
+    const code = axisCodes([0.407, 2.84, -0.408, 0], [-0.553, 2.835, -0.164, 0], [0.138, 2.983, 0.544, 0]);
+    expect(code).toBe('PRS');
+    // and the old axis-aligned cases still hold
+    expect(axisCodes([0, 0, 5, 0], [0.7, 0, 0, 0], [0, -0.7, 0, 0])).toBe('AIR');
+  });
+});

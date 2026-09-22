@@ -147,6 +147,12 @@ describe('parseModelIndex', () => {
 
   it('prefers a Hugging Face mirror (CORS-friendly) and keeps the GitHub release as fallback', () => {
     const base = 'https://huggingface.co/Aralario/tamias-zenodo-liver-models/resolve/main';
+    // A mirror is only used for entries whose sha256 is pinned by the index.
+    const noSha = mergeModelIndex(
+      CATALOG_MODELS,
+      parseModelIndex({ ...good, mirrors: [base], models: [{ id: 'lms3d_unet', file: 'lms3d_unet.onnx', status: 'ok' }] })
+    ).find((m) => m.id === 'lms3d_unet')!;
+    expect(noSha.onnxUrl).toBe(`${MODEL_RELEASE_BASE}/lms3d_unet.onnx`);
     const idx = parseModelIndex({ ...good, mirrors: [base] });
     const unet = mergeModelIndex(CATALOG_MODELS, idx).find((m) => m.id === 'lms3d_unet')!;
     expect(unet.onnxUrl).toBe(`${base}/lms3d_unet.onnx`);
@@ -160,6 +166,7 @@ describe('parseModelIndex', () => {
       'http://huggingface.co/a/tamias-zenodo-liver-models/resolve/main',
       'https://huggingface.co/a/other-repo/resolve/main',
       'https://huggingface.co.evil.io/a/tamias-zenodo-liver-models/resolve/main',
+      'https://huggingface.co/attacker/tamias-zenodo-liver-models/resolve/main',
     ]) {
       const idx = parseModelIndex({ ...good, mirrors: [bad] });
       expect(idx.mirrors).toEqual([]);

@@ -26,27 +26,35 @@ const LETTER = [
 
 /** Orientation code of a voxel→RAS affine (sform rows). */
 export function axisCodes(srowX: Row, srowY: Row, srowZ: Row): string {
-  const m = [srowX, srowY, srowZ];
-  const used = new Set<number>();
-  // Assign the strongest voxel axes first so near-oblique grids stay stable.
-  const order = [0, 1, 2].sort(
-    (a, b) =>
-      Math.max(...m.map((r) => Math.abs(r[b]!))) - Math.max(...m.map((r) => Math.abs(r[a]!)))
-  );
+  const raw = [srowX, srowY, srowZ];
+  // Remove voxel spacing first (unit direction columns), as nibabel does —
+  // otherwise the most anisotropic axis wins the assignment on oblique grids.
+  const norms = [0, 1, 2].map((j) => Math.hypot(raw[0]![j]!, raw[1]![j]!, raw[2]![j]!) || 1);
+  const m = raw.map((r) => [0, 1, 2].map((j) => r[j]! / norms[j]!));
+  // Greedy on the globally largest remaining |entry| (nibabel io_orientation
+  // picks the dominant (world, voxel) pair each step).
+  const usedW = new Set<number>();
+  const usedV = new Set<number>();
   const codes: string[] = ['', '', ''];
-  for (const j of order) {
+  for (let step = 0; step < 3; step++) {
+    let bw = -1;
+    let bv = -1;
     let best = -1;
-    let bestAbs = -1;
     for (let w = 0; w < 3; w++) {
-      if (used.has(w)) continue;
-      const v = Math.abs(m[w]![j]!);
-      if (v > bestAbs) {
-        bestAbs = v;
-        best = w;
+      if (usedW.has(w)) continue;
+      for (let v = 0; v < 3; v++) {
+        if (usedV.has(v)) continue;
+        const a = Math.abs(m[w]![v]!);
+        if (a > best) {
+          best = a;
+          bw = w;
+          bv = v;
+        }
       }
     }
-    used.add(best);
-    codes[j] = m[best]![j]! >= 0 ? LETTER[best]![0] : LETTER[best]![1];
+    usedW.add(bw);
+    usedV.add(bv);
+    codes[bv] = m[bw]![bv]! >= 0 ? LETTER[bw]![0] : LETTER[bw]![1];
   }
   return codes.join('');
 }

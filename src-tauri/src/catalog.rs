@@ -65,7 +65,7 @@ pub async fn catalog_fetch(url: String) -> Result<Response, String> {
     if !is_allowed(&url) {
         return Err(format!("URL not allowed by the catalogue host allowlist: {url}"));
     }
-    let res = client()?
+    let mut res = client()?
         .get(&url)
         .send()
         .await
@@ -76,14 +76,20 @@ pub async fn catalog_fetch(url: String) -> Result<Response, String> {
     if res.content_length().unwrap_or(0) > MAX_BYTES {
         return Err(format!("{url} is larger than the 2 GB catalogue limit"));
     }
-    let bytes = res
-        .bytes()
+    // Stream with a running cap: a missing/lying Content-Length can't make us
+    // buffer more than MAX_BYTES.
+    let mut buf: Vec<u8> = Vec::with_capacity(res.content_length().unwrap_or(0) as usize);
+    while let Some(chunk) = res
+        .chunk()
         .await
-        .map_err(|e| format!("Download failed for {url}: {e}"))?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err(format!("{url} is larger than the 2 GB catalogue limit"));
+        .map_err(|e| format!("Download failed for {url}: {e}"))?
+    {
+        if (buf.len() + chunk.len()) as u64 > MAX_BYTES {
+            return Err(format!("{url} is larger than the 2 GB catalogue limit"));
+        }
+        buf.extend_from_slice(&chunk);
     }
-    Ok(Response::new(bytes.to_vec()))
+    Ok(Response::new(buf))
 }
 
 #[cfg(test)]
