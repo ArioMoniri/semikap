@@ -30,7 +30,7 @@ const browser = await chromium.launch({
     '--enable-unsafe-webgpu',
     '--use-angle=swiftshader',
     ...(process.env.HTTPS_PROXY
-      ? [`--proxy-server=${process.env.HTTPS_PROXY.replace(/^http:\/\//, '')}`, '--proxy-bypass-list=<-loopback>;localhost;127.0.0.1']
+      ? [`--proxy-server=${process.env.HTTPS_PROXY.replace(/^http:\/\//, '')}`, '--proxy-bypass-list=localhost;127.0.0.1']
       : []),
   ],
 });
@@ -60,7 +60,7 @@ await shot('01_catalogue_panel', cat);
 if (loadCase) {
   await cat.getByLabel('Case').selectOption(caseId);
   await cat.getByRole('button', { name: /Load CT \+ GT/ }).click();
-  await cat.locator('text=/GT set as the Benchmark reference|Error|failed/i').first().waitFor({ timeout: 600_000 });
+  await cat.locator('text=/GT set as the Benchmark reference|Error|failed|cannot|affine/i').first().waitFor({ timeout: 600_000 });
   await page.waitForTimeout(3000);
   await shot('02_hcc_case_loaded_with_gt');
 }
