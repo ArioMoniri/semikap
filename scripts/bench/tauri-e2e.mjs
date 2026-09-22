@@ -31,7 +31,8 @@ async function wd(method, path, body) {
   if (j.value && j.value.error) throw new Error(`${path}: ${j.value.error} ${j.value.message}`);
   return j.value;
 }
-const ELEM = 'element-6066-11e4-a52e-4f735466cecc';
+// W3C element key; WebKitWebDriver has been seen to use a variant, so learn it from responses.
+let ELEM = 'element-6066-11e4-a52e-4f735466cecc';
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 const session = await wd('POST', '/session', {
@@ -39,8 +40,13 @@ const session = await wd('POST', '/session', {
 });
 const sid = session.sessionId;
 const S = (p) => `/session/${sid}${p}`;
-const find = async (xpath) => (await wd('POST', S('/element'), { using: 'xpath', value: xpath }))[ELEM];
-const findAll = async (xpath) => (await wd('POST', S('/elements'), { using: 'xpath', value: xpath })).map((e) => e[ELEM]);
+const elemId = (v) => {
+  const k = Object.keys(v).find((x) => x.startsWith('element-6066')) ?? ELEM;
+  ELEM = k;
+  return v[k];
+};
+const find = async (xpath) => elemId(await wd('POST', S('/element'), { using: 'xpath', value: xpath }));
+const findAll = async (xpath) => (await wd('POST', S('/elements'), { using: 'xpath', value: xpath })).map(elemId);
 const click = async (id) => wd('POST', S(`/element/${id}/click`), {});
 const js = (script, args = []) => wd('POST', S('/execute/sync'), { script, args });
 const text = async (xpath) => js(`const n=document.evaluate(arguments[0],document,null,9,null).singleNodeValue;return n?n.innerText:''`, [xpath]);
@@ -59,7 +65,7 @@ const waitFor = async (fn, ms, label) => {
   }
 };
 const openSection = async (title) => {
-  const b = await find(`//button[starts-with(normalize-space(.), '${title}')]`);
+  const b = await find(`//button[contains(normalize-space(.), '${title}')]`);
   await js('arguments[0].scrollIntoView({block:"center"})', [{ [ELEM]: b }]);
   const exp = await js('return arguments[0].getAttribute("aria-expanded")', [{ [ELEM]: b }]);
   if (exp !== 'true') await click(b);
@@ -67,7 +73,7 @@ const openSection = async (title) => {
 const panel = "//*[@data-testid='catalogue-panel']";
 
 try {
-  await waitFor(() => find("//button[starts-with(normalize-space(.), 'Catalogue')]"), 60_000, 'app ready');
+  await waitFor(() => find("//button[contains(normalize-space(.), 'Catalogue')]"), 180_000, 'app ready');
   await js('window.resizeTo?.(1600,1000)');
   await openSection('Catalogue');
   await js(`document.querySelector('[data-testid=catalogue-panel]').scrollIntoView()`);

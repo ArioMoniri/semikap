@@ -164,16 +164,23 @@ export function CataloguePanel({ viewerRef }: Props) {
         spacing: meta.spacing,
         catalog: { datasetId: dataset.id, caseId: theCase.caseId, labelSpace: 'liver-tumour' },
       });
-      viewerRef.current.addMaskOverlay('ground truth', mapped.mask, mapped.dims, meta.spacing, undefined, 0.35, {
-        srowX: meta.srowX,
-        srowY: meta.srowY,
-        srowZ: meta.srowZ,
-      });
+      let overlayWarning = '';
+      try {
+        await viewerRef.current.addMaskOverlay('ground truth', mapped.mask, mapped.dims, meta.spacing, 'green', 0.4, {
+          srowX: meta.srowX,
+          srowY: meta.srowY,
+          srowZ: meta.srowZ,
+        });
+      } catch (e) {
+        // The reference is still set for scoring; only the display failed.
+        overlayWarning = ` (GT overlay could not be drawn: ${(e as Error).message})`;
+      }
       const segNames = [...seg.segments.values()].join(', ');
       setNotice(
         `Loaded ${theCase.caseId}: ${files.length} CT slices + GT (${segNames})` +
           (mapped.outOfGridFrames ? ` — ${mapped.outOfGridFrames} SEG frames outside the CT grid` : '') +
-          '. GT set as the Benchmark reference.'
+          '. GT set as the Benchmark reference.' +
+          overlayWarning
       );
     } catch (e) {
       fail(e);
