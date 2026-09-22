@@ -16,6 +16,8 @@
  *    surface metrics = NaN (a distance to an empty surface is undefined).
  */
 
+import { directedDistancesEdt } from './edt';
+
 export interface SegMetrics {
   /** Label these metrics were computed for (foreground label; 0 = background excluded). */
   label: number;
@@ -187,8 +189,10 @@ export function surfaceMetrics(
   if (sa.length === 0 || sb.length === 0) {
     return { hd95Mm: NaN, assdMm: NaN };
   }
-  const dAB = directedDistances(sa, sb, dims, spacing);
-  const dBA = directedDistances(sb, sa, dims, spacing);
+  // Exact EDT is O(N); brute force only wins for tiny surfaces.
+  const dist = sa.length * sb.length > 4_000_000 ? directedDistancesEdt : directedDistances;
+  const dAB = dist(sa, sb, dims, spacing);
+  const dBA = dist(sb, sa, dims, spacing);
   const sortedAB = [...dAB].sort((a, b) => a - b);
   const sortedBA = [...dBA].sort((a, b) => a - b);
   const hd95 = Math.max(percentile(sortedAB, 95), percentile(sortedBA, 95));
