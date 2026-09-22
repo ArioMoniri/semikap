@@ -45,6 +45,7 @@ import { BenchmarkGovernancePanel } from './BenchmarkGovernancePanel';
 import { BenchmarkClassifyPanel } from './BenchmarkClassifyPanel';
 import { BenchmarkDetectionPanel } from './BenchmarkDetectionPanel';
 import { BenchmarkStatsPanel } from './BenchmarkStatsPanel';
+import { BenchmarkComparePanel } from './BenchmarkComparePanel';
 import { BenchmarkRocComparePanel } from './BenchmarkRocComparePanel';
 import { BenchmarkGuide } from './BenchmarkGuide';
 import { BenchmarkBatchPanel } from './BenchmarkBatchPanel';
@@ -635,6 +636,9 @@ export function BenchmarkPanel() {
           </div>
         )}
       </section>
+
+      {/* ≥2 models per dataset + cross-dataset shift (Friedman / Nemenyi / Holm / Mann-Whitney) */}
+      <BenchmarkComparePanel records={records} profileId={profileId} onImported={setRecords} />
 
       {/* Statistical model comparison (corrected t-tests + non-parametric + Bayesian) */}
       <BenchmarkStatsPanel records={records} />
