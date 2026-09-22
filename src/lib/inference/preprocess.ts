@@ -76,6 +76,7 @@ export function resampleTrilinear(
  * Apply intensity normalization in-place per the model manifest.
  *  - window:  (x - (level - width/2)) / width  → clamped to [0, 1]
  *  - zscore:  (x - mean) / std
+ *  - zscore_volume: (x - mean(vol)) / std(vol), optional clip first (nnU-Net)
  *  - minmax:  (x - min) / (max - min)
  *  - none:    no-op
  */
@@ -94,6 +95,20 @@ export function normalize(data: Float32Array, spec: NormalizationSpec): void {
     case 'zscore': {
       const std = Math.max(1e-6, spec.std);
       for (let i = 0; i < data.length; i++) data[i] = (data[i]! - spec.mean) / std;
+      break;
+    }
+    case 'zscore_volume': {
+      if (spec.clip) {
+        const [lo, hi] = spec.clip;
+        for (let i = 0; i < data.length; i++) data[i] = Math.min(hi, Math.max(lo, data[i]!));
+      }
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i]!;
+      const mean = sum / Math.max(1, data.length);
+      let ss = 0;
+      for (let i = 0; i < data.length; i++) ss += (data[i]! - mean) ** 2;
+      const std = Math.max(1e-8, Math.sqrt(ss / Math.max(1, data.length)));
+      for (let i = 0; i < data.length; i++) data[i] = (data[i]! - mean) / std;
       break;
     }
     case 'minmax': {

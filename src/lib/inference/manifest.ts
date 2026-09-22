@@ -47,11 +47,19 @@ export function parseManifest(raw: unknown): ModelManifest {
         max: expectNumber(norm as Record<string, unknown>, 'max'),
       };
       break;
+    case 'zscore_volume': {
+      const clip = (norm as Record<string, unknown>).clip;
+      if (clip === undefined) normalization = { type: 'zscore_volume' };
+      else if (Array.isArray(clip) && clip.length === 2 && clip.every((v) => typeof v === 'number' && Number.isFinite(v)) && clip[0] < clip[1]) {
+        normalization = { type: 'zscore_volume', clip: [clip[0], clip[1]] };
+      } else throw new Error('Manifest "normalization.clip" must be [lo, hi] with lo < hi.');
+      break;
+    }
     case 'none':
       normalization = { type: 'none' };
       break;
     default:
-      throw new Error(`Manifest "normalization.type" must be window|zscore|minmax|none.`);
+      throw new Error(`Manifest "normalization.type" must be window|zscore|zscore_volume|minmax|none.`);
   }
 
   const inf = m.inference;

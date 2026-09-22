@@ -44,6 +44,8 @@ export type Orientation = 'RAS' | 'LPS' | 'LAS' | 'RAI';
 export type NormalizationSpec =
   | { type: 'window'; level: number; width: number }
   | { type: 'zscore'; mean: number; std: number }
+  /** Per-volume z-score (nnU-Net ZScoreNormalization); optional clip first. */
+  | { type: 'zscore_volume'; clip?: [number, number] }
   | { type: 'minmax'; min: number; max: number }
   | { type: 'none' };
 
