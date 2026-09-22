@@ -5,6 +5,7 @@ import { preparePreprocessing } from '../lib/inference/preprocess';
 import { resampleNearest, labelCounts } from '../lib/inference/postprocess';
 import { slidingWindowInference } from '../lib/inference/sliding-window';
 import { createSession, type Provider } from '../lib/inference/ort';
+import { axisCodes, planReorientation, invertReorientation, isIdentityPlan } from '../lib/inference/orient';
 import type { Tensor } from 'onnxruntime-web';
 
 export interface InferenceInputs {
@@ -15,6 +16,10 @@ export interface InferenceInputs {
   origin: [number, number, number];
   modelBytes: Bytes;
   manifest: ModelManifest;
+  /** Voxel→RAS affine rows; when present the volume is reoriented to manifest.orientation. */
+  srowX?: [number, number, number, number];
+  srowY?: [number, number, number, number];
+  srowZ?: [number, number, number, number];
 }
 
 export interface InferenceProgressEvent {
@@ -35,11 +40,16 @@ const api: InferenceApi = {
     const t0 = performance.now();
 
     onProgress({ stage: 'preprocessing', fraction: -1 });
+    const plan =
+      inputs.srowX && inputs.srowY && inputs.srowZ
+        ? planReorientation(axisCodes(inputs.srowX, inputs.srowY, inputs.srowZ), inputs.manifest.orientation)
+        : null;
     const pre = preparePreprocessing(
       inputs.voxels,
       inputs.dims,
       inputs.spacing,
-      inputs.manifest
+      inputs.manifest,
+      plan && !isIdentityPlan(plan) ? plan : null
     );
 
     onProgress({ stage: 'inference', fraction: 0, message: 'Loading model…' });
@@ -104,7 +114,8 @@ const api: InferenceApi = {
 
     onProgress({ stage: 'postprocessing', fraction: 0.5 });
     // Resample mask back to source-volume grid using nearest neighbour.
-    const finalMask = resampleNearest(modelMask, modelDims, inputs.dims);
+    const orientedMask = resampleNearest(modelMask, modelDims, pre.orientedDims);
+    const finalMask = plan ? (invertReorientation(orientedMask, pre.orientedDims, plan).data as Bytes) : orientedMask;
     const counts = labelCounts(finalMask);
 
     onProgress({ stage: 'done', fraction: 1 });

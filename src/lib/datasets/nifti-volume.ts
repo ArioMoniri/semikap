@@ -33,6 +33,42 @@ export interface NiftiVolume {
   spacing: [number, number, number];
   /** World-space origin (qoffset_x/y/z); [0,0,0] when absent. */
   origin: [number, number, number];
+  /** Voxel→RAS affine rows (sform, else qform); undefined when neither is set. */
+  srowX?: [number, number, number, number];
+  srowY?: [number, number, number, number];
+  srowZ?: [number, number, number, number];
+}
+
+type Row4 = [number, number, number, number];
+
+/** sform rows if sform_code > 0, else the qform (quaternion) affine, else undefined. */
+function readAffine(buf: Uint8Array, le: boolean): { srowX: Row4; srowY: Row4; srowZ: Row4 } | null {
+  const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const sformCode = v.getInt16(254, le);
+  const qformCode = v.getInt16(252, le);
+  if (sformCode > 0) {
+    const row = (o: number): Row4 => [0, 1, 2, 3].map((j) => v.getFloat32(o + j * 4, le)) as Row4;
+    return { srowX: row(280), srowY: row(296), srowZ: row(312) };
+  }
+  if (qformCode > 0) {
+    const b = v.getFloat32(256, le);
+    const c = v.getFloat32(260, le);
+    const d = v.getFloat32(264, le);
+    const a = Math.sqrt(Math.max(0, 1 - (b * b + c * c + d * d)));
+    const qfac = v.getFloat32(76, le) < 0 ? -1 : 1;
+    const dx = v.getFloat32(80, le);
+    const dy = v.getFloat32(84, le);
+    const dz = v.getFloat32(88, le) * qfac;
+    const R = [
+      [a * a + b * b - c * c - d * d, 2 * (b * c - a * d), 2 * (b * d + a * c)],
+      [2 * (b * c + a * d), a * a + c * c - b * b - d * d, 2 * (c * d - a * b)],
+      [2 * (b * d - a * c), 2 * (c * d + a * b), a * a + d * d - b * b - c * c],
+    ];
+    const t = [v.getFloat32(268, le), v.getFloat32(272, le), v.getFloat32(276, le)];
+    const row = (i: number): Row4 => [R[i]![0]! * dx, R[i]![1]! * dy, R[i]![2]! * dz, t[i]!];
+    return { srowX: row(0), srowY: row(1), srowZ: row(2) };
+  }
+  return null;
 }
 
 /** NIfTI-1 datatype codes we know how to decode. */
@@ -121,11 +157,13 @@ export function niftiDataToVolume(buf: Uint8Array): NiftiVolume {
     voxels = scaled;
   }
 
+  const affine = readAffine(buf, header.littleEndian);
   return {
     voxels,
     dims: header.dims,
     spacing: header.spacing,
     origin,
+    ...(affine ?? {}),
   };
 }
 

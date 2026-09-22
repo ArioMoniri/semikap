@@ -28,7 +28,7 @@ import { diffVolume, maxDisagreementSlice, type DiffSlice } from '../lib/metrics
 import { scoreSegmentation } from '../lib/metrics/score';
 import { appendRecord } from '../lib/benchmark/store';
 import type { BenchmarkRecord } from '../lib/benchmark/types';
-import type { InferenceApi, InferenceProgressEvent } from '../workers/inference.worker';
+import type { InferenceApi, InferenceInputs, InferenceProgressEvent } from '../workers/inference.worker';
 import type { Bytes, ModelManifest } from '../types';
 import { Button } from './ui/Button';
 import { MaskDiffCanvas } from './MaskDiffCanvas';
@@ -66,10 +66,11 @@ async function infer(
   spacing: [number, number, number],
   origin: [number, number, number],
   model: LoadedModel,
+  affine: Pick<InferenceInputs, 'srowX' | 'srowY' | 'srowZ'> = {},
 ): Promise<{ mask: Uint8Array; dims: [number, number, number]; spacing: [number, number, number]; elapsedMs: number; provider: string }> {
   const noop = Comlink.proxy((_e: InferenceProgressEvent) => {});
   const res = await api.run(
-    { voxels, dims, spacing, origin, modelBytes: model.bytes, manifest: model.manifest },
+    { voxels, dims, spacing, origin, modelBytes: model.bytes, manifest: model.manifest, ...affine },
     noop,
   );
   return { mask: res.mask, dims: res.dims, spacing: res.spacing, elapsedMs: res.elapsedMs, provider: res.provider };
@@ -142,8 +143,9 @@ export function BenchmarkBatchPanel({ profileId, entries }: Props) {
         if (!imgFile) throw new Error(`image file "${bc.imageName}" missing`);
         const vol = await readNiftiVolume(new Uint8Array(await imgFile.arrayBuffer()), bc.imageName);
 
-        const rA = await infer(api, vol.voxels, vol.dims, vol.spacing, vol.origin, mA);
-        const rB = await infer(api, vol.voxels, vol.dims, vol.spacing, vol.origin, mB);
+        const affine = { srowX: vol.srowX, srowY: vol.srowY, srowZ: vol.srowZ };
+        const rA = await infer(api, vol.voxels, vol.dims, vol.spacing, vol.origin, mA, affine);
+        const rB = await infer(api, vol.voxels, vol.dims, vol.spacing, vol.origin, mB, affine);
 
         // Model-vs-model difference on the shared source grid.
         const d = diffVolume(rA.mask, rB.mask);

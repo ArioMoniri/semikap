@@ -1,3 +1,4 @@
+import { applyReorientation, type ReorientPlan } from './orient';
 import type { ModelManifest, NormalizationSpec } from '../../types';
 
 /**
@@ -126,10 +127,17 @@ export function preparePreprocessing(
   raw: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array,
   dims: [number, number, number],
   spacing: [number, number, number],
-  manifest: ModelManifest
-): ResampleResult {
-  const f32 = toFloat32(raw);
+  manifest: ModelManifest,
+  plan?: ReorientPlan | null
+): ResampleResult & { orientedDims: [number, number, number] } {
+  let f32 = toFloat32(raw);
+  if (plan) {
+    const o = applyReorientation(f32, dims, spacing, plan);
+    f32 = o.data;
+    dims = o.dims;
+    spacing = o.spacing;
+  }
   const resampled = resampleTrilinear(f32, dims, spacing, manifest.spacing);
   normalize(resampled.data, manifest.normalization);
-  return resampled;
+  return { ...resampled, orientedDims: dims };
 }

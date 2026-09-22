@@ -80,6 +80,9 @@ export function InferencePanel({ onResultMask }: Props) {
           origin: volume.meta.origin,
           modelBytes: model.bytes,
           manifest: model.manifest,
+          srowX: volume.meta.srowX,
+          srowY: volume.meta.srowY,
+          srowZ: volume.meta.srowZ,
         },
         onProgress
       );

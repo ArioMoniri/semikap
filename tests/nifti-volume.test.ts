@@ -155,3 +155,45 @@ describe('readNiftiVolume', () => {
     expect(Array.from(vol.voxels)).toEqual(vals);
   });
 });
+
+describe('niftiDataToVolume affine', () => {
+  it('returns sform rows when sform_code > 0', () => {
+    const buf = buildNifti([0, 0, 0, 0, 0, 0, 0, 0], 2, [2, 2, 2]);
+    const v = new DataView(buf.buffer);
+    v.setInt16(254, 1, true); // sform_code
+    const rows = [
+      [-0.8, 0, 0, 100],
+      [0, -0.8, 0, 50],
+      [0, 0, 2.5, -30],
+    ];
+    rows.forEach((r, i) => r.forEach((x, j) => v.setFloat32(280 + i * 16 + j * 4, x, true)));
+    const vol = niftiDataToVolume(buf);
+    expect(vol.srowX).toEqual([expect.closeTo(-0.8, 5), 0, 0, 100]);
+    expect(vol.srowY![1]).toBeCloseTo(-0.8, 5);
+    expect(vol.srowZ).toEqual([0, 0, 2.5, -30]);
+  });
+
+  it('builds the affine from the qform quaternion when only qform_code > 0', () => {
+    const buf = buildNifti([0, 0, 0, 0, 0, 0, 0, 0], 2, [2, 2, 2], {
+      spacing: [0.5, 0.6, 3],
+      origin: [10, 20, 30],
+    });
+    const v = new DataView(buf.buffer);
+    v.setInt16(252, 1, true); // qform_code
+    // 180° about z: b=0,c=0,d=1 → x,y flipped (LPS-like)
+    v.setFloat32(256, 0, true);
+    v.setFloat32(260, 0, true);
+    v.setFloat32(264, 1, true);
+    v.setFloat32(76, 1, true); // qfac
+    const vol = niftiDataToVolume(buf);
+    expect(vol.srowX![0]).toBeCloseTo(-0.5, 5);
+    expect(vol.srowY![1]).toBeCloseTo(-0.6, 5);
+    expect(vol.srowZ![2]).toBeCloseTo(3, 5);
+    expect(vol.srowX![3]).toBeCloseTo(10, 5);
+  });
+
+  it('leaves the affine undefined when neither form is set', () => {
+    const vol = niftiDataToVolume(buildNifti([0], 2, [1, 1, 1]));
+    expect(vol.srowX).toBeUndefined();
+  });
+});
