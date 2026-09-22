@@ -11,6 +11,8 @@
   &nbsp;·&nbsp;
   <a href="docs/UPDATER.md"><strong>🔄 Auto-update setup</strong></a>
   &nbsp;·&nbsp;
+  <a href="docs/CATALOGUE.md"><strong>🧪 Model &amp; dataset catalogue</strong></a>
+  &nbsp;·&nbsp;
   <a href="docs/ROADMAP.md"><strong>🗺️ Roadmap</strong></a>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><strong>📜 Changelog</strong></a>
