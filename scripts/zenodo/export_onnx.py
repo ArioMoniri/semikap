@@ -10,12 +10,12 @@ Models
 
 TAMIAS ONNX contract (src/lib/inference/{preprocess,sliding-window}.ts,
 src/workers/inference.worker.ts):
-  * The worker resamples the volume *in its stored NIfTI voxel order* (i fastest)
-    to manifest.spacing = [sx, sy, sz] (index 0 ↔ i axis), applies
+  * The worker reorients the volume to manifest.orientation (nibabel aff2axcodes
+    semantics; all manifests here are RAS), resamples to manifest.spacing =
+    [sx, sy, sz] (index 0 ↔ x axis, fastest-varying), applies
     manifest.normalization, then feeds patches of manifest.inference.patch =
     [PX, PY, PZ] as a float32 tensor of shape [1, 1, PZ, PY, PX]
-    (i.e. numpy/SimpleITK order [k, j, i]). manifest.orientation is declared but
-    NOT applied by the worker (no reorientation happens).
+    (i.e. numpy/SimpleITK order [z, y, x]).
   * Output must be [1, C, PZ, PY, PX] logits; the worker Gaussian-blends and
     argmaxes over C.
 
@@ -76,6 +76,12 @@ BTCV14_COLORS = {
     7: "#f97316", 8: "#dc2626", 9: "#2563eb", 10: "#0ea5e9", 11: "#facc15",
     12: "#14b8a6", 13: "#10b981",
 }
+# nnU-Net ZScoreNormalization is *per volume*: (x - volume.mean()) / volume.std(),
+# which TAMIAS' NormalizationSpec cannot express. We ship a fixed z-score whose
+# parameters are the median whole-volume stats of 8 LiTS/MSD-Task03 CT volumes
+# (liver_1/28/32/41/43/53/75/77: means -408..-610 HU, stds 480..520 HU).
+LITS_VOLUME_ZSCORE = {"mean": -500.0, "std": 495.0}
+
 LIVER_COLORS = {"liver": "#b45309", "tumor": "#dc2626", "tumour": "#dc2626", "lesion": "#dc2626"}
 
 LMS3D_ARCHS = {
@@ -102,6 +108,31 @@ LMS3D_DATASETS = {
 # ----------------------------------------------------------------------------
 # helpers
 # ----------------------------------------------------------------------------
+SPDX_HINTS = (("Attribution-NonCommercial-ShareAlike 4.0", "CC-BY-NC-SA-4.0"), ("Attribution-NonCommercial 4.0", "CC-BY-NC-4.0"),
+              ("Attribution-ShareAlike 4.0", "CC-BY-SA-4.0"), ("Attribution 4.0", "CC-BY-4.0"), ("CC BY 4.0", "CC-BY-4.0"),
+              ("cc-by-4.0", "CC-BY-4.0"), ("Apache License", "Apache-2.0"), ("MIT License", "MIT"))
+
+
+def license_info(folder: Path, record_id: str) -> tuple[str, str | None]:
+    """(SPDX id or raw text, raw LICENSE text) from the Zenodo LICENSE file / record metadata."""
+    text = None
+    for d in [folder, *folder.resolve().parents][:4]:
+        if (d / "LICENSE").exists():
+            text = (d / "LICENSE").read_text(errors="replace").strip()
+            break
+    probe = text or ""
+    for d in [folder, *folder.resolve().parents][:4]:
+        rec = d / "_zenodo_record.json"
+        if rec.exists():
+            lic = json.loads(rec.read_text()).get("metadata", {}).get("license")
+            probe += " " + (lic.get("id", "") if isinstance(lic, dict) else str(lic or ""))
+            break
+    for needle, spdx in SPDX_HINTS:
+        if needle.lower() in probe.lower():
+            return spdx, text
+    return "CC-BY-4.0", text  # both records are CC-BY-4.0 in their Zenodo metadata
+
+
 def zenodo_md5(start: Path, key: str) -> str | None:
     """md5 of `key` from the _zenodo_record.json that fetch.py stores next to the files."""
     for d in [start, *start.resolve().parents][:4]:
@@ -413,7 +444,7 @@ def run_lms3d(args) -> int:
     out.mkdir(parents=True, exist_ok=True)
     meta_p = wdir / "metadata.json"
     meta = json.loads(meta_p.read_text()) if meta_p.exists() else None
-    lic = "CC-BY-4.0"
+    lic, lic_text = license_info(wdir, "21037952")
     only = set(args.only.split(",")) if args.only else None
 
     for pth in sorted(wdir.glob("*.pth")):
@@ -436,13 +467,16 @@ def run_lms3d(args) -> int:
             "trained_on": {"BTCV": "BTCV", "Task03": "MSD Task03 Liver"}[ds_key],
             "zenodo_url": "https://zenodo.org/records/21037952",
             "code": "https://github.com/Removirt/LightningMedSeg3D (AGPL-3.0-or-later)",
-            "license": f"weights {lic}; architecture code AGPL-3.0-or-later",
+            "license": lic, "license_text": lic_text, "code_license": "AGPL-3.0-or-later (LightningMedSeg3D)",
             "dataset_identified_by": "sha256 match in metadata.json weights_index" if ds else "NOT MATCHED (assumed BTCV)",
             "train_dataset": cfg["train_dataset"],
         }
         print(f"== {name} ({pth.name}, dataset={ds}, sha={digest[:12]})", flush=True)
         try:
             sd = strip_prefixes(torch.load(pth, map_location="cpu", weights_only=False))
+            dropped = [k for k in sd if k.split(".")[0] in ("loss_function", "loss_fn", "criterion", "dice_metric")]
+            for k in dropped:  # training-only buffers saved alongside the net (e.g. loss_function.dice.class_weight)
+                del sd[k]
             cands = [14, 3, 2] if ds_key == "BTCV" else [3, 2, 14]
             net, C, roi, builder, ignored = lms3d_build(arch, sd, cfg["roi"], cands)
             base["hyperparams_from"] = {"mlst": "MedicalLiverSegmentationToolKit config/btcv (training toolkit)",
@@ -501,7 +535,7 @@ def run_lms3d(args) -> int:
                 "size_bytes": onnx_path.stat().st_size, "sha256": onnx_sha,
                 "num_classes": C, "labels": manifest["output"]["labels"],
                 "patch": [PX, PY, PZ], "spacing": manifest["spacing"],
-                "orientation": "RAS (MONAI Orientationd at training; TAMIAS currently feeds stored voxel order)",
+                "orientation": "RAS (MONAI Orientationd(axcodes=RAS) in the training toolkit; graph permutes TAMIAS [z,y,x] to MONAI [x,y,z])",
                 "normalization": manifest["normalization"],
                 "normalization_note": f"ScaleIntensityRanged(a_min={lo}, a_max={hi}, b_min=0, b_max=1, clip=True) == TAMIAS window(level={level}, width={width}); not baked",
                 "baked": ["axis permutation [z,y,x] -> [x,y,z] (MONAI) and back"],
@@ -564,7 +598,7 @@ def nnunet_build(train_dir: Path, fold: str):
     return net, pm, cm, lm, dataset_json, plans, config_name, trainer_name, ckpt_p
 
 
-def make_nnunet_wrapper(net, lo, hi, mean, std, perm):
+def make_nnunet_wrapper(net, lo, hi, mean, std, perm, bake_ct: bool = True):
     import torch
     from torch import nn
 
@@ -583,9 +617,11 @@ def make_nnunet_wrapper(net, lo, hi, mean, std, perm):
             self.perm = [0, 1] + [2 + p for p in perm]
             self.inv = [0, 1] + [2 + p for p in inv]
             self.identity = list(perm) == [0, 1, 2]
+            self.bake_ct = bake_ct
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            x = (torch.clamp(x, self.lo, self.hi) - self.mean) / self.std
+            if self.bake_ct:
+                x = (torch.clamp(x, self.lo, self.hi) - self.mean) / self.std
             if not self.identity:
                 x = x.permute(*self.perm)
             y = self.net(x)
@@ -624,7 +660,8 @@ def run_nnunet(args) -> int:
         base = {"name": name, "family": "nnU-Net v2", "arch": None, "arch_id": f"nnunet_{tag}",
                 "source_file": "Dataset006_Liver.zip", "source_md5": zenodo_md5(root, "Dataset006_Liver.zip"),
                 "zenodo_record": "11582728", "trained_on": "LiTS 2017", "zenodo_doi": NNUNET_DOI,
-                "zenodo_url": "https://zenodo.org/records/11582728", "license": "CC-BY-4.0",
+                "zenodo_url": "https://zenodo.org/records/11582728", "license": license_info(root, "11582728")[0],
+                "code_license": "Apache-2.0 (nnU-Net)",
                 "code": "https://github.com/MIC-DKFZ/nnUNet (Apache-2.0)",
                 "train_dataset": "LiTS 2017 (Dataset006_Liver)", "training_dir": cfg_dir,
                 "folds_available": folds, "fold_exported": fold}
@@ -638,10 +675,25 @@ def run_nnunet(args) -> int:
             base["trainer"] = trainer_name
             scheme = cm.normalization_schemes[0]
             props = plans["foreground_intensity_properties_per_channel"]["0"]
-            if scheme != "CTNormalization":
-                raise NotImplementedError(f"normalization {scheme} cannot be baked as a fixed per-patch op")
+            if scheme not in ("CTNormalization", "ZScoreNormalization"):
+                raise NotImplementedError(f"normalization {scheme} is not supported")
+            bake_ct = scheme == "CTNormalization"
             lo, hi = props["percentile_00_5"], props["percentile_99_5"]
             mean, std = props["mean"], props["std"]
+            if bake_ct:
+                man_norm = {"type": "none"}
+                norm_note = f"baked CTNormalization: clip[{lo}, {hi}] then (x-{mean})/{std}"
+                exact_norm = {"type": "none", "baked": "CTNormalization"}
+            else:
+                zs = LITS_VOLUME_ZSCORE
+                man_norm = {"type": "zscore", "mean": zs["mean"], "std": zs["std"]}
+                use_mask = bool(getattr(cm, "use_mask_for_norm", [False])[0])
+                norm_note = (f"plans use ZScoreNormalization (use_mask_for_norm={use_mask}): per-volume "
+                             f"(x - mean(volume)) / std(volume), not expressible as a fixed NormalizationSpec. "
+                             f"Manifest uses a fixed zscore mean={zs['mean']} std={zs['std']} = median whole-volume "
+                             f"stats of 8 LiTS/MSD-Task03 CTs (per-volume means -408..-610, stds 480..520). "
+                             f"Exact behaviour needs per-volume z-scoring (see exactNormalization).")
+                exact_norm = {"type": "zscore_per_volume", "use_mask_for_norm": use_mask}
             perm = list(pm.transpose_forward)
             patch_net = list(cm.patch_size)
             spacing_net = list(cm.spacing)
@@ -661,7 +713,7 @@ def run_nnunet(args) -> int:
             C = lm.num_segmentation_heads
             colors = {i: LIVER_COLORS.get(n.lower(), "#22c55e") for i, n in labels.items() if i}
 
-            wrapper = make_nnunet_wrapper(net, lo, hi, mean, std, perm)
+            wrapper = make_nnunet_wrapper(net, lo, hi, mean, std, perm, bake_ct=bake_ct)
             onnx_path = out / f"{name}.onnx"
             export(wrapper, torch.zeros(1, 1, PZ, PY, PX), onnx_path)
 
@@ -670,14 +722,19 @@ def run_nnunet(args) -> int:
             normer = CTNormalization(use_mask_for_norm=False, intensityproperties=props)
             parity = {}
             for ptag, hu in (("random_hu", random_hu((PZ, PY, PX))), ("synthetic_ct", phantom_hu((PZ, PY, PX)))):
-                ref_in = normer.run(hu.copy().astype(np.float32), None).astype(np.float32)
+                if bake_ct:  # reference = nnU-Net's own CTNormalization; ORT gets raw HU
+                    ref_in = normer.run(hu.copy().astype(np.float32), None).astype(np.float32)
+                    ort_in = hu
+                else:  # graph has no normalization: both sides get TAMIAS' fixed zscore
+                    ref_in = ((hu - LITS_VOLUME_ZSCORE["mean"]) / LITS_VOLUME_ZSCORE["std"]).astype(np.float32)
+                    ort_in = ref_in
                 ref_in = np.ascontiguousarray(ref_in.transpose(perm))
                 with torch.no_grad():
                     r = net(torch.from_numpy(ref_in)[None, None])
                     r = (r[0] if isinstance(r, (list, tuple)) else r).numpy()
                 inv = [perm.index(i) for i in range(3)]
                 ref = np.ascontiguousarray(r.transpose([0, 1] + [2 + i for i in inv]))
-                got = ort_run(onnx_path, hu[None, None])
+                got = ort_run(onnx_path, np.ascontiguousarray(ort_in)[None, None])
                 parity[ptag] = compare(ref, got)
                 print(f"   parity {ptag}: {parity[ptag]}", flush=True)
 
@@ -688,8 +745,8 @@ def run_nnunet(args) -> int:
                 "license": "CC-BY-4.0",
                 "modality": "CT",
                 "spacing": spacing_xyz,
-                "orientation": "LPS",
-                "normalization": {"type": "none"},
+                "orientation": "RAS",
+                "normalization": man_norm,
                 "inference": {"type": "sliding_window", "patch": [PX, PY, PZ], "overlap": 0.5},
                 "output": {"type": "segmentation", "labels": {str(k): v for k, v in sorted(labels.items())},
                            "colors": {str(k): v for k, v in colors.items()}},
@@ -700,10 +757,12 @@ def run_nnunet(args) -> int:
                 **base, "status": "ok", "file": onnx_path.name, "manifest": f"{name}.json",
                 "size_bytes": onnx_path.stat().st_size, "sha256": onnx_sha, "num_classes": C,
                 "labels": manifest["output"]["labels"], "patch": [PX, PY, PZ], "spacing": spacing_xyz,
-                "orientation": "native stored voxel order (SimpleITK array, no reorientation) — same as TAMIAS",
-                "normalization": {"type": "none"},
-                "normalization_note": f"baked CTNormalization: clip[{lo}, {hi}] then (x-{mean})/{std}",
-                "baked": ["CTNormalization", f"transpose_forward={perm}"],
+                "orientation": ("RAS: nnU-Net trains on the stored voxel order (SimpleITK array, no reorientation); "
+                                "LiTS/MSD-Task03 NIfTIs are stored with RAS axis codes (positive-diagonal affine; "
+                                "verified on 8 MSD Task03 headers), so reorienting to RAS reproduces the training layout"),
+                "normalization": man_norm, "exact_normalization": exact_norm,
+                "normalization_note": norm_note,
+                "baked": (["CTNormalization"] if bake_ct else []) + [f"transpose_forward={perm}"],
                 "plans_patch_size": patch_net, "plans_spacing": spacing_net, "transpose_forward": perm,
                 "checkpoint": str(ckpt_p.relative_to(root)),
                 "parity": parity, "parity_pass": parity_verdict(parity),
@@ -740,6 +799,8 @@ def run_index(args) -> int:
             "sourceFile": r.get("source_file"),
             "sourceMd5": r.get("source_md5"),
             "license": r.get("license"),
+            "licenseText": r.get("license_text"),
+            "codeLicense": r.get("code_license"),
             "arch": r.get("arch_id"),
             "trainedOn": r.get("trained_on"),
             "labels": r.get("labels"),
@@ -756,6 +817,7 @@ def run_index(args) -> int:
             "spacing": r.get("spacing"),
             "normalization": r.get("normalization"),
             "normalizationNote": r.get("normalization_note"),
+            "exactNormalization": r.get("exact_normalization"),
             "orientationNote": r.get("orientation"),
             "baked": r.get("baked"),
             "hyperparamsFrom": r.get("hyperparams_from"),

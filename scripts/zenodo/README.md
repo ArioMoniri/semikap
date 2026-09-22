@@ -35,13 +35,31 @@ Load a model in TAMIAS with its `.onnx` and `.json` together.
   - It builds each network with the hyperparameters of the training toolkit. That toolkit is MedicalLiverSegmentationToolKit, and its BTCV configs give UNet++ `base_chan=10`, SwinUNETR `feature_size=36` and the full MedFormer config. If those don't fit, it falls back to the `lightning_medseg3d` factory. The weights must load strictly. The only exception is MONAI ≥ 1.4's unused `cross_attn` parameters.
   - It wraps each network so that it matches the TAMIAS contract. The input is float32 `[1,1,PZ,PY,PX]` in stored voxel order. The output is logits `[1,C,PZ,PY,PX]`. The export uses opset 17, fixed shapes and fp32.
     - **LightningMedSeg3D:** the graph permutes the axes `[z,y,x]→[x,y,z]` (MONAI) and back. The model's `ScaleIntensityRange(-175..250 → 0..1, clip)` is exactly TAMIAS `window` normalisation with level 37.5 and width 425, so the manifest carries it and it is not baked in. Spacing is 1.5×1.5×2.0 mm and the patch is 96³.
-    - **nnU-Net:** `CTNormalization` is baked into the graph. It clips to the [p0.5, p99.5] range from the plans fingerprint, then applies a z-score. `transpose_forward` is baked in too, and the manifest uses `normalization: none`. Patch and spacing come from `plans.json`, with the axes reversed to TAMIAS `[x,y,z]` order. The script exports fold `all` if it exists, otherwise fold 0.
+    - **nnU-Net:** Dataset006_Liver is `3d_fullres`. Its plans give patch 128³, spacing z,y,x = 1.0, 0.7676, 0.7676 mm, `transpose_forward=[0,1,2]` and **`ZScoreNormalization`**.
+      - ZScoreNormalization is applied per volume: `(x - mean(volume)) / std(volume)`. TAMIAS' `NormalizationSpec` cannot express that.
+      - The manifest therefore uses a fixed `zscore` with mean -500 and std 495. These are the median whole-volume statistics of 8 LiTS/MSD-Task03 CTs. Their per-volume means range from -408 to -610 HU and their standard deviations from 480 to 520 HU.
+      - The index records `exactNormalization: {type: zscore_per_volume}` so TAMIAS can apply exact per-volume normalization later.
+      - If a future plan uses `CTNormalization`, the script bakes the clip at [p0.5, p99.5] followed by a z-score into the graph instead.
+      - The script exports fold `all` if it exists, otherwise fold 0. Folds 0 to 4 ship, and the ensemble is not exported.
   - It runs a parity check. PyTorch runs each model's own reference preprocessing (MONAI-style `[x,y,z]` for LightningMedSeg3D, nnU-Net's `CTNormalization` class for nnU-Net). ONNX Runtime runs the TAMIAS-side preprocessing. Both run on a random-HU patch and a synthetic CT phantom. The check reports the largest absolute difference in logits and the fraction of voxels where the argmax agrees.
+
+## Orientation
+
+TAMIAS reorients each volume to `manifest.orientation` before resampling. It uses nibabel `aff2axcodes` semantics, so axis 0 (x, fastest-varying) points toward `orientation[0]`. It then builds the ONNX input as `[1,1,Z,Y,X]`. Every manifest here uses **RAS**.
+
+- **LightningMedSeg3D:** the training toolkit applies MONAI `Orientationd(axcodes="RAS")` and feeds the network tensors shaped `[B,C,x,y,z]`. The graph therefore applies `permute(0,1,4,3,2)` on the way in and on the way out.
+- **nnU-Net:** nnU-Net never reorients. It trains on the stored voxel order, read as a SimpleITK array `[z,y,x]` and then permuted by `transpose_forward`, and that permutation is baked into the graph. The LiTS / MSD Task03 NIfTIs are stored with RAS axis codes and a positive-diagonal affine. This was checked on 8 MSD Task03 headers read by range request from the MSD S3 tarball. Reorienting to RAS therefore reproduces the training layout.
+
+## Hugging Face mirror (optional)
+
+If the repository secret `HF_TOKEN` is set, CI runs `hf_mirror.py`, which does the following:
+
+1. It uploads every asset, plus the Zenodo LICENSE and CITATION files and a model card, to `<hf-user>/tamias-zenodo-liver-models`.
+2. It writes `"mirrors": ["https://huggingface.co/<user>/tamias-zenodo-liver-models/resolve/main"]` into the index.
+
+Without the token, the step is skipped.
 
 ## Caveats
 
-- TAMIAS does not currently apply `manifest.orientation`. The worker feeds the volume in its stored voxel order.
-  - The LightningMedSeg3D models were trained on volumes reoriented to RAS. On NIfTI files stored in a different orientation, for example LPS from dcm2niix, they see flipped axes.
-  - nnU-Net never reoriented its input, so it matches TAMIAS's behaviour.
 - TAMIAS resamples with trilinear interpolation. The LightningMedSeg3D toolkit resampled images with nearest-neighbour, and nnU-Net uses third-order splines. Expect small differences near boundaries.
 - These models are for research use only. Do not use them for clinical decisions.

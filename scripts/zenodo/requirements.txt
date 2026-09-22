@@ -10,4 +10,6 @@ onnxruntime==1.20.1
 monai==1.4.0
 einops>=0.7
 nnunetv2==2.8.1
+huggingface_hub>=0.24
+lightning>=2.2
 lightning_medseg3d @ git+https://github.com/Removirt/LightningMedSeg3D@f3bc2a26810dfebee8c397a0b8b9a53f0555b002

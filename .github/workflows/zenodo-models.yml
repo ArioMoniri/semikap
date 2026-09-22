@@ -35,6 +35,7 @@ env:
   nnUNet_raw: /tmp/nnunet/raw
   nnUNet_preprocessed: /tmp/nnunet/preprocessed
   nnUNet_results: /tmp/nnunet/results
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
 jobs:
   convert:
@@ -63,7 +64,9 @@ jobs:
 
       - name: Fetch + verify LightningMedSeg3D weights (Zenodo 21037952)
         continue-on-error: true
-        run: python scripts/zenodo/fetch.py --out work --only lms3d
+        run: |
+          python scripts/zenodo/fetch.py --out work --only lms3d
+          mkdir -p meta/lms3d && cp work/lms3d/{LICENSE,CITATION.cff,README.md,metadata.json,_zenodo_record.json} meta/lms3d/ 2>/dev/null || true
 
       - name: Export LightningMedSeg3D → ONNX (+ parity)
         continue-on-error: true
@@ -74,7 +77,9 @@ jobs:
 
       - name: Fetch + verify nnU-Net Dataset006_Liver (Zenodo 11582728)
         continue-on-error: true
-        run: python scripts/zenodo/fetch.py --out work --only nnunet
+        run: |
+          python scripts/zenodo/fetch.py --out work --only nnunet
+          mkdir -p meta/nnunet && cp work/nnunet/_zenodo_record.json meta/nnunet/ 2>/dev/null || true
 
       - name: Export nnU-Net → ONNX (+ parity)
         continue-on-error: true
@@ -144,3 +149,13 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" --clobber dist/*.onnx dist/*.json dist/zenodo-models-reports.tar.gz
           gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | "\(.name)\t\(.size)"'
+
+      - name: Mirror to Hugging Face (optional, needs HF_TOKEN secret)
+        if: (github.event_name == 'push' || inputs.publish) && env.HF_TOKEN != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/zenodo/hf_mirror.py --dist dist --meta meta
+          # index now carries "mirrors": [...] — refresh it on the GitHub release too
+          gh release upload "$RELEASE_TAG" --clobber dist/zenodo-models-index.json
