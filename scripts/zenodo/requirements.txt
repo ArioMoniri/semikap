@@ -1,0 +1,13 @@
+# Install torch first from the CPU index (much smaller than the CUDA wheel):
+#   pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+# then:  pip install -r scripts/zenodo/requirements.txt
+# torch is pinned (2.5.1) so the TorchScript ONNX exporter + torch.load(weights_only=False) behave as tested.
+torch==2.5.1
+torchvision==0.20.1
+numpy>=1.24,<2
+onnx==1.17.0
+onnxruntime==1.20.1
+monai==1.4.0
+einops>=0.7
+nnunetv2==2.8.1
+lightning_medseg3d @ git+https://github.com/Removirt/LightningMedSeg3D@f3bc2a26810dfebee8c397a0b8b9a53f0555b002

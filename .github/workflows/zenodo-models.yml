@@ -1,0 +1,146 @@
+name: Zenodo models → ONNX
+
+# Converts the two Zenodo liver-segmentation records wired into TAMIAS to
+# ONNX + TAMIAS manifests and publishes them as assets of the pre-release
+# `zenodo-models-v1`:
+#   * 10.5281/zenodo.21037952 — LightningMedSeg3D (9 architectures)
+#   * 10.5281/zenodo.11582728 — nnU-Net v2 Dataset006_Liver (LiTS 2017)
+# The tag deliberately does NOT start with `v` (v* triggers tauri-release.yml).
+# Local equivalent: see scripts/zenodo/README.md.
+
+on:
+  push:
+    branches: [claude/gifted-einstein-o3jzg1]
+    paths:
+      - .github/workflows/zenodo-models.yml
+      - scripts/zenodo/**
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish assets to the zenodo-models-v1 pre-release
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: zenodo-models
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: zenodo-models-v1
+  PYTHONUNBUFFERED: '1'
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+  nnUNet_raw: /tmp/nnunet/raw
+  nnUNet_preprocessed: /tmp/nnunet/preprocessed
+  nnUNet_results: /tmp/nnunet/results
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: scripts/zenodo/requirements.txt
+
+      - name: Install CPU torch + converters
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r scripts/zenodo/requirements.txt
+          python -c "import torch, onnx, onnxruntime, monai, nnunetv2, lightning_medseg3d; print('torch', torch.__version__, 'onnx', onnx.__version__, 'ort', onnxruntime.__version__, 'monai', monai.__version__)"
+
+      - name: Fetch + verify LightningMedSeg3D weights (Zenodo 21037952)
+        continue-on-error: true
+        run: python scripts/zenodo/fetch.py --out work --only lms3d
+
+      - name: Export LightningMedSeg3D → ONNX (+ parity)
+        continue-on-error: true
+        run: |
+          python -W ignore scripts/zenodo/export_onnx.py lms3d --weights-dir work/lms3d --out dist
+          rm -f work/lms3d/*.pth
+          df -h /
+
+      - name: Fetch + verify nnU-Net Dataset006_Liver (Zenodo 11582728)
+        continue-on-error: true
+        run: python scripts/zenodo/fetch.py --out work --only nnunet
+
+      - name: Export nnU-Net → ONNX (+ parity)
+        continue-on-error: true
+        run: |
+          find work/nnunet/extracted -maxdepth 4 | head -50
+          for f in $(find work/nnunet/extracted -name plans.json); do echo "== $f"; python -c "import json,sys; p=json.load(open('$f')); print('transpose_forward', p.get('transpose_forward'), 'reader', p.get('image_reader_writer')); [print(k, v.get('patch_size'), v.get('spacing'), v.get('normalization_schemes')) for k, v in p['configurations'].items()]; print(p['foreground_intensity_properties_per_channel'])"; done
+          python -W ignore scripts/zenodo/export_onnx.py nnunet --model-dir work/nnunet/extracted --out dist
+          rm -rf work/nnunet
+          df -h /
+
+      - name: Build index
+        run: |
+          python scripts/zenodo/export_onnx.py index --out dist
+          mkdir -p reports && mv dist/*.report.json reports/
+          tar -czf dist/zenodo-models-reports.tar.gz -C reports .
+          ls -la dist
+          python - <<'EOF'
+          import json
+          idx = json.load(open("dist/zenodo-models-index.json"))
+          ok = [m for m in idx["models"] if m["status"] == "ok"]
+          rows = ["| model | trained on | ONNX MB | sha256 | classes | patch | spacing | parity max\\|Δ\\| / argmax agree | status |",
+                  "|---|---|---|---|---|---|---|---|---|"]
+          for m in idx["models"]:
+              if m["status"] == "ok":
+                  p = m["parity"] or {}
+                  rows.append(f"| `{m['id']}` | {m['trainedOn']} | {m['bytes']/1e6:.1f} | `{m['sha256'][:16]}…` | {m['numClasses']} | {m['patch']} | {m['spacing']} | {p.get('maxAbsDiff', 0):.2e} / {p.get('minArgmaxAgreement', 0):.4f} | ok |")
+              else:
+                  rows.append(f"| `{m['id']}` | {m.get('trainedOn')} | – | – | – | – | – | – | **failed**: {str(m['error'])[:160]} |")
+          body = [
+              "TAMIAS-ready ONNX exports (opset 17, fp32, fixed patch) of two Zenodo records, converted by `.github/workflows/zenodo-models.yml` / `scripts/zenodo/export_onnx.py`.",
+              "",
+              "* LightningMedSeg3D weights — https://doi.org/10.5281/zenodo.21037952 (CC-BY-4.0; architecture code AGPL-3.0-or-later)",
+              "* nnU-Net v2 Dataset006_Liver (LiTS 2017, BAMF Health) — https://doi.org/10.5281/zenodo.11582728 (CC-BY-4.0)",
+              "",
+              "Each `<id>.onnx` has a matching TAMIAS manifest `<id>.json`; `zenodo-models-index.json` lists everything (schema `tamias.model-index.v1`). Research use only — not for clinical decisions.",
+              "",
+              *rows,
+          ]
+          open("release-notes.md", "w").write("\n".join(body) + "\n")
+          print("\n".join(rows))
+          if not ok:
+              raise SystemExit("no model exported successfully")
+          EOF
+
+      - name: Upload reports (workflow artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zenodo-models-reports
+          path: |
+            reports/
+            dist/zenodo-models-index.json
+            dist/*.json
+          if-no-files-found: ignore
+
+      - name: Publish pre-release ${{ env.RELEASE_TAG }}
+        if: github.event_name == 'push' || inputs.publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          case "$RELEASE_TAG" in v*) echo "refusing v* tag"; exit 1;; esac
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --prerelease --target "$GITHUB_SHA" \
+              --title "Zenodo liver models (ONNX for TAMIAS)" --notes-file release-notes.md
+          else
+            gh release edit "$RELEASE_TAG" --prerelease --notes-file release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" --clobber dist/*.onnx dist/*.json dist/zenodo-models-reports.tar.gz
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | "\(.name)\t\(.size)"'
