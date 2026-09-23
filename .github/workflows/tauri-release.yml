@@ -254,6 +254,17 @@ jobs:
           echo "  resolved release id: $RELEASE_ID for tag $TAG"
           echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Un-draft (not yet latest) so tag-based gh release commands can see it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.rel.outputs.release_id }}
+        run: |
+          set -e
+          # `gh release download/upload <tag>` cannot resolve draft releases
+          # ("release not found"), which every step below relies on. The
+          # `publish` job marks it latest once latest.json is attached.
+          gh api -X PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" -F draft=false -f make_latest=false --jq '.html_url'
+
       - name: Release notes from CHANGELOG.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
