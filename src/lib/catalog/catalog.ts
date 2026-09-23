@@ -111,6 +111,37 @@ const LMS3D_CITATION =
   'LightningMedSeg3D: Trained Weights of Nine 3D Medical Image Segmentation Networks on BTCV and ' +
   'MSD Task03 (Liver). Zenodo, 2026. doi:10.5281/zenodo.21037952';
 
+/** BTCV 13-organ label map of the LightningMedSeg3D checkpoints (from the release index). */
+const BTCV_LABELS: Record<number, string> = {
+  0: 'background',
+  1: 'spleen',
+  2: 'right_kidney',
+  3: 'left_kidney',
+  4: 'gallbladder',
+  5: 'esophagus',
+  6: 'liver',
+  7: 'stomach',
+  8: 'aorta',
+  9: 'inferior_vena_cava',
+  10: 'portal_and_splenic_veins',
+  11: 'pancreas',
+  12: 'right_adrenal_gland',
+  13: 'left_adrenal_gland',
+};
+/** nnU-Net Dataset006_Liver label map, verbatim from its dataset.json ('tumsomething' is the authors' name). */
+const NNUNET_LIVER_LABELS: Record<number, string> = {
+  0: 'background',
+  1: 'spleen',
+  2: 'kidneys',
+  3: 'pancreas',
+  4: 'stomach',
+  5: 'heart',
+  6: 'duodenum',
+  7: 'tumsomething',
+  8: 'liver',
+  9: 'tumor',
+};
+
 const LMS3D_ARCHS: Array<{ arch: string; name: string; kind: 'cnn' | 'transformer' }> = [
   { arch: 'unet', name: '3D U-Net', kind: 'cnn' },
   { arch: 'vnet', name: '3D V-Net', kind: 'cnn' },
@@ -145,6 +176,7 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
       // The Zenodo checkpoints are the BTCV 13-organ models (liver = label 6, no tumour class).
       trainedOn: ['btcv'],
       ...assetUrls(`lms3d_${arch}`),
+      labels: BTCV_LABELS,
       status: 'unpublished',
     })
   ),
@@ -166,6 +198,7 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
     codeUrl: 'https://github.com/MIC-DKFZ/nnUNet',
     trainedOn: ['msd-task03-liver'],
     ...assetUrls('nnunet_liver_lits'),
+    labels: NNUNET_LIVER_LABELS,
     status: 'unpublished',
   },
 ];

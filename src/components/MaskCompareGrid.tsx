@@ -22,6 +22,7 @@ import {
 } from '../lib/benchmark/mask-compare';
 import { groupsForModelLabels } from '../lib/metrics/label-groups';
 import { readNiftiVolume } from '../lib/datasets/nifti-volume';
+import { canonicalDatasetId } from '../lib/benchmark/compare';
 import { Button } from './ui/Button';
 
 function shortName(n: string): string {
@@ -50,9 +51,11 @@ function Tile({
     c.height = ks.height;
     const ctx = c.getContext('2d');
     if (!ctx) return;
-    const px = composeTile(ks.ct, ks.gt, pred, ks.width, ks.height);
+    // Outline thick enough to survive the downscale to `size` CSS px.
+    const outline = Math.max(1, Math.round(ks.width / size));
+    const px = composeTile(ks.ct, ks.gt, pred, ks.width, ks.height, undefined, outline);
     ctx.putImageData(new ImageData(px, ks.width, ks.height), 0, 0);
-  }, [ks, pred]);
+  }, [ks, pred, size]);
   return (
     <figure className="flex flex-col items-center gap-1">
       <figcaption className="text-center text-[11px] leading-tight text-slate-700 dark:text-slate-200">
@@ -87,7 +90,7 @@ export function MaskCompareGrid({ size = 170 }: { size?: number }) {
     const m = new Map<string, number>();
     for (const r of records) {
       const d = r.segmentation?.find((s) => s.label === 1)?.dice;
-      if (typeof d === 'number') m.set(`${r.datasetName}/${r.case.caseId}|${r.model.name}`, d);
+      if (typeof d === 'number') m.set(`${canonicalDatasetId(r.datasetName)}/${r.case.caseId}|${r.model.name}`, d);
     }
     return m;
   }, [records]);

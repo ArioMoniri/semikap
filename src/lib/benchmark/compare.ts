@@ -8,6 +8,18 @@ import type { BenchmarkRecord } from './types';
 import type { SegMetrics } from '../metrics/segmentation';
 import { mannWhitneyU } from '../stats/multi-model';
 
+/**
+ * The headless runner names datasets by folder (hcc_tace_seg); the app uses
+ * catalogue ids (hcc-tace-seg). Normalise so records from both merge.
+ */
+const DATASET_ALIASES: Record<string, string> = {
+  hcc_tace_seg: 'hcc-tace-seg',
+  msd_task03_liver: 'msd-task03-liver',
+};
+export function canonicalDatasetId(name: string): string {
+  return DATASET_ALIASES[name] ?? name;
+}
+
 export type SegMetricKey = 'dice' | 'iou' | 'hd95Mm' | 'assdMm' | 'volumetricSimilarity' | 'precision' | 'recall';
 const LOWER_IS_BETTER = new Set<SegMetricKey>(['hd95Mm', 'assdMm']);
 
@@ -42,11 +54,11 @@ export interface ScoreMatrix {
 
 export function recordsToMatrix(records: readonly BenchmarkRecord[], q: MatrixQuery): ScoreMatrix {
   const seg = records.filter((r) => r.task === 'segmentation');
-  const datasets = [...new Set(seg.map((r) => r.datasetName))].sort();
-  const inDs = q.dataset ? seg.filter((r) => r.datasetName === q.dataset) : seg;
+  const datasets = [...new Set(seg.map((r) => canonicalDatasetId(r.datasetName)))].sort();
+  const inDs = q.dataset ? seg.filter((r) => canonicalDatasetId(r.datasetName) === canonicalDatasetId(q.dataset!)) : seg;
   const models = [...new Set(inDs.map(modelKey))].sort();
   // Rows are keyed by dataset + case so identical case ids from two sources never merge.
-  const caseKey = (r: BenchmarkRecord) => (q.dataset ? r.case.caseId : `${r.datasetName}/${r.case.caseId}`);
+  const caseKey = (r: BenchmarkRecord) => (q.dataset ? r.case.caseId : `${canonicalDatasetId(r.datasetName)}/${r.case.caseId}`);
   const byCase = new Map<string, Map<string, number>>();
   for (const r of inDs) {
     const v = metricOf(r, q.label, q.metric);
@@ -86,7 +98,7 @@ export function crossDatasetSummary(
   return models.map((model) => {
     const per = q.datasets.map((ds) =>
       records
-        .filter((r) => r.datasetName === ds && modelKey(r) === model)
+        .filter((r) => canonicalDatasetId(r.datasetName) === canonicalDatasetId(ds) && modelKey(r) === model)
         .map((r) => metricOf(r, q.label, q.metric))
         .filter((v): v is number => v !== null)
     );

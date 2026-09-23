@@ -7,7 +7,7 @@
  * pairwise_<ds>_<structure>_<metric>.csv, cross_dataset_<structure>_<metric>.csv, REPORT.md.
  */
 import type { BenchmarkRecord } from './types';
-import { recordsToMatrix, crossDatasetSummary, modelKey, type SegMetricKey } from './compare';
+import { recordsToMatrix, crossDatasetSummary, modelKey, canonicalDatasetId, type SegMetricKey } from './compare';
 import {
   friedmanTest,
   nemenyiCriticalDifference,
@@ -66,7 +66,7 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
       ]);
   files['per_case.csv'] = csv(perCase);
 
-  const datasets = [...new Set(records.map((r) => r.datasetName))].sort();
+  const datasets = [...new Set(records.map((r) => canonicalDatasetId(r.datasetName)))].sort();
   const md: string[] = [
     '# TAMIAS catalogue benchmark — statistical report',
     '',

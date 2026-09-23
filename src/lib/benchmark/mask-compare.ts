@@ -149,7 +149,8 @@ export function composeTile(
   pred: Uint8Array | null,
   width: number,
   height: number,
-  window: { level: number; width: number } = { level: 40, width: 400 }
+  window: { level: number; width: number } = { level: 40, width: 400 },
+  outline = 1
 ): Uint8ClampedArray<ArrayBuffer> {
   const out = new Uint8ClampedArray(new ArrayBuffer(width * height * 4));
   const lo = window.level - window.width / 2;
@@ -167,8 +168,18 @@ export function composeTile(
         b = 0.55 * b + 0.45 * PRED_RGB[2]!;
       }
       if (gt[i]) {
-        const edge =
-          x === 0 || y === 0 || x === width - 1 || y === height - 1 || !gt[i - 1] || !gt[i + 1] || !gt[i - width] || !gt[i + width];
+        // Edge = a GT pixel within `outline` px (Chebyshev) of a non-GT pixel or the border.
+        let edge = false;
+        for (let dy = -outline; dy <= outline && !edge; dy++) {
+          for (let dx = -outline; dx <= outline; dx++) {
+            const xx = x + dx;
+            const yy = y + dy;
+            if (xx < 0 || yy < 0 || xx >= width || yy >= height || !gt[yy * width + xx]) {
+              edge = true;
+              break;
+            }
+          }
+        }
         if (edge) [r, g, b] = GT_RGB as [number, number, number];
       }
       out[i * 4] = r;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recordsToMatrix, crossDatasetSummary, importRecordsText } from '../src/lib/benchmark/compare';
+import { recordsToMatrix, crossDatasetSummary, importRecordsText, canonicalDatasetId } from '../src/lib/benchmark/compare';
 import type { BenchmarkRecord } from '../src/lib/benchmark/types';
 
 function rec(model: string, ds: string, caseId: string, dice: number, label = 1): BenchmarkRecord {
@@ -76,5 +76,17 @@ describe('recordsToMatrix keying (verifier findings)', () => {
     a.model.version = 'c';
     const m = recordsToMatrix([a, b], { dataset: 'hcc', label: 1, metric: 'dice' });
     expect(m.models).toHaveLength(2);
+  });
+});
+
+describe('dataset id normalisation (runner folder names ↔ catalogue ids)', () => {
+  it('maps hcc_tace_seg / msd_task03_liver to catalogue ids and merges them in matrices', () => {
+    expect(canonicalDatasetId('hcc_tace_seg')).toBe('hcc-tace-seg');
+    expect(canonicalDatasetId('msd_task03_liver')).toBe('msd-task03-liver');
+    expect(canonicalDatasetId('custom set')).toBe('custom set');
+    const r = [rec('A', 'hcc_tace_seg', 'c1', 0.9), rec('B', 'hcc-tace-seg', 'c1', 0.8)];
+    const m = recordsToMatrix(r, { dataset: 'hcc-tace-seg', label: 1, metric: 'dice' });
+    expect(m.datasets).toEqual(['hcc-tace-seg']);
+    expect(m.values).toEqual([[0.9, 0.8]]);
   });
 });

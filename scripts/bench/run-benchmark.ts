@@ -28,6 +28,7 @@ import { niftiDataToVolume } from '../../src/lib/datasets/nifti-volume';
 import { niftiDataToMask, parseNiftiHeader } from '../../src/lib/datasets/nifti-mask';
 import { scoreLabelGroupsMapped, groupsForModelLabels } from '../../src/lib/metrics/label-groups';
 import type { BenchmarkRecord } from '../../src/lib/benchmark/types';
+import { canonicalDatasetId } from '../../src/lib/benchmark/compare';
 import type { ModelManifest } from '../../src/types';
 
 function arg(name: string, def?: string): string | undefined {
@@ -168,7 +169,7 @@ for (const id of models) {
         schema: 'tamias.benchmark.v1',
         id: randomUUID(),
         profileId: 'default',
-        datasetName: c.source!,
+        datasetName: canonicalDatasetId(c.source!),
         task: 'segmentation',
         model: { name: manifest.name, version: manifest.version, sha256: modelSha },
         case: {

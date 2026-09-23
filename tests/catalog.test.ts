@@ -37,6 +37,14 @@ describe('static model catalogue', () => {
     expect(CATALOG_MODELS).toHaveLength(10);
   });
 
+  it('ships the label maps statically (offline / browser builds without the release index)', () => {
+    const unet = CATALOG_MODELS.find((m) => m.id === 'lms3d_unet')!;
+    expect(unet.labels?.[6]).toBe('liver');
+    const nn = CATALOG_MODELS.find((m) => m.id === 'nnunet_liver_lits')!;
+    expect(nn.labels?.[8]).toBe('liver');
+    expect(nn.labels?.[9]).toBe('tumor');
+  });
+
   it('has no TotalSegmentator entries', () => {
     expect(CATALOG_MODELS.some((m) => /totalseg/i.test(m.id + m.name))).toBe(false);
   });

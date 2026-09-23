@@ -75,4 +75,17 @@ describe('composeTile', () => {
     // pixel 5: GT outline orange
     expect([px[20], px[21], px[22]]).toEqual([235, 104, 52]);
   });
+
+  it('draws a thicker outline when asked (legible after downscaling)', () => {
+    const w = 8;
+    const gt = new Uint8Array(64);
+    for (let y = 2; y < 7; y++) for (let x = 2; x < 7; x++) gt[y * w + x] = 1;
+    const ct = new Float32Array(64);
+    const thin = composeTile(ct, gt, null, w, w, undefined, 1);
+    const thick = composeTile(ct, gt, null, w, w, undefined, 2);
+    const orange = (px: Uint8ClampedArray, i: number) => px[i * 4] === 235;
+    expect(orange(thin, 3 * w + 3)).toBe(false); // interior, 1 px from the edge
+    expect(orange(thick, 3 * w + 3)).toBe(true);
+    expect(orange(thick, 4 * w + 4)).toBe(false); // centre stays CT
+  });
 });
