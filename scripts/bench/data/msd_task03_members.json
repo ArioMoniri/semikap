@@ -1,5 +1,18 @@
 {
  "url": "https://msd-for-monai.s3-us-west-2.amazonaws.com/Task03_Liver.tar",
+ "note": "30 labelled MSD Task03 (LiTS training) cases, pinned as [data offset, size] inside the tar. original10: the first benchmark set (also run with nnU-Net: resubstitution for it). The other 20 were drawn once from the remaining 121 labelled cases with random.Random(20260923).sample(sorted remaining, 20) and are benchmarked with the 9 BTCV-trained LightningMedSeg3D nets only (external for them; nnU-Net would be resubstitution).",
+ "original10": [
+  "liver_1",
+  "liver_22",
+  "liver_51",
+  "liver_53",
+  "liver_55",
+  "liver_67",
+  "liver_69",
+  "liver_75",
+  "liver_77",
+  "liver_79"
+ ],
  "members": {
   "liver_1": {
    "image": [
@@ -99,6 +112,206 @@
    "label": [
     28901053440,
     68180
+   ]
+  },
+  "liver_4": {
+   "image": [
+    17745730048,
+    260053962
+   ],
+   "label": [
+    28922288128,
+    475326
+   ]
+  },
+  "liver_5": {
+   "image": [
+    9259729408,
+    166356207
+   ],
+   "label": [
+    28909589504,
+    223196
+   ]
+  },
+  "liver_8": {
+   "image": [
+    17555840000,
+    189888503
+   ],
+   "label": [
+    28922025984,
+    260390
+   ]
+  },
+  "liver_28": {
+   "image": [
+    6160588288,
+    39173535
+   ],
+   "label": [
+    28904591360,
+    148601
+   ]
+  },
+  "liver_33": {
+   "image": [
+    13285062144,
+    43312965
+   ],
+   "label": [
+    28915735040,
+    130325
+   ]
+  },
+  "liver_39": {
+   "image": [
+    18582036992,
+    74261180
+   ],
+   "label": [
+    28923941376,
+    207054
+   ]
+  },
+  "liver_46": {
+   "image": [
+    16471601664,
+    34692726
+   ],
+   "label": [
+    28920467456,
+    63835
+   ]
+  },
+  "liver_49": {
+   "image": [
+    7938674688,
+    71532919
+   ],
+   "label": [
+    28907511808,
+    99640
+   ]
+  },
+  "liver_58": {
+   "image": [
+    16397422080,
+    74177771
+   ],
+   "label": [
+    28920351232,
+    114421
+   ]
+  },
+  "liver_68": {
+   "image": [
+    11709297664,
+    63055028
+   ],
+   "label": [
+    28913440256,
+    118484
+   ]
+  },
+  "liver_70": {
+   "image": [
+    15086726656,
+    95150066
+   ],
+   "label": [
+    28918381568,
+    173203
+   ]
+  },
+  "liver_73": {
+   "image": [
+    8787838976,
+    35848927
+   ],
+   "label": [
+    28908853760,
+    55282
+   ]
+  },
+  "liver_84": {
+   "image": [
+    2435372544,
+    283142589
+   ],
+   "label": [
+    28898833408,
+    437555
+   ]
+  },
+  "liver_92": {
+   "image": [
+    9498519552,
+    267170369
+   ],
+   "label": [
+    28909932544,
+    360928
+   ]
+  },
+  "liver_94": {
+   "image": [
+    3238260736,
+    322690437
+   ],
+   "label": [
+    28900092928,
+    383794
+   ]
+  },
+  "liver_97": {
+   "image": [
+    10032969216,
+    255343017
+   ],
+   "label": [
+    28910696960,
+    452664
+   ]
+  },
+  "liver_110": {
+   "image": [
+    6199763456,
+    253151117
+   ],
+   "label": [
+    28904741888,
+    350481
+   ]
+  },
+  "liver_112": {
+   "image": [
+    8051548160,
+    236870126
+   ],
+   "label": [
+    28907721216,
+    361334
+   ]
+  },
+  "liver_119": {
+   "image": [
+    12862455808,
+    156682857
+   ],
+   "label": [
+    28915154944,
+    213934
+   ]
+  },
+  "liver_129": {
+   "image": [
+    18238395392,
+    135981386
+   ],
+   "label": [
+    28923109888,
+    489649
    ]
   }
  }

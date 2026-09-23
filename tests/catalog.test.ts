@@ -78,11 +78,14 @@ describe('static dataset catalogue', () => {
     expect(d!.groundTruth).toContain('liver');
     const acc = d!.access;
     if (acc.kind !== 'idc-s3') throw new Error('expected idc-s3');
-    expect(acc.cases).toHaveLength(10);
+    // All QC-passing cases (82 of 105; flow log scripts/bench/data/hcc_flow.csv), the original 10 first.
+    expect(acc.cases.length).toBeGreaterThanOrEqual(10);
+    expect(acc.cases.slice(0, 2).map((c) => c.caseId)).toEqual(['HCC_002', 'HCC_003']);
     for (const c of acc.cases) {
       expect(c.ctSeriesUuid).toMatch(/^[0-9a-f-]{36}$/);
       expect(c.segSeriesUuid).toMatch(/^[0-9a-f-]{36}$/);
-      expect(c.acquisitionNumber).toBeGreaterThan(0);
+      // Absent when the series carries no AcquisitionNumber (single phase, e.g. HCC_065): whole series used.
+      if (c.acquisitionNumber !== undefined) expect(c.acquisitionNumber).toBeGreaterThan(0);
     }
     expect(acc.cases.map((c) => c.caseId)).not.toContain('HCC_001');
   });
@@ -91,6 +94,7 @@ describe('static dataset catalogue', () => {
     const unet = CATALOG_MODELS.find((m) => m.id === 'lms3d_unet')!;
     const pairs = datasetsForModel(unet);
     expect(pairs.map((p) => p.id)).toContain('hcc-tace-seg');
+    expect(pairs.map((p) => p.id)).toContain('crlm');
     const hcc = CATALOG_DATASETS.find((d) => d.id === 'hcc-tace-seg')!;
     expect(modelsForDataset(hcc)).toHaveLength(10);
     // Zenodo 21037952 weights are the BTCV 13-organ checkpoints; nnU-Net was trained on LiTS (= MSD Task03).

@@ -17,109 +17,41 @@ phase is not recorded in the DICOM; inter-phase motion is assumed negligible.
 SEG segments are mapped by label onto the chosen CT grid (nearest-neighbour resample
 when the SEG grid differs from the CT grid, e.g. HCC_001).
 
+QC (pre-specified, fixed; a case is excluded when any rule fails, reason codes in the
+flow log, default <out>/../hcc_flow.csv):
+  NO_EXPERT_SEG           no expert (non-AI) SEG for the patient
+  SEG_NO_REFERENCE        SEG has no ReferencedSeriesSequence (source CT unknown)
+  CT_NOT_IN_INDEX         referenced CT series not in IDC
+  NO_USABLE_ACQUISITION   no acquisition builds a uniform slice grid
+  AMBIGUOUS_ACQUISITION   acquisitions on different z-grids (or one unusable) -> annotated grid ambiguous
+  ARTERIAL_ONLY           best acquisition has aorta - portal vein > 80 HU
+  SEG_NOT_IN_CT           < 98 % of the liver or mass SEG volume inside the chosen acquisition
+  MISSING_SEGMENT         no liver or no mass segment
+  ERROR                   download / parse failure
+`--n all` processes every patient; `--n K` takes the first K passing PatientIDs (the
+original benchmark set is --n 10 = HCC_002..HCC_015; `--n all` keeps those identical).
+
 Outputs <out>/<case_id>/{ct.nii.gz, gt_liver.nii.gz, gt_tumor.nii.gz,
 seg_labels.nii.gz, meta.json}; gt_liver = Liver U Mass, gt_tumor = Mass.
 
-Usage: python fetch_hcc_tace_seg.py --n 10 --out data/hcc_tace_seg [--work raw/hcc]
+Usage: python fetch_hcc_tace_seg.py --n all --jobs 3 --out data/hcc_tace_seg [--work raw/hcc] [--flow data/hcc_flow.csv]
 Requires: idc-index, s5cmd, pydicom, SimpleITK, numpy, nibabel
 """
-import argparse, glob, json, os, shutil, subprocess, sys
+import argparse, functools, glob, json, os, shutil, sys
 from collections import defaultdict
 
 import numpy as np
 import pydicom
 import SimpleITK as sitk
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from idc_common import (QCError, build_ct, crdc_uuid, parse_n, run_ordered, s5_get,  # noqa: E402
+                        seg_to_label_images, write_flow)
+
 LICENSE = "CC BY 4.0"
 CITATION = ("Moawad AW, et al. Multimodality annotated HCC cases with and without "
             "advanced imaging segmentation (HCC-TACE-Seg). The Cancer Imaging Archive, "
             "2021. https://doi.org/10.7937/TCIA.5FNA-0924")
-
-
-def s5_get(url, dst):
-    os.makedirs(dst, exist_ok=True)
-    if glob.glob(os.path.join(dst, "*.dcm")):
-        return
-    subprocess.run(["s5cmd", "--no-sign-request", "--numworkers", "16", "cp", url, dst + "/"],
-                   check=True, stdout=subprocess.DEVNULL)
-
-
-def geom(ds):
-    iop = np.array(ds.ImageOrientationPatient, float)
-    r, c = iop[:3], iop[3:]
-    n = np.cross(r, c)
-    return r, c, n
-
-
-def build_ct(dsets):
-    """dsets: headers+pixels of one acquisition. Returns sitk image (LPS)."""
-    r, c, n = geom(dsets[0])
-    dsets = sorted(dsets, key=lambda d: float(np.dot(np.array(d.ImagePositionPatient, float), n)))
-    z = np.array([np.dot(np.array(d.ImagePositionPatient, float), n) for d in dsets])
-    dz = np.diff(z)
-    if len(dz) == 0 or np.ptp(dz) > 0.01 * abs(np.median(dz)) or np.any(dz <= 0):
-        raise ValueError(f"non-uniform/duplicate slice spacing: {np.unique(np.round(dz, 3))}")
-    arr = np.stack([d.pixel_array.astype(np.float32) * float(d.get("RescaleSlope", 1))
-                    + float(d.get("RescaleIntercept", 0)) for d in dsets]).astype(np.int16)
-    img = sitk.GetImageFromArray(arr)
-    ps = [float(x) for x in dsets[0].PixelSpacing]  # [row spacing, col spacing]
-    img.SetSpacing((ps[1], ps[0], float(np.median(dz))))
-    img.SetOrigin(tuple(float(x) for x in dsets[0].ImagePositionPatient))
-    img.SetDirection(tuple(np.stack([r, c, n], axis=1).ravel()))
-    return img, dsets
-
-
-def seg_to_label_images(seg, ref_img):
-    """Return {segment_number: sitk uint8 mask on ref_img grid}, segment label dict."""
-    labels = {int(s.SegmentNumber): str(s.SegmentLabel) for s in seg.SegmentSequence}
-    sh = seg.SharedFunctionalGroupsSequence[0]
-    pm = sh.PixelMeasuresSequence[0]
-    ps = [float(x) for x in pm.PixelSpacing]
-    iop = np.array(sh.PlaneOrientationSequence[0].ImageOrientationPatient, float)
-    r, c = iop[:3], iop[3:]
-    n = np.cross(r, c)
-    px = seg.pixel_array
-    if px.ndim == 2:
-        px = px[None]
-    frames = defaultdict(list)
-    for i, f in enumerate(seg.PerFrameFunctionalGroupsSequence):
-        sn = int(f.SegmentIdentificationSequence[0].ReferencedSegmentNumber)
-        ipp = np.array(f.PlanePositionSequence[0].ImagePositionPatient, float)
-        frames[sn].append((ipp, px[i]))
-    # SEG grid: all distinct frame positions across segments (shared)
-    allpos = {}
-    for sn, fl in frames.items():
-        for ipp, _ in fl:
-            allpos[round(float(np.dot(ipp, n)), 3)] = ipp
-    zs = np.array(sorted(allpos))
-    dzs = np.diff(zs)
-    dz = float(np.min(dzs)) if len(dzs) else float(pm.get("SpacingBetweenSlices", pm.SliceThickness))
-    nz = int(round((zs[-1] - zs[0]) / dz)) + 1
-    origin = allpos[zs[0]]
-    out, cov = {}, {}
-    for sn, fl in frames.items():
-        vol = np.zeros((nz, seg.Rows, seg.Columns), np.uint8)
-        for ipp, fr in fl:
-            k = int(round((np.dot(ipp, n) - zs[0]) / dz))
-            vol[k] |= (fr > 0).astype(np.uint8)
-        im = sitk.GetImageFromArray(vol)
-        im.SetSpacing((ps[1], ps[0], dz))
-        im.SetOrigin(tuple(origin))
-        im.SetDirection(tuple(np.stack([r, c, n], axis=1).ravel()))
-        same = (im.GetSize() == ref_img.GetSize()
-                and np.allclose(im.GetOrigin(), ref_img.GetOrigin(), atol=1e-2)
-                and np.allclose(im.GetSpacing(), ref_img.GetSpacing(), atol=1e-3)
-                and np.allclose(im.GetDirection(), ref_img.GetDirection(), atol=1e-4))
-        if same:
-            im.CopyInformation(ref_img)
-            out[sn] = im
-        else:
-            out[sn] = sitk.Resample(im, ref_img, sitk.Transform(), sitk.sitkNearestNeighbor, 0, sitk.sitkUInt8)
-        v_native = vol.sum() * ps[0] * ps[1] * dz
-        v_ct = sitk.GetArrayViewFromImage(out[sn]).sum() * float(np.prod(ref_img.GetSpacing()))
-        cov[sn] = float(v_ct / v_native) if v_native else 1.0
-    resampled = not same
-    return out, labels, resampled, cov
 
 
 def find(labels, *keys):
@@ -133,10 +65,12 @@ def process(pid, seg_row, idx, work, out_root, strict=True):
     pw = os.path.join(work, pid)
     s5_get(seg_row.series_aws_url, os.path.join(pw, "seg"))
     seg = pydicom.dcmread(glob.glob(os.path.join(pw, "seg", "*.dcm"))[0])
+    if "ReferencedSeriesSequence" not in seg:
+        raise QCError(["SEG_NO_REFERENCE"], "SEG has no ReferencedSeriesSequence (source CT series unknown)")
     ref_uid = seg.ReferencedSeriesSequence[0].SeriesInstanceUID
     ctr = idx[idx.SeriesInstanceUID == ref_uid]
     if len(ctr) != 1:
-        raise ValueError(f"referenced CT series {ref_uid} not in IDC index")
+        raise QCError(["CT_NOT_IN_INDEX"], f"referenced CT series {ref_uid} not in IDC index")
     ctr = ctr.iloc[0]
     s5_get(ctr.series_aws_url, os.path.join(pw, "ct"))
     cts = [pydicom.dcmread(p) for p in glob.glob(os.path.join(pw, "ct", "*.dcm"))]
@@ -177,7 +111,7 @@ def process(pid, seg_row, idx, work, out_root, strict=True):
         info["_img"], info["_masks"], info["_labels"], info["_dl"] = img, masks, labels, dl
     ok = [c for c in cand if "_img" in c]
     if not ok:
-        raise ValueError(f"no usable acquisition: {cand}")
+        raise QCError(["NO_USABLE_ACQUISITION"], f"no usable acquisition: {cand}")
     def pv_score(c):
         if c["hu_portal"] is None or c["hu_aorta"] is None:
             return -1e9
@@ -194,19 +128,22 @@ def process(pid, seg_row, idx, work, out_root, strict=True):
     best = max(ok, key=lambda c: (c["full_cover"], not c["resampled_seg"], pv_score(c)))
     grids = {(c["n"], round(c["_img"].GetOrigin()[2], 2)) for c in ok}
     ambiguous = len(grids) > 1 or len(ok) < len(cand)
-    reasons = []
+    reasons, codes = [], []
     if ambiguous:
+        codes.append("AMBIGUOUS_ACQUISITION")
         reasons.append(f"acquisitions on different z-grids {sorted(grids)} -> annotated grid/phase ambiguous")
     if best["phase_guess"] == "arterial":
+        codes.append("ARTERIAL_ONLY")
         reasons.append("no portal-venous acquisition (arterial only)")
     if not best["full_cover"]:
+        codes.append("SEG_NOT_IN_CT")
         reasons.append(f"SEG not fully inside CT (liver cov {best['gt_coverage_liver']:.3f})")
     if strict and reasons:
-        raise ValueError("; ".join(reasons))
+        raise QCError(codes, "; ".join(reasons))
     img, masks, labels = best["_img"], best["_masks"], best["_labels"]
     sn_l, sn_t = find(labels, "liver"), find(labels, "mass", "tumor")
     if sn_l is None or sn_t is None:
-        raise ValueError(f"missing liver/mass segment: {labels}")
+        raise QCError(["MISSING_SEGMENT"], f"missing liver/mass segment: {labels}")
     liv = sitk.GetArrayFromImage(masks[sn_l]) > 0
     tum = sitk.GetArrayFromImage(masks[sn_t]) > 0
     lab = np.zeros(liv.shape, np.uint8)
@@ -225,8 +162,11 @@ def process(pid, seg_row, idx, work, out_root, strict=True):
     meta = dict(source="hcc_tace_seg", case_id=pid, patient_id=pid,
                 study_uid=str(d0.StudyInstanceUID), study_date=str(d0.get("StudyDate", "")),
                 series_uid=ref_uid, series_description=str(ctr.SeriesDescription),
-                ct_series_aws_url=ctr.series_aws_url,
+                ct_series_aws_url=ctr.series_aws_url, ct_crdc_series_uuid=crdc_uuid(ctr.series_aws_url),
                 seg_series_uid=str(seg.SeriesInstanceUID), seg_series_aws_url=seg_row.series_aws_url,
+                seg_crdc_series_uuid=crdc_uuid(seg_row.series_aws_url),
+                liver_ml=float((liv | tum).sum() * np.prod(img.GetSpacing()) / 1000),
+                tumor_ml=float(tum.sum() * np.prod(img.GetSpacing()) / 1000),
                 acquisition_number_used=best["acq"], n_slices_used=best["n"],
                 phase_used=best["phase_guess"], gt_coverage_liver=best["gt_coverage_liver"],
                 gt_coverage_mass=best["gt_coverage_mass"],
@@ -246,11 +186,39 @@ def process(pid, seg_row, idx, work, out_root, strict=True):
     return meta
 
 
+def worker(pid, segs, idx, work, out, lenient, keep_dicom):
+    """-> (status, flow info). Never raises: every patient ends up in the flow log."""
+    rows = segs[segs.PatientID == pid]
+    if rows.empty:
+        return "excluded", {"reason_codes": "NO_EXPERT_SEG", "detail": "no expert (non-AI) DICOM-SEG in IDC"}
+    info = {"seg_series_uid": rows.iloc[0].SeriesInstanceUID,
+            "seg_crdc_series_uuid": crdc_uuid(rows.iloc[0].series_aws_url)}
+    try:
+        m = process(pid, rows.iloc[0], idx, work, out, strict=not lenient)
+        info.update(ct_series_uid=m["series_uid"], ct_crdc_series_uuid=m["ct_crdc_series_uuid"],
+                    acquisition_number=m["acquisition_number_used"], phase=m["phase_used"],
+                    liver_ml=round(m["liver_ml"], 1), tumor_ml=round(m["tumor_ml"], 1),
+                    detail=f"{m['series_description']} · acq {m['acquisition_number_used']}",
+                    _out_dir=os.path.join(out, pid))
+        return "included", info
+    except QCError as e:
+        info.update(reason_codes=";".join(e.codes), detail=e.detail[:500])
+        return "excluded", info
+    except Exception as e:  # noqa: BLE001 — download / parse failure is logged, not fatal
+        info.update(reason_codes="ERROR", detail=repr(e)[:500])
+        return "excluded", info
+    finally:
+        if not keep_dicom:
+            shutil.rmtree(os.path.join(work, pid), ignore_errors=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--n", type=int, default=10)
+    ap.add_argument("--n", default="10", help="number of QC-passing cases (first by PatientID) or 'all'")
     ap.add_argument("--out", default="data/hcc_tace_seg")
     ap.add_argument("--work", default="raw/hcc", help="DICOM download dir")
+    ap.add_argument("--flow", default=None, help="QC flow log CSV (default: <out>/../hcc_flow.csv)")
+    ap.add_argument("--jobs", type=int, default=1, help="patients processed in parallel")
     ap.add_argument("--patients", nargs="*", help="explicit PatientIDs (default: sorted all)")
     ap.add_argument("--keep-dicom", action="store_true")
     ap.add_argument("--lenient", action="store_true",
@@ -258,27 +226,17 @@ def main():
     a = ap.parse_args()
     from idc_index import index
     idx = index.IDCClient().index
-    idx = idx[idx.collection_id == "hcc_tace_seg"]
+    idx = idx[idx.collection_id == "hcc_tace_seg"].copy()
     segs = idx[(idx.Modality == "SEG") & idx.analysis_result_id.isna()].sort_values("PatientID")
-    pids = a.patients or list(dict.fromkeys(segs.PatientID))
-    done, skipped = [], []
-    for pid in pids:
-        if len(done) >= a.n:
-            break
-        rows = segs[segs.PatientID == pid]
-        if rows.empty:
-            skipped.append((pid, "no expert SEG")); continue
-        try:
-            m = process(pid, rows.iloc[0], idx, a.work, a.out, strict=not a.lenient)
-            done.append(pid)
-            print("OK", pid, m["series_uid"], "acq", m["acquisition_number_used"], flush=True)
-        except Exception as e:
-            skipped.append((pid, repr(e)))
-            print("SKIP", pid, repr(e), flush=True)
-        finally:
-            if not a.keep_dicom:
-                shutil.rmtree(os.path.join(a.work, pid), ignore_errors=True)
-    print(json.dumps({"done": done, "skipped": skipped}, indent=1))
+    # every patient of the collection is logged (those without an expert SEG as excluded)
+    pids = a.patients or sorted(set(idx.PatientID))
+    w = functools.partial(worker, segs=segs, idx=idx, work=a.work, out=a.out, lenient=a.lenient,
+                          keep_dicom=a.keep_dicom)
+    res = run_ordered(pids, w, parse_n(a.n), a.jobs)
+    flow = a.flow or os.path.join(os.path.dirname(os.path.abspath(a.out)), "hcc_flow.csv")
+    write_flow(flow, "hcc_tace_seg", res)
+    print(json.dumps({"done": [p for p, s, _ in res if s == "included"],
+                      "skipped": [(p, i.get("reason_codes")) for p, s, i in res if s == "excluded"]}, indent=1))
 
 
 if __name__ == "__main__":

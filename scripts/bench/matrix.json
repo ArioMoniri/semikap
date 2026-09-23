@@ -1,17 +1,73 @@
 {
-  "note": "Jobs for .github/workflows/benchmark.yml. 'cases' (optional) limits a job to those case ids — used to shard slow models (nnU-Net on MSD takes ~53 min per case on a 4-core runner). Results are merged into the benchmark-results-v1 release (dedupe by model sha256 + dataset + case). Current run: nnU-Net liver_22 only (previous shard ran out of memory; fixed by the rolling-window sliding inference).",
-  "include": [
+  "note": "Plan for .github/workflows/benchmark.yml, expanded by scripts/bench/data/plan_matrix.py after the data jobs, so the shards follow the cases that actually passed QC. Each run = model group x dataset, cut into jobs of casesPerJob cases (cases.csv order) so a job stays < 3 h on a 4-vCPU runner: nnU-Net ~30 min/case; the nine LightningMedSeg3D nets ~30 min/case together; MSD/LiTS volumes are larger (up to 917 slices), hence 3 per job. Cases already in the benchmark-results-v1 release (same model sha256 + case) are skipped by the runner and publish dedupes, so the 10 HCC-TACE-Seg / 10 MSD cases published earlier are not recomputed. nnU-Net x MSD is resubstitution and is not run (its 10 original MSD cases are already published). 'include' (explicit jobs with model or models, dataset, cases) replaces the plan when non-empty.",
+  "datasets": {
+    "hcc_tace_seg": {
+      "fetch": "python scripts/bench/data/fetch_hcc_tace_seg.py --n all --jobs 3 --out data/hcc_tace_seg --work raw/hcc --flow data/hcc_flow.csv"
+    },
+    "crlm": {
+      "fetch": "python scripts/bench/data/fetch_crlm.py --n 50 --jobs 3 --out data/crlm --work raw/crlm --flow data/crlm_flow.csv"
+    },
+    "msd_task03_liver": {
+      "fetch": "python scripts/bench/data/fetch_msd_cases.py --out data/msd_task03_liver --subset all --jobs 4"
+    }
+  },
+  "groups": {
+    "nnunet": {
+      "models": [
+        "nnunet_liver_lits"
+      ]
+    },
+    "lms3d": {
+      "models": [
+        "lms3d_unet",
+        "lms3d_vnet",
+        "lms3d_resunet",
+        "lms3d_attention_unet",
+        "lms3d_unetpp",
+        "lms3d_unetr",
+        "lms3d_swin_unetr",
+        "lms3d_medformer",
+        "lms3d_segformer"
+      ]
+    }
+  },
+  "runs": [
     {
-      "model": "nnunet_liver_lits",
+      "group": "nnunet",
+      "dataset": "hcc_tace_seg",
+      "casesPerJob": 4
+    },
+    {
+      "group": "nnunet",
+      "dataset": "crlm",
+      "casesPerJob": 4
+    },
+    {
+      "group": "lms3d",
+      "dataset": "hcc_tace_seg",
+      "casesPerJob": 6
+    },
+    {
+      "group": "lms3d",
+      "dataset": "crlm",
+      "casesPerJob": 6
+    },
+    {
+      "group": "lms3d",
       "dataset": "msd_task03_liver",
-      "cases": "liver_22"
+      "casesPerJob": 3
     }
   ],
+  "include": [],
   "optionalGroups": {
     "nnunet_ens5": {
       "enabled": false,
       "note": "NOT ENABLED — benchmark.yml only reads .include. nnU-Net 5-fold ensemble (nnunet_liver_lits_ens5.json; members nnunet_liver_lits + _f1.._f4 from the zenodo-models-v1 release). Runtime per case on a 4-vCPU runner, from nnU-Net fold 0's median 1853 s/case (inference dominates; softmax/flip overhead is <1%): 5-fold without TTA ≈ 5 × 1853 s ≈ 9.3e3 s ≈ 2.6 h per case; 5-fold + mirror TTA (8 variants) ≈ 40 × 1853 s ≈ 7.4e4 s ≈ 20.6 h per case. That is over the 6 h GitHub-hosted job limit, so TTA needs a larger or self-hosted runner. Without TTA, one case per job fits. To enable: move the entries into .include, and have benchmark.yml's 'Model from release' step also download the members listed in the ensemble manifest (ensemble.members[].file). For the no-TTA variant, pass runnerArgs to run-benchmark.ts. Memory: 5 CPU sessions preloaded with arenas off (≈ 5 × 125 MB of weights + one 128³ activation set at a time).",
-      "estimateSecondsPerCase": { "baselineFold0Median": 1853, "ens5NoTta": 9265, "ens5MirrorTta": 74120 },
+      "estimateSecondsPerCase": {
+        "baselineFold0Median": 1853,
+        "ens5NoTta": 9265,
+        "ens5MirrorTta": 74120
+      },
       "include": [
         {
           "model": "nnunet_liver_lits_ens5",
