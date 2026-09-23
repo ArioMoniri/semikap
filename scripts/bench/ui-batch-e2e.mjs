@@ -1,5 +1,5 @@
 // End-to-end: the in-app benchmark a user runs by themselves, with screenshots.
-//   Examples → Benchmark kit → Catalogue batch (models added from disk) → Run →
+//   Examples → Bundle: benchmark kit → Open kit → Catalogue batch (models added from disk) → Run →
 //   live results → Benchmark comparison report (statistics) → mask comparison grid
 //   (+ imported CI masks for all models on one case) → Export tables.
 //
@@ -47,9 +47,14 @@ const openSection = async (title) => {
 
 // 1) Examples → Benchmark kits
 await openSection('Examples');
+// Benchmark kits live in the example loader's Bundle picker.
+const bundleSelect = page.getByLabel('Bundle');
+await bundleSelect.selectOption(`kit:${kit}`);
 const kits = page.getByTestId('benchmark-kits');
-await kits.scrollIntoViewIfNeeded();
-await shot('b01_examples_benchmark_kits', kits);
+await kits.waitFor();
+const examplesCard = page.getByTestId('examples-card');
+await examplesCard.scrollIntoViewIfNeeded();
+await shot('b01_examples_benchmark_kits', examplesCard);
 await page.getByTestId(`kit-${kit}`).click();
 const cat = page.getByTestId('catalogue-panel');
 await cat.waitFor();

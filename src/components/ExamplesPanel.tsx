@@ -18,6 +18,8 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import type { ViewerHandle } from './Viewer';
 import { BENCHMARK_KITS } from '../lib/catalog/kits';
+import { CATALOG_DATASETS } from '../lib/catalog/catalog';
+import { localModelIds } from '../lib/catalog/local-models';
 import { useCatalogStore } from '../lib/state/catalogStore';
 
 interface Props {
@@ -48,6 +50,11 @@ export function ExamplesPanel({ viewerRef }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const openKit = useCatalogStore((s) => s.openKit);
+  const catalogModels = useCatalogStore((s) => s.models);
+  // Benchmark kits share the bundle picker: value `kit:<id>`.
+  const kit = bundleId.startsWith('kit:') ? (BENCHMARK_KITS.find((k) => `kit:${k.id}` === bundleId) ?? null) : null;
+  const kitDataset = kit ? CATALOG_DATASETS.find((d) => d.id === kit.datasetId) : undefined;
+  const onDevice = useMemo(() => new Set(kit ? localModelIds() : []), [kit]);
   const setVolume = useAppStore((s) => s.setVolume);
   const setModel = useAppStore((s) => s.setModel);
   const pushError = useAppStore((s) => s.pushError);
@@ -58,8 +65,8 @@ export function ExamplesPanel({ viewerRef }: Props) {
   );
 
   const refresh = useCallback(async () => {
-    setFiles(await listBundleFiles(bundle.id));
-  }, [bundle.id]);
+    setFiles(kit ? [] : await listBundleFiles(bundle.id));
+  }, [bundle.id, kit]);
 
   useEffect(() => {
     setError(null);
@@ -146,7 +153,7 @@ export function ExamplesPanel({ viewerRef }: Props) {
   }, [refresh]);
 
   return (
-    <Card>
+    <Card data-testid="examples-card">
       <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2">
@@ -157,41 +164,49 @@ export function ExamplesPanel({ viewerRef }: Props) {
           </CardDescription>
         </div>
         <div className="flex flex-col items-end gap-1.5">
-          <Button
-            size="sm"
-            onClick={handleDownload}
-            disabled={busy !== null || allCached}
-            className="gap-1.5"
-          >
-            {busy === 'download' ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Downloading…
-              </>
-            ) : allCached ? (
-              <>
-                <Download className="h-3.5 w-3.5" /> Cached
-              </>
-            ) : (
-              <>
-                <Download className="h-3.5 w-3.5" /> Download
-              </>
-            )}
-          </Button>
-          {allCached && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleApply}
-              disabled={busy !== null}
-              className="gap-1.5"
-            >
-              {busy === 'apply' ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Play className="h-3.5 w-3.5" />
-              )}
-              Load into app
+          {kit ? (
+            <Button size="sm" onClick={() => openKit(kit)} className="gap-1.5" data-testid={`kit-${kit.id}`}>
+              <Play className="h-3.5 w-3.5" /> Open kit
             </Button>
+          ) : (
+            <>
+              <Button
+                size="sm"
+                onClick={handleDownload}
+                disabled={busy !== null || allCached}
+                className="gap-1.5"
+              >
+                {busy === 'download' ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Downloading…
+                  </>
+                ) : allCached ? (
+                  <>
+                    <Download className="h-3.5 w-3.5" /> Cached
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-3.5 w-3.5" /> Download
+                  </>
+                )}
+              </Button>
+              {allCached && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleApply}
+                  disabled={busy !== null}
+                  className="gap-1.5"
+                >
+                  {busy === 'apply' ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" />
+                  )}
+                  Load into app
+                </Button>
+              )}
+            </>
           )}
         </div>
       </CardHeader>
@@ -207,16 +222,78 @@ export function ExamplesPanel({ viewerRef }: Props) {
             onChange={(e) => setBundleId(e.currentTarget.value)}
             className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
           >
-            {EXAMPLE_BUNDLES.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
+            <optgroup label="Example bundles">
+              {EXAMPLE_BUNDLES.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Benchmark kits — Zenodo models × TCIA / MSD data">
+              {BENCHMARK_KITS.map((k) => (
+                <option key={k.id} value={`kit:${k.id}`}>
+                  {k.name}
+                </option>
+              ))}
+            </optgroup>
           </select>
-          {bundle.longDescription && (
-            <p className="mt-1 text-[10px] leading-tight text-slate-500">{bundle.longDescription}</p>
+          {kit ? (
+            <p className="mt-1 text-[10px] leading-tight text-slate-500">
+              {kit.description} Open kit preselects everything in Catalogue → Batch benchmark; press Run to download, run
+              and score every pair, then see the statistics and the mask comparison.
+            </p>
+          ) : (
+            bundle.longDescription && (
+              <p className="mt-1 text-[10px] leading-tight text-slate-500">{bundle.longDescription}</p>
+            )
           )}
         </label>
+        {kit && (
+          <ul className="space-y-1" data-testid="benchmark-kits">
+            <li className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1">
+              <span className="flex min-w-0 flex-1 items-center gap-2 text-slate-700">
+                <FileImage className="h-3.5 w-3.5 shrink-0" />
+                <span className="shrink-0 font-medium" title={kitDataset?.name}>
+                  {(kitDataset?.name ?? kit.datasetId).replace(/ \(.*\)$/, '')}
+                </span>
+                <span className="hidden truncate text-[11px] text-slate-400 lg:inline" title={kit.caseIds?.join(', ')}>
+                  {kit.caseIds ? kit.caseIds.join(', ') : 'your local NIfTI files'}
+                </span>
+              </span>
+              <Badge variant="outline" className="shrink-0 text-[10px]">
+                {kit.caseIds ? `${kit.caseIds.length} cases · TCIA` : 'local files'}
+              </Badge>
+            </li>
+            {kit.modelIds.map((id) => {
+              const m = catalogModels.find((x) => x.id === id);
+              return (
+                <li
+                  key={id}
+                  className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1"
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-2 text-slate-700">
+                    <Brain className="h-3.5 w-3.5 shrink-0" />
+                    <span className="shrink-0 font-medium" title={m?.name}>
+                      {(m?.name ?? id).replace(/^LightningMedSeg3D /, '').replace(/ \(.*\)$/, '')}
+                    </span>
+                    <span className="hidden truncate text-[11px] text-slate-400 lg:inline">
+                      {m?.family === 'nnunet' ? 'nnU-Net' : 'LightningMedSeg3D'} · Zenodo {m?.zenodoRecord}
+                    </span>
+                  </span>
+                  {onDevice.has(id) ? (
+                    <Badge variant="ok" className="shrink-0 text-[10px]">
+                      on this device
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="shrink-0 text-[10px]">
+                      {m?.bytes ? `${(m.bytes / 1_048_576).toFixed(0)} MB` : 'download'}
+                    </Badge>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
         <ul className="space-y-1">
           {files.map((f) => (
             <li
@@ -250,7 +327,7 @@ export function ExamplesPanel({ viewerRef }: Props) {
             </li>
           ))}
         </ul>
-        {allCached && (
+        {allCached && !kit && (
           <Button
             size="sm"
             variant="ghost"
@@ -266,27 +343,6 @@ export function ExamplesPanel({ viewerRef }: Props) {
             {error}
           </pre>
         )}
-        <div className="space-y-1 rounded border border-blue-200 bg-blue-50/60 p-2 dark:border-blue-900 dark:bg-blue-950/30" data-testid="benchmark-kits">
-          <div className="font-medium text-slate-800 dark:text-slate-100">Benchmark kits — Zenodo models × TCIA / MSD data</div>
-          <p className="text-[10px] leading-tight text-slate-500">
-            Opens Catalogue → Batch benchmark with the dataset, cases and models preselected. Press Run: TAMIAS downloads the
-            cases (HCC-TACE-Seg straight from TCIA) and models, runs and scores every pair, then shows the statistics and the mask
-            comparison.
-          </p>
-          <ul className="space-y-1">
-            {BENCHMARK_KITS.map((k) => (
-              <li key={k.id} className="flex items-start justify-between gap-2">
-                <span className="min-w-0">
-                  <span className="block text-[11px] font-medium text-slate-700 dark:text-slate-200">{k.name}</span>
-                  <span className="block text-[10px] leading-tight text-slate-500">{k.description}</span>
-                </span>
-                <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => openKit(k)} data-testid={`kit-${k.id}`}>
-                  Open
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
         <div className="text-[11px] text-slate-500">
           Sources: <span className="font-mono">github.com/ArioMoniri/semikap/examples</span> · <span className="font-mono">github.com/niivue/niivue-demo-images</span>
         </div>
