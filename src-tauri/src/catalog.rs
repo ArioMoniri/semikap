@@ -125,6 +125,18 @@ mod tests {
     }
 
     #[test]
+    fn allows_zenodo_import_api_and_file_content() {
+        // "Import from Zenodo": record metadata + file downloads stay on zenodo.org.
+        assert!(is_allowed("https://zenodo.org/api/records/11582728"));
+        assert!(is_allowed(
+            "https://zenodo.org/api/records/11582728/files/Dataset006_Liver.zip/content"
+        ));
+        assert!(!is_allowed("http://zenodo.org/api/records/11582728"));
+        assert!(!is_allowed("https://zenodo.org.evil.io/api/records/1"));
+        assert!(!is_allowed("https://sandbox.zenodo.org/api/records/1"));
+    }
+
+    #[test]
     fn shared_client_builds_with_timeouts() {
         assert!(super::client().is_ok());
         assert!(super::client().is_ok());
