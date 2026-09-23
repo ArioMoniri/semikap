@@ -256,6 +256,48 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
   },
 ];
 
+/**
+ * Ensemble entries (manifest lists member ONNX ids + sha256; no ONNX of their own). Kept out of
+ * CATALOG_MODELS: the in-app catalogue loader, benchmark kits and Zenodo-import tables handle
+ * single-ONNX models only, so an ensemble is run through the headless runner / inference worker
+ * (members passed as memberBytes) until the catalogue loads ensemble members.
+ */
+export const CATALOG_ENSEMBLES: readonly CatalogModel[] = [
+  {
+    id: 'nnunet_liver_lits_ens5',
+    name: 'nnU-Net v2 liver + lesions, 5-fold ensemble + mirror TTA (Dataset006_Liver)',
+    family: 'nnunet',
+    arch: 'nnunet_3d_fullres',
+    kind: 'cnn',
+    zenodoRecord: '11582728',
+    zenodoUrl: 'https://zenodo.org/records/11582728',
+    doi: '10.5281/zenodo.11582728',
+    sourceFile: 'Dataset006_Liver.zip',
+    license: 'CC-BY-4.0 (weights) · Apache-2.0 (code)',
+    citation:
+      'Murugesan GK, Van Oss J, McCrumb D. Pretrained model for 3D semantic image segmentation of ' +
+      'the liver and liver lesions from CT scan (nnU-Net v2 Dataset006_Liver; training data stated as ' +
+      'LiTS 2017). Zenodo, 2024. doi:10.5281/zenodo.11582728. All 5 folds exported to ONNX and ensembled ' +
+      'with mirror test-time augmentation.',
+    codeUrl: 'https://github.com/MIC-DKFZ/nnUNet',
+    trainedOn: ['msd-task03-liver'],
+    methodsNote:
+      'nnU-Net v2 Dataset006_Liver (Zenodo 11582728, BAMF Health), run in nnU-Net\'s published inference ' +
+      'configuration: the 5 cross-validation folds (fold 0 = nnunet_liver_lits, folds 1–4 = nnunet_liver_lits_f1…f4, ' +
+      'each exported to ONNX and parity-checked on its own) as an ensemble with mirroring test-time augmentation ' +
+      '(each 128³ tile run by every fold on all 8 flips over the 3 spatial axes, flipped back; softmax ' +
+      'probabilities averaged, then Gaussian-blended). No nnU-Net post-processing. Training data stated as LiTS 2017, ' +
+      'of which MSD Task03 imagesTr is a subset (MSD scores are resubstitution); the 10-class output (organs, liver 8, ' +
+      'tumour 9, an unnamed class 7 left unscored) implies additional organ labels; overlap with HCC-TACE-Seg cannot ' +
+      'be fully excluded.',
+    // No PUBLISHED_ONNX pin: an ensemble has no ONNX of its own. The release index's `ensembles` entry supplies
+    // its sha256 (computed over the member sha256s) and each member's pin; nnunet_liver_lits_ens5.json lists them.
+    ...assetUrls('nnunet_liver_lits_ens5'),
+    labels: NNUNET_LIVER_LABELS,
+    status: 'unpublished',
+  },
+];
+
 export const CATALOG_DATASETS: readonly CatalogDataset[] = [
   {
     id: 'hcc-tace-seg',

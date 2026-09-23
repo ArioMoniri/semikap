@@ -39,7 +39,15 @@ and argmax agreement.
 Usage
   python scripts/zenodo/export_onnx.py lms3d  --weights-dir work/lms3d  --out dist
   python scripts/zenodo/export_onnx.py nnunet --model-dir  work/nnunet/extracted --out dist
+  python scripts/zenodo/export_onnx.py keep-published --out dist --published published   (CI)
+  python scripts/zenodo/export_onnx.py ensemble --out dist
   python scripts/zenodo/export_onnx.py index  --out dist
+
+nnU-Net: every shipped fold is exported and parity-checked on its own
+(fold 0 keeps the id nnunet_liver_lits, folds 1-4 are nnunet_liver_lits_f1..f4);
+`ensemble` then writes nnunet_liver_lits_ens5.json, a manifest that lists the five
+member ids + sha256 with aggregation 'softmax-mean' and tta 'mirror' (nnU-Net's
+published inference configuration: 5-fold ensemble with mirroring).
 Each model is exported in isolation; a failure is recorded in
 <out>/<name>.report.json (status=failed + reason) and does not abort the run.
 """
@@ -636,6 +644,169 @@ def make_nnunet_wrapper(net, lo, hi, mean, std, perm, bake_ct: bool = True):
     return TamiasNNUNet(net).eval()
 
 
+def _softmax(x: np.ndarray, axis: int = 1) -> np.ndarray:
+    e = np.exp(x - x.max(axis=axis, keepdims=True))
+    return e / e.sum(axis=axis, keepdims=True)
+
+
+def nnunet_fold_name(base_name: str, fold: str, primary: str) -> str:
+    """The primary fold keeps the historical id (``nnunet_liver_lits`` = fold 0, whose
+    published sha256 is pinned by the app); every other fold is ``<id>_f<fold>``."""
+    return base_name if fold == primary else f"{base_name}_f{fold}"
+
+
+def export_nnunet_fold(td: Path, root: Path, out: Path, fold: str, name: str, base: dict,
+                       ens_acc: dict | None) -> bool:
+    """Export one nnU-Net fold to <out>/<name>.onnx + manifest + report (parity-checked).
+    When ``ens_acc`` is given, the fold's PyTorch/ORT parity logits are added to it so the
+    ensemble aggregation can be parity-checked without extra forward passes."""
+    import torch
+
+    tag = td.name.split("__")[-1].lower()
+    print(f"== {name} (fold {fold})", flush=True)
+    t0 = time.time()
+    try:
+        if tag.startswith("2d") or "cascade" in tag:
+            raise NotImplementedError(f"configuration {tag} is not a stand-alone 3D model for TAMIAS")
+        net, pm, cm, lm, dsj, plans, config_name, trainer_name, ckpt_p = nnunet_build(td, fold)
+        base["arch"] = f"{cm.network_arch_class_name.split('.')[-1]} ({config_name})"
+        base["trainer"] = trainer_name
+        scheme = cm.normalization_schemes[0]
+        props = plans["foreground_intensity_properties_per_channel"]["0"]
+        if scheme not in ("CTNormalization", "ZScoreNormalization"):
+            raise NotImplementedError(f"normalization {scheme} is not supported")
+        bake_ct = scheme == "CTNormalization"
+        lo, hi = props["percentile_00_5"], props["percentile_99_5"]
+        mean, std = props["mean"], props["std"]
+        if bake_ct:
+            man_norm = {"type": "none"}
+            norm_note = f"baked CTNormalization: clip[{lo}, {hi}] then (x-{mean})/{std}"
+            exact_norm = True
+        else:
+            use_mask = bool(getattr(cm, "use_mask_for_norm", [False])[0])
+            base["use_mask_for_norm"] = use_mask
+            # TAMIAS zscore_volume: per-volume mean/std over the whole resampled volume
+            # (== nnU-Net ZScoreNormalization with use_mask_for_norm=False).
+            man_norm = {"type": "zscore_volume"}
+            norm_note = (f"plans use ZScoreNormalization (use_mask_for_norm={use_mask}): per-volume "
+                         f"(x - mean(volume)) / max(std(volume), 1e-8) -> manifest zscore_volume. "
+                         f"Fallback fixed zscore if needed: mean={LITS_VOLUME_ZSCORE['mean']} "
+                         f"std={LITS_VOLUME_ZSCORE['std']} (median whole-volume stats of 8 LiTS CTs).")
+            exact_norm = not use_mask  # with use_mask_for_norm the stats come from mask>0 only
+        perm = list(pm.transpose_forward)
+        patch_net = list(cm.patch_size)
+        spacing_net = list(cm.spacing)
+        # net axis a <- sitk axis perm[a]; sitk order is [z,y,x]; manifest is [x,y,z]
+        patch_sitk = [0, 0, 0]
+        spacing_sitk = [0.0, 0.0, 0.0]
+        for a in range(3):
+            patch_sitk[perm[a]] = int(patch_net[a])
+            spacing_sitk[perm[a]] = float(spacing_net[a])
+        PZ, PY, PX = patch_sitk
+        spacing_xyz = [spacing_sitk[2], spacing_sitk[1], spacing_sitk[0]]
+
+        labels_raw = dsj["labels"]
+        if any(isinstance(v, (list, tuple)) for v in labels_raw.values()):
+            raise NotImplementedError(f"region-based labels {labels_raw} are not argmax-compatible")
+        labels = {int(v): k for k, v in labels_raw.items()}
+        C = lm.num_segmentation_heads
+        colors = {i: LIVER_COLORS.get(n.lower(), "#22c55e") for i, n in labels.items() if i}
+
+        wrapper = make_nnunet_wrapper(net, lo, hi, mean, std, perm, bake_ct=bake_ct)
+        onnx_path = out / f"{name}.onnx"
+        export(wrapper, torch.zeros(1, 1, PZ, PY, PX), onnx_path)
+
+        from nnunetv2.preprocessing.normalization.default_normalization_schemes import CTNormalization
+
+        normer = CTNormalization(use_mask_for_norm=False, intensityproperties=props)
+        parity = {}
+        for ptag, hu in (("random_hu", random_hu((PZ, PY, PX))), ("synthetic_ct", phantom_hu((PZ, PY, PX)))):
+            if bake_ct:  # reference = nnU-Net's own CTNormalization; ORT gets raw HU
+                ref_in = normer.run(hu.copy().astype(np.float32), None).astype(np.float32)
+                ort_in = hu
+            else:  # graph has no normalization: both sides get nnU-Net's per-volume z-score
+                from nnunetv2.preprocessing.normalization.default_normalization_schemes import ZScoreNormalization
+
+                zn = ZScoreNormalization(use_mask_for_norm=False, intensityproperties=props)
+                ref_in = zn.run(hu.copy().astype(np.float32), None).astype(np.float32)
+                ort_in = ref_in
+            ref_in = np.ascontiguousarray(ref_in.transpose(perm))
+            with torch.no_grad():
+                r = net(torch.from_numpy(ref_in)[None, None])
+                r = (r[0] if isinstance(r, (list, tuple)) else r).numpy()
+            inv = [perm.index(i) for i in range(3)]
+            ref = np.ascontiguousarray(r.transpose([0, 1] + [2 + i for i in inv]))
+            got = ort_run(onnx_path, np.ascontiguousarray(ort_in)[None, None])
+            parity[ptag] = compare(ref, got)
+            print(f"   parity {ptag}: {parity[ptag]}", flush=True)
+            if ens_acc is not None:
+                a = ens_acc.setdefault(ptag, {"n": 0})
+                for key, arr in (("ref_sm", _softmax(ref)), ("got_sm", _softmax(got)),
+                                 ("ref_lg", ref.astype(np.float32)), ("got_lg", got.astype(np.float32))):
+                    a[key] = arr.astype(np.float32) if key not in a else a[key] + arr
+                a["n"] += 1
+            del ref, got, r
+
+        onnx_sha = sha256(onnx_path)
+        manifest = {
+            "name": f"nnU-Net v2 Liver+Lesion (BAMF, LiTS, {config_name}, fold {fold}, {C}-class)",
+            "version": "1.0.0",
+            "license": "CC-BY-4.0",
+            "modality": "CT",
+            "spacing": spacing_xyz,
+            "orientation": "RAS",
+            "normalization": man_norm,
+            "inference": {"type": "sliding_window", "patch": [PX, PY, PZ], "overlap": 0.5},
+            "output": {"type": "segmentation", "labels": {str(k): v for k, v in sorted(labels.items())},
+                       "colors": {str(k): v for k, v in colors.items()}},
+            "preferredEP": "auto",
+            "sha256": onnx_sha,
+        }
+        report = {
+            **base, "status": "ok", "file": onnx_path.name, "manifest": f"{name}.json",
+            "size_bytes": onnx_path.stat().st_size, "sha256": onnx_sha, "num_classes": C,
+            "labels": manifest["output"]["labels"], "patch": [PX, PY, PZ], "spacing": spacing_xyz,
+            "orientation": ("RAS: nnU-Net trains on the stored voxel order (SimpleITK array, no reorientation); "
+                            "LiTS/MSD-Task03 NIfTIs are stored with RAS axis codes (positive-diagonal affine; "
+                            "verified on 8 MSD Task03 headers), so reorienting to RAS reproduces the training layout"),
+            "normalization": man_norm, "exact_normalization": exact_norm,
+            "normalization_note": norm_note,
+            "baked": (["CTNormalization"] if bake_ct else []) + [f"transpose_forward={perm}"],
+            "plans_patch_size": patch_net, "plans_spacing": spacing_net, "transpose_forward": perm,
+            "checkpoint": str(ckpt_p.relative_to(root)),
+            "parity": parity, "parity_pass": parity_verdict(parity),
+            **onnx_summary(onnx_path),
+            "export_seconds": round(time.time() - t0, 1),
+        }
+        write_outputs(out, name, manifest, report)
+        del wrapper, net
+        return True
+    except Exception as e:  # noqa: BLE001
+        fail_report(out, name, base, e)
+        return False
+    finally:
+        gc.collect()
+
+
+def ensemble_parity(acc: dict, members: list[str]) -> dict:
+    """Aggregate the per-fold parity logits: PyTorch folds vs ONNX folds, per aggregation rule."""
+    res = {"members": members}
+    for ptag, a in acc.items():
+        n = a["n"]
+        ref_sm, got_sm = a["ref_sm"] / n, a["got_sm"] / n
+        ref_lg, got_lg = a["ref_lg"] / n, a["got_lg"] / n
+        res[ptag] = {
+            "folds": n,
+            "softmax_mean": {"max_abs_prob_diff": float(np.abs(ref_sm - got_sm).max()),
+                             "argmax_agreement": float((ref_sm.argmax(1) == got_sm.argmax(1)).mean())},
+            "logit_mean": {"max_abs_diff": float(np.abs(ref_lg - got_lg).max()),
+                           "argmax_agreement": float((ref_lg.argmax(1) == got_lg.argmax(1)).mean())},
+            # How often the two aggregation rules pick the same class (PyTorch side, one patch).
+            "softmax_vs_logit_mean_agreement": float((ref_sm.argmax(1) == ref_lg.argmax(1)).mean()),
+        }
+    return res
+
+
 def run_nnunet(args) -> int:
     import torch
 
@@ -656,140 +827,241 @@ def run_nnunet(args) -> int:
     for td in trainings:
         cfg_dir = td.name  # e.g. nnUNetTrainer__nnUNetPlans__3d_fullres
         folds = sorted(p.name.split("_", 1)[1] for p in td.glob("fold_*"))
-        fold = "all" if "all" in folds else folds[0]
+        # Historical primary export: fold 'all' when shipped, else the first fold (fold 0 here).
+        primary = "all" if "all" in folds else folds[0]
+        if args.folds == "primary":
+            wanted = [primary]
+        elif args.folds == "every":
+            wanted = [primary] + [f for f in folds if f != primary]
+        else:
+            wanted = [f for f in args.folds.split(",") if f in folds]
         tag = cfg_dir.split("__")[-1].lower()
-        name = "nnunet_liver_lits" if tag == "3d_fullres" else f"nnunet_liver_lits_{tag}"
-        base = {"name": name, "family": "nnU-Net v2", "arch": None, "arch_id": f"nnunet_{tag}",
-                "source_file": "Dataset006_Liver.zip", "source_md5": zenodo_md5(root, "Dataset006_Liver.zip"),
-                "zenodo_record": "11582728", "trained_on": "LiTS 2017", "zenodo_doi": NNUNET_DOI,
-                "zenodo_url": "https://zenodo.org/records/11582728", "license": license_info(root, "11582728")[0],
-                "code_license": "Apache-2.0 (nnU-Net)",
-                "code": "https://github.com/MIC-DKFZ/nnUNet (Apache-2.0)",
-                "train_dataset": "LiTS 2017 (Dataset006_Liver)", "training_dir": cfg_dir,
-                "folds_available": folds, "fold_exported": fold}
-        print(f"== {name}", flush=True)
-        t0 = time.time()
-        try:
-            if tag.startswith("2d") or "cascade" in tag:
-                raise NotImplementedError(f"configuration {tag} is not a stand-alone 3D model for TAMIAS")
-            net, pm, cm, lm, dsj, plans, config_name, trainer_name, ckpt_p = nnunet_build(td, fold)
-            base["arch"] = f"{cm.network_arch_class_name.split('.')[-1]} ({config_name})"
-            base["trainer"] = trainer_name
-            scheme = cm.normalization_schemes[0]
-            props = plans["foreground_intensity_properties_per_channel"]["0"]
-            if scheme not in ("CTNormalization", "ZScoreNormalization"):
-                raise NotImplementedError(f"normalization {scheme} is not supported")
-            bake_ct = scheme == "CTNormalization"
-            lo, hi = props["percentile_00_5"], props["percentile_99_5"]
-            mean, std = props["mean"], props["std"]
-            if bake_ct:
-                man_norm = {"type": "none"}
-                norm_note = f"baked CTNormalization: clip[{lo}, {hi}] then (x-{mean})/{std}"
-                exact_norm = True
-            else:
-                use_mask = bool(getattr(cm, "use_mask_for_norm", [False])[0])
-                base["use_mask_for_norm"] = use_mask
-                # TAMIAS zscore_volume: per-volume mean/std over the whole resampled volume
-                # (== nnU-Net ZScoreNormalization with use_mask_for_norm=False).
-                man_norm = {"type": "zscore_volume"}
-                norm_note = (f"plans use ZScoreNormalization (use_mask_for_norm={use_mask}): per-volume "
-                             f"(x - mean(volume)) / max(std(volume), 1e-8) -> manifest zscore_volume. "
-                             f"Fallback fixed zscore if needed: mean={LITS_VOLUME_ZSCORE['mean']} "
-                             f"std={LITS_VOLUME_ZSCORE['std']} (median whole-volume stats of 8 LiTS CTs).")
-                exact_norm = not use_mask  # with use_mask_for_norm the stats come from mask>0 only
-            perm = list(pm.transpose_forward)
-            patch_net = list(cm.patch_size)
-            spacing_net = list(cm.spacing)
-            # net axis a <- sitk axis perm[a]; sitk order is [z,y,x]; manifest is [x,y,z]
-            patch_sitk = [0, 0, 0]
-            spacing_sitk = [0.0, 0.0, 0.0]
-            for a in range(3):
-                patch_sitk[perm[a]] = int(patch_net[a])
-                spacing_sitk[perm[a]] = float(spacing_net[a])
-            PZ, PY, PX = patch_sitk
-            spacing_xyz = [spacing_sitk[2], spacing_sitk[1], spacing_sitk[0]]
-
-            labels_raw = dsj["labels"]
-            if any(isinstance(v, (list, tuple)) for v in labels_raw.values()):
-                raise NotImplementedError(f"region-based labels {labels_raw} are not argmax-compatible")
-            labels = {int(v): k for k, v in labels_raw.items()}
-            C = lm.num_segmentation_heads
-            colors = {i: LIVER_COLORS.get(n.lower(), "#22c55e") for i, n in labels.items() if i}
-
-            wrapper = make_nnunet_wrapper(net, lo, hi, mean, std, perm, bake_ct=bake_ct)
-            onnx_path = out / f"{name}.onnx"
-            export(wrapper, torch.zeros(1, 1, PZ, PY, PX), onnx_path)
-
-            from nnunetv2.preprocessing.normalization.default_normalization_schemes import CTNormalization
-
-            normer = CTNormalization(use_mask_for_norm=False, intensityproperties=props)
-            parity = {}
-            for ptag, hu in (("random_hu", random_hu((PZ, PY, PX))), ("synthetic_ct", phantom_hu((PZ, PY, PX)))):
-                if bake_ct:  # reference = nnU-Net's own CTNormalization; ORT gets raw HU
-                    ref_in = normer.run(hu.copy().astype(np.float32), None).astype(np.float32)
-                    ort_in = hu
-                else:  # graph has no normalization: both sides get nnU-Net's per-volume z-score
-                    from nnunetv2.preprocessing.normalization.default_normalization_schemes import ZScoreNormalization
-
-                    zn = ZScoreNormalization(use_mask_for_norm=False, intensityproperties=props)
-                    ref_in = zn.run(hu.copy().astype(np.float32), None).astype(np.float32)
-                    ort_in = ref_in
-                ref_in = np.ascontiguousarray(ref_in.transpose(perm))
-                with torch.no_grad():
-                    r = net(torch.from_numpy(ref_in)[None, None])
-                    r = (r[0] if isinstance(r, (list, tuple)) else r).numpy()
-                inv = [perm.index(i) for i in range(3)]
-                ref = np.ascontiguousarray(r.transpose([0, 1] + [2 + i for i in inv]))
-                got = ort_run(onnx_path, np.ascontiguousarray(ort_in)[None, None])
-                parity[ptag] = compare(ref, got)
-                print(f"   parity {ptag}: {parity[ptag]}", flush=True)
-
-            onnx_sha = sha256(onnx_path)
-            manifest = {
-                "name": f"nnU-Net v2 Liver+Lesion (BAMF, LiTS, {config_name}, fold {fold}, {C}-class)",
-                "version": "1.0.0",
-                "license": "CC-BY-4.0",
-                "modality": "CT",
-                "spacing": spacing_xyz,
-                "orientation": "RAS",
-                "normalization": man_norm,
-                "inference": {"type": "sliding_window", "patch": [PX, PY, PZ], "overlap": 0.5},
-                "output": {"type": "segmentation", "labels": {str(k): v for k, v in sorted(labels.items())},
-                           "colors": {str(k): v for k, v in colors.items()}},
-                "preferredEP": "auto",
-                "sha256": onnx_sha,
-            }
-            report = {
-                **base, "status": "ok", "file": onnx_path.name, "manifest": f"{name}.json",
-                "size_bytes": onnx_path.stat().st_size, "sha256": onnx_sha, "num_classes": C,
-                "labels": manifest["output"]["labels"], "patch": [PX, PY, PZ], "spacing": spacing_xyz,
-                "orientation": ("RAS: nnU-Net trains on the stored voxel order (SimpleITK array, no reorientation); "
-                                "LiTS/MSD-Task03 NIfTIs are stored with RAS axis codes (positive-diagonal affine; "
-                                "verified on 8 MSD Task03 headers), so reorienting to RAS reproduces the training layout"),
-                "normalization": man_norm, "exact_normalization": exact_norm,
-                "normalization_note": norm_note,
-                "baked": (["CTNormalization"] if bake_ct else []) + [f"transpose_forward={perm}"],
-                "plans_patch_size": patch_net, "plans_spacing": spacing_net, "transpose_forward": perm,
-                "checkpoint": str(ckpt_p.relative_to(root)),
-                "parity": parity, "parity_pass": parity_verdict(parity),
-                **onnx_summary(onnx_path),
-                "export_seconds": round(time.time() - t0, 1),
-            }
-            write_outputs(out, name, manifest, report)
-            del wrapper, net
-        except Exception as e:  # noqa: BLE001
-            fail_report(out, name, base, e)
+        base_name = "nnunet_liver_lits" if tag == "3d_fullres" else f"nnunet_liver_lits_{tag}"
+        numeric = [f for f in folds if f.isdigit()]
+        ens_acc: dict = {}
+        exported: list[str] = []
+        for fold in wanted:
+            name = nnunet_fold_name(base_name, fold, primary)
+            base = {"name": name, "family": "nnU-Net v2", "arch": None, "arch_id": f"nnunet_{tag}",
+                    "source_file": "Dataset006_Liver.zip", "source_md5": zenodo_md5(root, "Dataset006_Liver.zip"),
+                    "zenodo_record": "11582728", "trained_on": "LiTS 2017", "zenodo_doi": NNUNET_DOI,
+                    "zenodo_url": "https://zenodo.org/records/11582728", "license": license_info(root, "11582728")[0],
+                    "code_license": "Apache-2.0 (nnU-Net)",
+                    "code": "https://github.com/MIC-DKFZ/nnUNet (Apache-2.0)",
+                    "train_dataset": "LiTS 2017 (Dataset006_Liver)", "training_dir": cfg_dir,
+                    "folds_available": folds, "fold_exported": fold}
+            if export_nnunet_fold(td, root, out, fold, name, base, ens_acc if fold in numeric else None):
+                if fold in numeric:
+                    exported.append(fold)
+        # Ensemble parity (PyTorch folds vs ONNX folds, same parity patches) for the
+        # `ensemble` sub-command, which writes the ensemble manifest after
+        # `keep-published` has settled the member sha256.
+        if len(exported) >= 2 and exported == numeric:
+            ens_name = f"{base_name}_ens{len(exported)}"
+            members = [nnunet_fold_name(base_name, f, primary) for f in exported]
+            par = ensemble_parity(ens_acc, members)
+            (out / f"{ens_name}.parity.json").write_text(json.dumps(par, indent=2) + "\n")
+            print(f"   ensemble parity {ens_name}: {json.dumps(par)}", flush=True)
+        del ens_acc
         gc.collect()
+    return 0
+
+
+# ----------------------------------------------------------------------------
+# published assets stay byte-stable
+# ----------------------------------------------------------------------------
+def run_keep_published(args) -> int:
+    """For every freshly exported <id>.onnx that the release already publishes: if the
+    re-export is not byte-identical (torch/onnx serialisation drift), keep the published
+    bytes (downloaded via `gh`) so sha256 pins in the app, benchmark records and the
+    ensemble manifest stay valid. The published bytes were parity-checked in the run that
+    produced them; the fresh parity numbers are kept in the report."""
+    import shutil
+    import subprocess
+
+    out = Path(args.out)
+    pub = Path(args.published)
+    if not pub.is_dir():
+        print(f"keep-published: no {pub} (first publication) — nothing to keep")
+        return 0
+    for man_p in sorted(pub.glob("*.json")):
+        mid = man_p.stem
+        fresh = out / f"{mid}.onnx"
+        try:
+            pub_man = json.loads(man_p.read_text())
+        except json.JSONDecodeError:
+            continue
+        pub_sha = pub_man.get("sha256") if isinstance(pub_man, dict) else None
+        if not isinstance(pub_sha, str) or not fresh.exists():
+            continue
+        fresh_sha = sha256(fresh)
+        if fresh_sha == pub_sha:
+            print(f"keep-published: {mid} re-export is byte-identical ({pub_sha[:12]})")
+            continue
+        print(f"keep-published: {mid} re-export differs ({fresh_sha[:12]} vs published {pub_sha[:12]}); "
+              f"keeping the published bytes", flush=True)
+        subprocess.run(["gh", "release", "download", args.tag, "--pattern", f"{mid}.onnx", "--dir", str(pub),
+                        "--clobber"], check=True)
+        got = pub / f"{mid}.onnx"
+        if sha256(got) != pub_sha:
+            raise SystemExit(f"published {mid}.onnx does not match its published manifest sha256")
+        fresh.unlink()
+        shutil.move(str(got), str(fresh))
+        man_out = out / f"{mid}.json"
+        if man_out.exists():
+            m = json.loads(man_out.read_text())
+            m["sha256"] = pub_sha
+            man_out.write_text(json.dumps(m, indent=2) + "\n")
+        rep_p = out / f"{mid}.report.json"
+        if rep_p.exists():
+            r = json.loads(rep_p.read_text())
+            r["published_asset_kept"] = {
+                "reason": "re-export not byte-identical; published bytes kept so pinned sha256 stay valid",
+                "fresh_sha256": fresh_sha, "fresh_size_bytes": r.get("size_bytes"),
+                "note": "parity numbers are from the fresh re-export of the same checkpoint",
+            }
+            r["sha256"] = pub_sha
+            r["size_bytes"] = fresh.stat().st_size
+            rep_p.write_text(json.dumps(r, indent=2) + "\n")
+    return 0
+
+
+# ----------------------------------------------------------------------------
+# ensemble manifest
+# ----------------------------------------------------------------------------
+# nnU-Net's published inference configuration: every fold of the configuration,
+# with mirroring over all three spatial axes (8 variants) averaged.
+ENSEMBLE_AGGREGATION = "softmax-mean"
+ENSEMBLE_TTA = "mirror"
+
+
+def ensemble_sha256(member_shas: list[str], tta: str | None) -> str:
+    """Identity of an ensemble run (src/lib/inference/manifest.ts ensembleDigestInput):
+    sha256 over the UTF-8 text of the member ONNX sha256 values (lower-case hex, member
+    order) joined by '\\n', followed by '\\ntta=mirror' when mirror TTA is on — so the
+    benchmark's (model sha256, dataset, case) dedupe never mixes TTA and non-TTA runs."""
+    text = "\n".join(s.lower() for s in member_shas) + (f"\ntta={tta}" if tta else "")
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def run_ensemble(args) -> int:
+    out = Path(args.out)
+    for par_p in sorted(out.glob("*_ens*.parity.json")):
+        ens_name = par_p.name[: -len(".parity.json")]
+        parity = json.loads(par_p.read_text())
+        members = parity["members"]
+        base = {"name": ens_name, "kind": "ensemble", "family": "nnU-Net v2", "arch_id": "nnunet_3d_fullres",
+                "zenodo_record": "11582728", "zenodo_doi": NNUNET_DOI, "trained_on": "LiTS 2017",
+                "source_file": "Dataset006_Liver.zip", "license": "CC-BY-4.0",
+                "code_license": "Apache-2.0 (nnU-Net)", "code": "https://github.com/MIC-DKFZ/nnUNet (Apache-2.0)"}
+        try:
+            mans, reps = [], []
+            for mid in members:
+                if not (out / f"{mid}.onnx").exists():
+                    raise FileNotFoundError(f"member {mid}.onnx missing")
+                mans.append(json.loads((out / f"{mid}.json").read_text()))
+                reps.append(json.loads((out / f"{mid}.report.json").read_text()))
+            m0 = mans[0]
+            for mid, m in zip(members, mans):
+                for k in ("spacing", "orientation", "normalization", "inference", "output", "modality"):
+                    if m[k] != m0[k]:
+                        raise ValueError(f"member {mid} differs from {members[0]} in '{k}'")
+            shas = [m["sha256"] for m in mans]
+            n = len(members)
+            name = f"nnU-Net v2 Liver+Lesion {n}-fold ensemble"
+            manifest = {
+                "name": name,
+                "version": "1.0.0",
+                "license": m0["license"],
+                "modality": m0["modality"],
+                "spacing": m0["spacing"],
+                "orientation": m0["orientation"],
+                "normalization": m0["normalization"],
+                "inference": m0["inference"],
+                "output": m0["output"],
+                "preferredEP": m0.get("preferredEP", "auto"),
+                # No top-level sha256: there is no <id>.onnx; every member pins its own bytes.
+                "ensemble": {
+                    "members": [{"id": mid, "file": f"{mid}.onnx", "sha256": s} for mid, s in zip(members, shas)],
+                    "aggregation": ENSEMBLE_AGGREGATION,
+                    "tta": ENSEMBLE_TTA,
+                },
+            }
+            ens_sha = ensemble_sha256(shas, ENSEMBLE_TTA)
+            ok_par = all(v["softmax_mean"]["argmax_agreement"] >= 0.99
+                         for k, v in parity.items() if k != "members")
+            report = {
+                **base, "status": "ok", "manifest": f"{ens_name}.json", "file": None,
+                "members": [{"id": mid, "sha256": s, "size_bytes": r.get("size_bytes"), "fold": r.get("fold_exported")}
+                            for mid, s, r in zip(members, shas, reps)],
+                "aggregation": ENSEMBLE_AGGREGATION, "tta": ENSEMBLE_TTA,
+                "tta_note": "mirror = flip over every non-empty subset of the 3 spatial axes plus identity (8 variants), "
+                            "outputs flipped back and averaged (nnU-Net use_mirroring=True, allowed_mirroring_axes=(0,1,2))",
+                "sha256": ens_sha,
+                "sha256_rule": "sha256('\\n'.join(member sha256, lower-case hex, member order) + ('\\ntta=mirror' if TTA on))",
+                "sha256_no_tta": ensemble_sha256(shas, None),
+                "size_bytes": sum(int(r.get("size_bytes") or 0) for r in reps),
+                "num_classes": reps[0].get("num_classes"), "labels": reps[0].get("labels"),
+                "patch": reps[0].get("patch"), "spacing": reps[0].get("spacing"),
+                "normalization": m0["normalization"], "exact_normalization": reps[0].get("exact_normalization"),
+                "ensemble_parity": parity, "parity_pass": ok_par and all(r.get("parity_pass") for r in reps),
+            }
+            (out / f"{ens_name}.json").write_text(json.dumps(manifest, indent=2) + "\n")
+            (out / f"{ens_name}.report.json").write_text(json.dumps(report, indent=2) + "\n")
+            print(f"ensemble {ens_name}: {n} members, sha={ens_sha[:12]} parity_pass={report['parity_pass']}")
+        except Exception as e:  # noqa: BLE001
+            rep = {**base, "status": "failed", "error": f"{type(e).__name__}: {str(e)[:1500]}"}
+            (out / f"{ens_name}.report.json").write_text(json.dumps(rep, indent=2) + "\n")
+            print(f"!! ensemble {ens_name} FAILED: {rep['error']}")
+        par_p.unlink()
     return 0
 
 
 # ----------------------------------------------------------------------------
 # index
 # ----------------------------------------------------------------------------
+def index_ensemble_entry(r: dict) -> dict:
+    ok = r.get("status") == "ok"
+    par = r.get("ensemble_parity") or {}
+    cases = {k: v for k, v in par.items() if k != "members"}
+    return {
+        "id": r["name"],
+        "kind": "ensemble",
+        "manifest": r.get("manifest") if ok else None,
+        "members": [{"id": m["id"], "file": f"{m['id']}.onnx", "sha256": m["sha256"], "bytes": m.get("size_bytes"),
+                     "fold": m.get("fold")} for m in (r.get("members") or [])],
+        "aggregation": r.get("aggregation"),
+        "tta": r.get("tta"),
+        "sha256": r.get("sha256"),
+        "sha256Rule": r.get("sha256_rule"),
+        "sha256NoTta": r.get("sha256_no_tta"),
+        "bytes": r.get("size_bytes"),
+        "zenodoRecord": r.get("zenodo_record"),
+        "doi": r.get("zenodo_doi"),
+        "sourceFile": r.get("source_file"),
+        "license": r.get("license"),
+        "codeLicense": r.get("code_license"),
+        "arch": r.get("arch_id"),
+        "trainedOn": r.get("trained_on"),
+        "labels": r.get("labels"),
+        "numClasses": r.get("num_classes"),
+        "patch": r.get("patch"),
+        "spacing": r.get("spacing"),
+        "normalization": r.get("normalization"),
+        "exactNormalization": r.get("exact_normalization"),
+        "parity": ({"minArgmaxAgreement": min(v["softmax_mean"]["argmax_agreement"] for v in cases.values()),
+                    "ok": bool(r.get("parity_pass")), "cases": cases} if cases else None),
+        "status": "ok" if ok else "failed",
+        "error": None if ok else r.get("error"),
+        "code": r.get("code"),
+    }
+
+
 def run_index(args) -> int:
     """zenodo-models-index.json, schema tamias.model-index.v1 (catalogue contract)."""
     out = Path(args.out)
-    reports = [json.loads(p.read_text()) for p in sorted(out.glob("*.report.json"))]
+    all_reports = [json.loads(p.read_text()) for p in sorted(out.glob("*.report.json"))]
+    reports = [r for r in all_reports if r.get("kind") != "ensemble"]
     models = []
     for r in reports:
         ok = r.get("status") == "ok"
@@ -845,12 +1117,22 @@ def run_index(args) -> int:
             "input": "float32 [1,1,PZ,PY,PX] (stored voxel order, i fastest) after resampling to manifest.spacing and manifest.normalization",
             "output": "float32 logits [1,C,PZ,PY,PX]; TAMIAS argmaxes over C",
             "opset": OPSET, "dynamicAxes": False,
+            "ensemble": ("manifest <id>.json with ensemble.members [{id, file, sha256}], ensemble.aggregation "
+                         "'softmax-mean' (mean of per-member softmax, then Gaussian-blended) and optional "
+                         "ensemble.tta 'mirror' (8 flip variants); ensemble sha256 = sha256('\\n'.join(member "
+                         "sha256) + ('\\ntta=mirror' if TTA))"),
         },
         "models": models,
+        # Additive (schema stays v1; readers that only know "models" ignore it): ensembles
+        # have no ONNX of their own — the manifest lists member ids + sha256.
+        "ensembles": [index_ensemble_entry(r) for r in all_reports if r.get("kind") == "ensemble"],
     }
     (out / "zenodo-models-index.json").write_text(json.dumps(index, indent=2) + "\n")
     n_ok = sum(m["status"] == "ok" for m in models)
     print(f"index: {n_ok}/{len(models)} ok")
+    for e in index["ensembles"]:
+        print(f"  ensemble {e['id']}: {e['status']} members={[m['id'] for m in e.get('members') or []]} "
+              f"sha={str(e.get('sha256'))[:12]} tta={e.get('tta')} {e.get('error') or ''}")
     for m in models:
         if m["status"] == "ok":
             p = m["parity"] or {}
@@ -872,10 +1154,20 @@ def main() -> int:
     b = sub.add_parser("nnunet")
     b.add_argument("--model-dir", required=True)
     b.add_argument("--out", required=True)
+    b.add_argument("--folds", default="every",
+                   help="'every' (default: every shipped fold; primary fold keeps the historical id, others "
+                        "<id>_f<k>), 'primary' (only fold 'all'/0), or a comma list such as 1,2,3,4")
     c = sub.add_parser("index")
     c.add_argument("--out", required=True)
+    k = sub.add_parser("keep-published")
+    k.add_argument("--out", required=True)
+    k.add_argument("--published", required=True, help="dir with the release's current *.json manifests")
+    k.add_argument("--tag", default="zenodo-models-v1")
+    e = sub.add_parser("ensemble")
+    e.add_argument("--out", required=True)
     args = ap.parse_args()
-    return {"lms3d": run_lms3d, "nnunet": run_nnunet, "index": run_index}[args.cmd](args)
+    return {"lms3d": run_lms3d, "nnunet": run_nnunet, "index": run_index, "keep-published": run_keep_published,
+            "ensemble": run_ensemble}[args.cmd](args)
 
 
 if __name__ == "__main__":

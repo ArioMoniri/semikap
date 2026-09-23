@@ -93,6 +93,36 @@ export interface ModelManifest {
   tta?: TtaSpec;
   /** Optional SHA-256 of the .onnx file for verification. */
   sha256?: string;
+  /**
+   * Present on ensemble manifests (e.g. nnunet_liver_lits_ens5.json). An
+   * ensemble has no ONNX of its own: every member is a separate `<id>.onnx`
+   * sharing this manifest's preprocessing / inference / output spec.
+   */
+  ensemble?: EnsembleSpec;
+}
+
+/**
+ * How ensemble members are combined per sliding-window tile before Gaussian
+ * blending: 'softmax-mean' averages per-member (and per-TTA-variant) softmax
+ * probabilities; 'logit-mean' averages raw logits (nnU-Net v2's in-process
+ * multi-fold predictor).
+ */
+export type EnsembleAggregation = 'softmax-mean' | 'logit-mean';
+
+export interface EnsembleMember {
+  /** Model id; the ONNX is `<id>.onnx` next to the manifest. */
+  id: string;
+  /** File name, when it differs from `<id>.onnx`. */
+  file?: string;
+  /** SHA-256 of the member ONNX (lower-case hex). */
+  sha256: string;
+}
+
+export interface EnsembleSpec {
+  members: EnsembleMember[];
+  aggregation: EnsembleAggregation;
+  /** 'mirror' = flip over every subset of the 3 spatial axes (8 variants), flip back, average. */
+  tta?: 'mirror';
 }
 
 export interface VolumeMetadata {

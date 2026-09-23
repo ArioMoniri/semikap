@@ -4,7 +4,13 @@ name: Zenodo models → ONNX
 # ONNX + TAMIAS manifests and publishes them as assets of the pre-release
 # `zenodo-models-v1`:
 #   * 10.5281/zenodo.21037952 — LightningMedSeg3D (9 architectures)
-#   * 10.5281/zenodo.11582728 — nnU-Net v2 Dataset006_Liver (LiTS 2017)
+#   * 10.5281/zenodo.11582728 — nnU-Net v2 Dataset006_Liver (LiTS 2017): every
+#     fold exported + parity-checked on its own (fold 0 keeps the id
+#     nnunet_liver_lits, folds 1-4 are nnunet_liver_lits_f1..f4), plus the ensemble
+#     manifest nnunet_liver_lits_ens5.json (5 members + sha256, softmax-mean, mirror TTA)
+# Publishing only adds/replaces assets, never deletes; an asset the release already
+# has keeps its published bytes when a re-export is not byte-identical (keep-published),
+# so pinned sha256 (app catalogue, benchmark records, ensemble members) stay valid.
 # The tag deliberately does NOT start with `v` (v* triggers tauri-release.yml).
 # Local equivalent: see scripts/zenodo/README.md.
 
@@ -40,7 +46,7 @@ env:
 jobs:
   convert:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
 
@@ -81,14 +87,24 @@ jobs:
           python scripts/zenodo/fetch.py --out work --only nnunet
           mkdir -p meta/nnunet && cp work/nnunet/_zenodo_record.json meta/nnunet/ 2>/dev/null || true
 
-      - name: Export nnU-Net → ONNX (+ parity)
+      - name: Export nnU-Net folds 0-4 → ONNX (+ parity each, + ensemble parity)
         continue-on-error: true
         run: |
           find work/nnunet/extracted -maxdepth 4 | head -50
           for f in $(find work/nnunet/extracted -name plans.json); do echo "== $f"; python -c "import json,sys; p=json.load(open('$f')); print('transpose_forward', p.get('transpose_forward'), 'reader', p.get('image_reader_writer')); [print(k, v.get('patch_size'), v.get('spacing'), v.get('normalization_schemes')) for k, v in p['configurations'].items()]; print(p['foreground_intensity_properties_per_channel'])"; done
-          python -W ignore scripts/zenodo/export_onnx.py nnunet --model-dir work/nnunet/extracted --out dist
+          python -W ignore scripts/zenodo/export_onnx.py nnunet --model-dir work/nnunet/extracted --out dist --folds every
           rm -rf work/nnunet
           df -h /
+
+      - name: Keep published assets byte-stable + ensemble manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p published
+          gh release download "$RELEASE_TAG" --pattern '*.json' --dir published --clobber || echo "release $RELEASE_TAG not found (first publication)"
+          python scripts/zenodo/export_onnx.py keep-published --out dist --published published --tag "$RELEASE_TAG"
+          rm -rf published
+          python scripts/zenodo/export_onnx.py ensemble --out dist
 
       - name: Build index
         run: |
@@ -108,6 +124,13 @@ jobs:
                   rows.append(f"| `{m['id']}` | {m['trainedOn']} | {m['bytes']/1e6:.1f} | `{m['sha256'][:16]}…` | {m['numClasses']} | {m['patch']} | {m['spacing']} | {p.get('maxAbsDiff', 0):.2e} / {p.get('minArgmaxAgreement', 0):.4f} | ok |")
               else:
                   rows.append(f"| `{m['id']}` | {m.get('trainedOn')} | – | – | – | – | – | – | **failed**: {str(m['error'])[:160]} |")
+          for e in idx.get("ensembles", []):
+              if e["status"] == "ok":
+                  p = e["parity"] or {}
+                  members = ", ".join(f"`{m['id']}`" for m in e["members"])
+                  rows.append(f"| `{e['id']}` (ensemble of {members}; {e['aggregation']}, TTA {e.get('tta') or 'off'}) | {e['trainedOn']} | {e['bytes']/1e6:.1f} (members) | `{e['sha256'][:16]}…` (ensemble id) | {e['numClasses']} | {e['patch']} | {e['spacing']} | – / {p.get('minArgmaxAgreement', 0):.4f} | ok |")
+              else:
+                  rows.append(f"| `{e['id']}` (ensemble) | {e.get('trainedOn')} | – | – | – | – | – | – | **failed**: {str(e['error'])[:160]} |")
           body = [
               "TAMIAS-ready ONNX exports (opset 17, fp32, fixed patch) of two Zenodo records, converted by `.github/workflows/zenodo-models.yml` / `scripts/zenodo/export_onnx.py`.",
               "",
@@ -115,6 +138,8 @@ jobs:
               "* nnU-Net v2 Dataset006_Liver (LiTS 2017, BAMF Health) — https://doi.org/10.5281/zenodo.11582728 (CC-BY-4.0)",
               "",
               "Each `<id>.onnx` has a matching TAMIAS manifest `<id>.json`; `zenodo-models-index.json` lists everything (schema `tamias.model-index.v1`). Research use only — not for clinical decisions.",
+              "",
+              "nnU-Net: `nnunet_liver_lits` is fold 0 and `nnunet_liver_lits_f1`…`_f4` are folds 1–4, each exported and parity-checked on its own. `nnunet_liver_lits_ens5.json` is an ensemble manifest without an ONNX of its own: it lists the five members with their sha256, aggregation `softmax-mean` and `tta: mirror` (8 flip variants), i.e. nnU-Net's published 5-fold + mirroring inference configuration. Its sha256 in the index is computed over the member sha256s (see `contract.ensemble`).",
               "",
               *rows,
           ]
