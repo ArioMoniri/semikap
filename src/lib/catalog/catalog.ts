@@ -28,7 +28,19 @@ export const MODEL_INDEX_URL = `${MODEL_RELEASE_BASE}/zenodo-models-index.json`;
  * repo has an HF_TOKEN secret. Tried first (browser builds can't read GitHub
  * release assets); the GitHub release index is the fallback.
  */
-export const HF_MIRROR_BASE = 'https://huggingface.co/Aralario/tamias-zenodo-liver-models/resolve/main';
+/**
+ * Hugging Face account that owns the mirror. Forks set VITE_HF_MIRROR_OWNER at build time
+ * (the account of their own HF_TOKEN secret); integrity never depends on it — every file
+ * is still checked against the pinned sha256.
+ */
+export const HF_MIRROR_OWNER = mirrorOwner(
+  (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_HF_MIRROR_OWNER
+);
+export function mirrorOwner(raw: string | undefined): string {
+  const v = raw?.trim();
+  return v && /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/.test(v) ? v : 'Aralario';
+}
+export const HF_MIRROR_BASE = `https://huggingface.co/${HF_MIRROR_OWNER}/tamias-zenodo-liver-models/resolve/main`;
 export const MODEL_INDEX_URLS = [`${HF_MIRROR_BASE}/zenodo-models-index.json`, MODEL_INDEX_URL];
 
 export type ModelStatus = 'ok' | 'failed' | 'unpublished';
@@ -497,8 +509,10 @@ export interface ModelIndex {
   mirrors: string[];
 }
 
-// Pinned to the project's own HF repo: the index may choose the revision, never the owner.
-const MIRROR_RE = /^https:\/\/huggingface\.co\/Aralario\/tamias-zenodo-liver-models\/resolve\/[A-Za-z0-9._-]+$/;
+// Pinned to this build's HF mirror repo: the index may choose the revision, never the owner.
+const MIRROR_RE = new RegExp(
+  `^https://huggingface\\.co/${HF_MIRROR_OWNER.replace(/\./g, '\\.')}/tamias-zenodo-liver-models/resolve/[A-Za-z0-9._-]+$`
+);
 
 export function isValidMirror(base: unknown): base is string {
   return typeof base === 'string' && MIRROR_RE.test(base);

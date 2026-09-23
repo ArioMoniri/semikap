@@ -188,3 +188,16 @@ describe('parseModelIndex', () => {
     }
   });
 });
+
+describe('HF mirror owner (per-fork build setting)', async () => {
+  const { mirrorOwner, isValidMirror, HF_MIRROR_BASE } = await import('../src/lib/catalog/catalog');
+  it('defaults to Aralario and rejects unsafe owners', () => {
+    expect(mirrorOwner(undefined)).toBe('Aralario');
+    expect(mirrorOwner('  someone-else ')).toBe('someone-else');
+    expect(mirrorOwner('evil.com/x')).toBe('Aralario');
+  });
+  it('only the mirror of this build owner is accepted', () => {
+    expect(isValidMirror(HF_MIRROR_BASE)).toBe(true);
+    expect(isValidMirror('https://huggingface.co/attacker/tamias-zenodo-liver-models/resolve/main')).toBe(false);
+  });
+});

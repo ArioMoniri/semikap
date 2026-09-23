@@ -50,6 +50,8 @@ the right statistics — per dataset and across datasets.
   checkpoints matched by md5 to their verified full-precision ONNX export; otherwise the exact conversion
   command), a local DICOM CT + DICOM-SEG folder, or an IDC CT/SEG series pair.
 - Benchmark kits live in the example loader's Bundle picker (dataset + model rows, Open kit).
+- Hugging Face mirror owner is a build setting (`VITE_HF_MIRROR_OWNER`, repo variable `HF_MIRROR_OWNER`),
+  so forks mirror to and trust their own account; downloads stay sha256-pinned.
 - Records carry the hardware/runtime (runner, cores, CPU model, RAM, OS, onnxruntime version, peak RSS);
   the report's Methods states the runtime recorded, and repeats Friedman/Nemenyi on external models only
   when a model is scored on its own training data.

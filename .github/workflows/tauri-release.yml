@@ -126,12 +126,16 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Build frontend
+        env:
+          # Forks: set the repo variable HF_MIRROR_OWNER to the HF account of their HF_TOKEN.
+          VITE_HF_MIRROR_OWNER: ${{ vars.HF_MIRROR_OWNER }}
         run: npm run build
 
       - name: Tauri build (signed + notarised)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_HF_MIRROR_OWNER: ${{ vars.HF_MIRROR_OWNER }}
 
           # Tauri updater signing — the in-app auto-updater verifies each
           # bundle against the public key embedded in tauri.conf.json.
