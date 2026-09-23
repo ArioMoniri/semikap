@@ -91,3 +91,57 @@ export function fillHoles2D(mask: ArrayLike<number>, dims: [number, number, numb
   }
   return out;
 }
+
+/**
+ * Recorded, reproducible prediction post-processing (applied before scoring):
+ *  - 'fov': zero predictions where the INPUT CT lies outside the scanner field
+ *    of view (raw HU ≤ FOV_HU_THRESHOLD — padding such as −2048 / −3024);
+ *  - 'lcc': keep only the largest 6-connected 3-D component of the whole-liver
+ *    prediction (labels outside `liverLabels` are left untouched).
+ * Always applied in the canonical order fov → lcc.
+ */
+export type PostprocessOp = 'fov' | 'lcc';
+export const POSTPROCESS_OPS: readonly PostprocessOp[] = ['fov', 'lcc'];
+export const FOV_HU_THRESHOLD = -1500;
+
+/** Choices offered in the UI (value is a parsePostprocess spec). */
+export const POSTPROCESS_CHOICES = [
+  { value: 'none', label: 'None (raw model output)' },
+  { value: 'fov', label: 'FOV mask (drop outside scanner field of view)' },
+  { value: 'lcc', label: 'Largest connected component (whole liver)' },
+  { value: 'fov,lcc', label: 'FOV mask + largest component' },
+] as const;
+
+/** "none" | "fov" | "lcc" | "fov,lcc" (any order) → canonical op list. */
+export function parsePostprocess(spec: string): PostprocessOp[] {
+  const parts = spec
+    .split(/[,+]/)
+    .map((s) => s.trim())
+    .filter((s) => s && s !== 'none');
+  for (const p of parts)
+    if (!POSTPROCESS_OPS.includes(p as PostprocessOp)) throw new Error(`Unknown postprocess option "${p}" (none|fov|lcc).`);
+  return POSTPROCESS_OPS.filter((o) => parts.includes(o));
+}
+
+export function applyPostprocess(
+  pred: Uint8Array,
+  ct: ArrayLike<number> | null,
+  dims: [number, number, number],
+  liverLabels: readonly number[],
+  ops: readonly PostprocessOp[]
+): Uint8Array {
+  const out = Uint8Array.from(pred);
+  if (ops.includes('fov')) {
+    if (!ct || ct.length !== out.length) throw new Error('FOV post-processing needs the input CT on the prediction grid.');
+    for (let i = 0; i < out.length; i++) if (ct[i]! <= FOV_HU_THRESHOLD) out[i] = 0;
+  }
+  if (ops.includes('lcc')) {
+    const isLiver = new Uint8Array(256);
+    for (const l of liverLabels) isLiver[l] = 1;
+    const liver = new Uint8Array(out.length);
+    for (let i = 0; i < out.length; i++) liver[i] = isLiver[out[i]!]!;
+    const keep = largestComponent(liver, dims);
+    for (let i = 0; i < out.length; i++) if (liver[i] && !keep[i]) out[i] = 0;
+  }
+  return out;
+}

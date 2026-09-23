@@ -4,10 +4,15 @@
  * scripts/bench/analyze.ts, so exported tables, screenshots and the CLI agree.
  *
  * Returns { filename: content }: per_case.csv, summary.csv, friedman.csv,
- * pairwise_<ds>_<structure>_<metric>.csv, cross_dataset_<structure>_<metric>.csv, REPORT.md.
+ * pairwise_<ds>_<structure>_<metric>.csv, cross_dataset_<structure>_<metric>.csv, lesion_detection.csv and
+ * volume_agreement.csv (when records carry the data), REPORT.md. Datasets are keyed by datasetKey(), so each
+ * post-processing variant ("hcc-tace-seg [lcc]") is analysed separately, never pooled.
  */
 import type { BenchmarkRecord } from './types';
-import { recordsToMatrix, crossDatasetSummary, modelKey, canonicalDatasetId, type SegMetricKey } from './compare';
+import { recordsToMatrix, crossDatasetSummary, modelKey, datasetKey, baseDatasetId, latestPerPair, type SegMetricKey } from './compare';
+import type { SegMetrics } from '../metrics/segmentation';
+import { iccA1, wilsonInterval } from '../metrics/agreement';
+import { blandAltman } from '../plots/agreement';
 import {
   friedmanTest,
   nemenyiCriticalDifference,
@@ -68,11 +73,125 @@ function csvText(v: string): string {
   return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
+/** Reference / predicted volume (mL); derived from voxel counts + volumeDiffMl for records predating refMl/predMl. */
+export function volumesMl(m: SegMetrics): { ref: number; pred: number } | null {
+  if (Number.isFinite(m.refMl) && Number.isFinite(m.predMl)) return { ref: m.refMl!, pred: m.predMl! };
+  const dv = m.predVoxels - m.refVoxels;
+  if (!dv || !Number.isFinite(m.volumeDiffMl)) return null;
+  const voxelMl = m.volumeDiffMl / dv;
+  return { ref: m.refVoxels * voxelMl, pred: m.predVoxels * voxelMl };
+}
+
+function groupByDatasetModel(records: readonly BenchmarkRecord[]): Map<string, BenchmarkRecord[]> {
+  const g = new Map<string, BenchmarkRecord[]>();
+  for (const r of latestPerPair(records.filter((r) => r.task === 'segmentation'))) {
+    const k = JSON.stringify([datasetKey(r), modelKey(r)]);
+    g.set(k, [...(g.get(k) ?? []), r]);
+  }
+  return new Map([...g].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+export interface VolumeAgreementRow {
+  dataset: string;
+  model: string;
+  n: number;
+  meanRefMl: number;
+  meanPredMl: number;
+  bias: number;
+  sdDiff: number;
+  loaLow: number;
+  loaHigh: number;
+  icc: number;
+  points: { mean: number; diff: number }[];
+}
+
+/** Whole-liver volume agreement (predicted vs reference, mL) per dataset × model: Bland–Altman + ICC(A,1). */
+export function volumeAgreementRows(records: readonly BenchmarkRecord[]): VolumeAgreementRow[] {
+  const out: VolumeAgreementRow[] = [];
+  for (const [k, recs] of groupByDatasetModel(records)) {
+    const pairs = recs
+      .map((r) => r.segmentation?.find((s) => s.label === 1))
+      .map((m) => (m ? volumesMl(m) : null))
+      .filter((v): v is { ref: number; pred: number } => v !== null);
+    if (pairs.length < 2) continue;
+    const [dataset, model] = JSON.parse(k) as [string, string];
+    const ba = blandAltman(pairs);
+    const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    out.push({
+      dataset,
+      model,
+      n: pairs.length,
+      meanRefMl: avg(pairs.map((p) => p.ref)),
+      meanPredMl: avg(pairs.map((p) => p.pred)),
+      bias: ba.bias,
+      sdDiff: ba.sdDiff,
+      loaLow: ba.loaLow,
+      loaHigh: ba.loaHigh,
+      icc: iccA1(pairs.map((p) => [p.ref, p.pred])),
+      points: ba.points,
+    });
+  }
+  return out;
+}
+
+export interface LesionDetectionRow {
+  dataset: string;
+  model: string;
+  cases: number;
+  minVolumeMl: string;
+  refLesions: number;
+  tp: number;
+  fn: number;
+  fpComponents: number;
+  sensitivity: number;
+  ciLow: number;
+  ciHigh: number;
+  fpPerCase: number;
+}
+
+/** Pooled lesion-wise sensitivity (Wilson 95% CI) and FP components per case, per dataset × model. */
+export function lesionDetectionRows(records: readonly BenchmarkRecord[]): LesionDetectionRow[] {
+  const out: LesionDetectionRow[] = [];
+  for (const [k, all] of groupByDatasetModel(records)) {
+    const recs = all.filter((r) => r.lesions);
+    if (!recs.length) continue;
+    const [dataset, model] = JSON.parse(k) as [string, string];
+    const sum = (f: (r: BenchmarkRecord) => number) => recs.reduce((a, r) => a + f(r), 0);
+    const tp = sum((r) => r.lesions!.tp);
+    const fn = sum((r) => r.lesions!.fn);
+    const fpComponents = sum((r) => r.lesions!.fpComponents);
+    const [ciLow, ciHigh] = wilsonInterval(tp, tp + fn);
+    out.push({
+      dataset,
+      model,
+      cases: recs.length,
+      minVolumeMl: [...new Set(recs.map((r) => r.lesions!.minVolumeMl))].join('/'),
+      refLesions: tp + fn,
+      tp,
+      fn,
+      fpComponents,
+      sensitivity: tp + fn ? tp / (tp + fn) : NaN,
+      ciLow,
+      ciHigh,
+      fpPerCase: fpComponents / recs.length,
+    });
+  }
+  return out;
+}
+
+const POSTPROCESS_TEXT: Record<string, string> = {
+  fov: 'predictions zeroed where the input CT lies outside the scanner field of view (raw HU ≤ −1500, i.e. padding)',
+  lcc: 'largest 3-D connected component (6-connectivity) of the whole-liver prediction kept',
+};
+
+/** Sanitised file-name fragment of a dataset key ("hcc [fov+lcc]" → "hcc_fov_lcc_"). */
+const fileSafe = (s: string) => s.replace(/[^\w.-]+/g, '_');
+
 export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record<string, string> {
   const records = allRecords.filter((r) => r.task === 'segmentation');
   const files: Record<string, string> = {};
   const LABELS: Record<number, string> = { 1: 'whole_liver', 2: 'tumour' };
-  const METRICS: SegMetricKey[] = ['dice', 'iou', 'hd95Mm', 'assdMm', 'volumetricSimilarity'];
+  const METRICS: SegMetricKey[] = ['dice', 'iou', 'hd95Mm', 'assdMm', 'volumetricSimilarity', 'nsd2Mm', 'nsd5Mm'];
   const csv = (rows: (string | number)[][]) =>
     rows
       .map((r) =>
@@ -103,25 +222,30 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
 
   // per-case
   const perCase: (string | number)[][] = [
-    ['dataset', 'case', 'model', 'model_sha256', 'structure', ...METRICS, 'infer_s'],
+    ['dataset', 'case', 'model', 'model_sha256', 'structure', ...METRICS, 'ref_ml', 'pred_ml', 'postprocess', 'infer_s'],
   ];
   for (const r of records)
-    for (const m of r.segmentation ?? [])
+    for (const m of r.segmentation ?? []) {
+      const vol = volumesMl(m);
       perCase.push([
-        r.datasetName,
+        datasetKey(r),
         r.case.caseId,
         modelKey(r),
         r.model.sha256,
         LABELS[m.label] ?? String(m.label),
-        ...METRICS.map((k) => m[k]),
+        ...METRICS.map((k) => m[k] ?? NaN),
+        vol?.ref ?? NaN,
+        vol?.pred ?? NaN,
+        (r.postprocess ?? []).join('+') || 'none',
         r.runtime.inferMs / 1000,
       ]);
+    }
   files['per_case.csv'] = csv(perCase);
 
-  const datasets = [...new Set(records.map((r) => canonicalDatasetId(r.datasetName)))].sort();
+  const datasets = [...new Set(records.map(datasetKey))].sort();
   // Models evaluated on their own training data are flagged (†): optimistic, not an external test.
   const trainedOnByKey = new Map(records.map((r) => [modelKey(r), catalogModelForRecord(r.model)?.trainedOn ?? []]));
-  const inTraining = (key: string, ds: string) => (trainedOnByKey.get(key) ?? []).includes(ds);
+  const inTraining = (key: string, ds: string) => (trainedOnByKey.get(key) ?? []).includes(baseDatasetId(ds));
   let anyDagger = false;
   const md: string[] = [
     '# TAMIAS catalogue benchmark — statistical report',
@@ -155,7 +279,7 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
   const nemenyi: (string | number)[][] = [['dataset', 'structure', 'metric', 'better', 'worse', 'rank_better', 'rank_worse', 'rank_diff', 'cd']];
 
   for (const label of [1, 2]) {
-    for (const metric of ['dice', 'hd95Mm'] as SegMetricKey[]) {
+    for (const metric of ['dice', 'hd95Mm', 'nsd2Mm', 'nsd5Mm'] as SegMetricKey[]) {
       for (const ds of datasets) {
         const m = recordsToMatrix(records, { dataset: ds, label, metric });
         if (m.models.length < 2 || m.cases.length < 2) continue;
@@ -238,7 +362,7 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
             eff.get(r.name)!.ci[1],
             String(inTraining(r.name, ds)),
           ]);
-        files[`pairwise_${ds}_${LABELS[label]}_${metric}.csv`] = csv([
+        files[`pairwise_${fileSafe(ds)}_${LABELS[label]}_${metric}.csv`] = csv([
           ['model_a', 'model_b', 'mean_diff_a_minus_b', 'p_raw', 'p_holm', 'significant_0.05'],
           ...pw.map((p) => [p.a, p.b, p.meanDiff, p.pRaw, p.pHolm, String(p.significant)]),
         ]);
@@ -310,12 +434,71 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
   files['summary.csv'] = csv(summary);
   files['friedman.csv'] = csv(friedman);
   files['nemenyi_pairs.csv'] = csv(nemenyi);
+
+  const lesions = lesionDetectionRows(records);
+  if (lesions.length) {
+    files['lesion_detection.csv'] = csv([
+      ['dataset', 'model', 'cases', 'min_volume_ml', 'ref_lesions', 'tp', 'fn', 'fp_components', 'sensitivity', 'ci95_lo', 'ci95_hi', 'fp_per_case'],
+      ...lesions.map((l) => [l.dataset, l.model, l.cases, l.minVolumeMl, l.refLesions, l.tp, l.fn, l.fpComponents, l.sensitivity, l.ciLow, l.ciHigh, l.fpPerCase]),
+    ]);
+    md.push(
+      '## Lesion detection (tumour)',
+      '',
+      '| Dataset | Model | Cases | Lesions | Sensitivity [Wilson 95% CI] | FP components / case |',
+      '|---|---|---|---|---|---|',
+      ...lesions.map(
+        (l) =>
+          `| ${l.dataset} | ${l.model.replace(/@.*/, '')} | ${l.cases} | ${l.tp}/${l.refLesions} | ${fmt(l.sensitivity)} [${fmt(l.ciLow)}, ${fmt(l.ciHigh)}] | ${fmt(l.fpPerCase, 2)} |`
+      ),
+      ''
+    );
+  }
+  const volumes = volumeAgreementRows(records);
+  if (volumes.length) {
+    files['volume_agreement.csv'] = csv([
+      ['dataset', 'model', 'n', 'mean_ref_ml', 'mean_pred_ml', 'bias_ml', 'sd_diff_ml', 'loa_low_ml', 'loa_high_ml', 'icc_a1'],
+      ...volumes.map((v) => [v.dataset, v.model, v.n, v.meanRefMl, v.meanPredMl, v.bias, v.sdDiff, v.loaLow, v.loaHigh, v.icc]),
+    ]);
+    md.push(
+      '## Volume agreement (whole liver, mL)',
+      '',
+      '| Dataset | Model | n | Mean ref / pred | Bias (pred − ref) | 95% limits of agreement | ICC(A,1) |',
+      '|---|---|---|---|---|---|---|',
+      ...volumes.map(
+        (v) =>
+          `| ${v.dataset} | ${v.model.replace(/@.*/, '')} | ${v.n} | ${fmt(v.meanRefMl, 0)} / ${fmt(v.meanPredMl, 0)} | ${fmt(v.bias, 1)} | ${fmt(v.loaLow, 1)} to ${fmt(v.loaHigh, 1)} | ${fmt(v.icc)} |`
+      ),
+      ''
+    );
+  }
+
+  const variants = [...new Set(records.map((r) => (r.postprocess ?? []).join('+')))].sort();
+  const postText = variants.some(Boolean)
+    ? ` Post-processing: ${variants
+        .map((v) => (v ? `${v.split('+').map((o) => POSTPROCESS_TEXT[o] ?? o).join(', then ')} [${v}]` : 'none (raw model output)'))
+        .join('; ')}. The post-processing is recorded per record and each variant is analysed as its own dataset (suffix in brackets), never pooled with other variants.`
+    : ' No post-processing (no largest-connected-component or field-of-view/body-mask filtering) was applied, so HD95/ASSD include distant false-positive islands.';
+  const hasNsd = records.some((r) => r.segmentation?.some((m) => m.nsd2Mm !== undefined));
+  const extraScoring = [
+    hasNsd
+      ? 'Normalised Surface Dice (NSD; Nikolov et al. 2021) at τ = 2 mm and 5 mm: the fraction of both surfaces (surface voxels) lying within τ of the other surface, from the same distance transform (both masks empty = 1, exactly one empty = 0; higher is better).'
+      : '',
+    lesions.length
+      ? `Lesion detection: reference lesions are 26-connected components of the reference tumour mask with volume ≥ ${[...new Set(lesions.map((l) => l.minVolumeMl))].join('/')} mL; a lesion is detected when any of its voxels is predicted tumour; predicted tumour components of at least the same volume that touch no reference tumour are false positives. Sensitivity is pooled over lesions with a Wilson 95% CI (lesions within a patient are treated as independent, so the CI is optimistic).`
+      : '',
+    volumes.length
+      ? 'Volume agreement: predicted vs reference whole-liver volume (mL) per model and dataset — Bland–Altman bias (pred − ref) with 95% limits of agreement (bias ± 1.96 SD) and ICC(A,1) (two-way random effects, absolute agreement, single rater; McGraw & Wong 1996).'
+      : '',
+  ]
+    .filter(Boolean)
+    .map((t) => ` ${t}`)
+    .join('');
   md.push(
     '## Methods (auto-generated)',
     '',
-    `Inference: TAMIAS pipeline (reorientation to the model training orientation, trilinear resampling to the manifest spacing, manifest intensity clipping/normalisation, Gaussian-weighted sliding window at the manifest patch/overlap, nearest-neighbour resampling of the label map back to the CT grid), ONNX exported from the published checkpoints; runtime: ${runtimeSummary(records)}. No test-time augmentation, no ensembling and no post-processing (no largest-connected-component or body-mask filtering) were applied, so HD95/ASSD include distant false-positive islands.`,
+    `Inference: TAMIAS pipeline (reorientation to the model training orientation, trilinear resampling to the manifest spacing, manifest intensity clipping/normalisation, Gaussian-weighted sliding window at the manifest patch/overlap, nearest-neighbour resampling of the label map back to the CT grid), ONNX exported from the published checkpoints; runtime: ${runtimeSummary(records)}. No test-time augmentation or ensembling was applied.${postText}`,
     '',
-    'Scoring: each model is mapped from its own label space; whole liver = liver ∪ tumour labels (models without a tumour class are scored on their liver label against the whole-liver reference, so this comparison also measures whether a model includes large tumours in the organ); tumour = tumour label (only models with a tumour class). Dice, IoU, HD95 and ASSD (exact anisotropic Euclidean distance transform, mm). Both masks empty: Dice = 1 and surface metrics undefined (case not measurable, excluded). Exactly one mask empty: Dice = 0 and the surface metric is scored as the worst value observed for that dataset/structure/metric (counted under Failures), never dropped.',
+    `Scoring: each model is mapped from its own label space; whole liver = liver ∪ tumour labels (models without a tumour class are scored on their liver label against the whole-liver reference, so this comparison also measures whether a model includes large tumours in the organ); tumour = tumour label (only models with a tumour class). Dice, IoU, HD95 and ASSD (exact anisotropic Euclidean distance transform, mm). Both masks empty: Dice = 1 and surface metrics undefined (case not measurable, excluded). Exactly one mask empty: Dice = 0 and the surface metric is scored as the worst value observed for that dataset/structure/metric (counted under Failures), never dropped.${extraScoring}`,
     '',
     'Statistics: Friedman test on per-case scores (complete cases; latest record per model/case), mean ranks with Nemenyi critical difference (Demšar 2006; pairs whose mean-rank difference exceeds the CD are listed); pairwise Wilcoxon signed-rank (normal approximation with continuity correction) with Holm correction — the smallest attainable p for the given n is reported, and with ≤ 10 cases and many models Holm-corrected pairwise significance is unattainable by construction; paired median difference versus the top-ranked model with a percentile bootstrap 95% CI (2000 resamples, fixed seed; descriptive, not a hypothesis test). Across datasets: two-sided Mann-Whitney U with rank-biserial r per model; datasets differ in patients, scanners, slice thickness, contrast phase, tumour burden and annotation protocol, so this contrast is descriptive (confounded), not a causal domain-shift estimate.',
     ''
@@ -325,7 +508,7 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
       '† Model evaluated on (a subset of) its own training data — resubstitution, optimistic; rank it separately from external models.',
       ''
     );
-  const dsNotes = datasets.map((d) => CATALOG_DATASETS.find((c) => c.id === d)?.methodsNote).filter(Boolean);
+  const dsNotes = [...new Set(datasets.map(baseDatasetId))].map((d) => CATALOG_DATASETS.find((c) => c.id === d)?.methodsNote).filter(Boolean);
   const modelNotes = [...new Set(records.map((r) => catalogModelForRecord(r.model)?.methodsNote).filter(Boolean))];
   if (dsNotes.length || modelNotes.length)
     md.push('### Datasets and models', '', ...[...dsNotes, ...modelNotes].map((n) => `- ${n}`), '');

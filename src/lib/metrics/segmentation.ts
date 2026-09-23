@@ -41,6 +41,16 @@ export interface SegMetrics {
   hd95Mm: number;
   /** Average symmetric surface distance in mm; NaN if a surface is empty. */
   assdMm: number;
+  /**
+   * Normalised Surface Dice (Nikolov et al. 2021) at τ = 2 / 5 mm: fraction of
+   * both surfaces lying within τ of the other. 1 if both empty, 0 if one is.
+   * Absent on records scored before NSD existed or with surface metrics off.
+   */
+  nsd2Mm?: number;
+  nsd5Mm?: number;
+  /** Reference / predicted volume in mL (absent on older records). */
+  refMl?: number;
+  predMl?: number;
 }
 
 export interface SegMetricsOptions {
@@ -175,9 +185,14 @@ function percentile(sorted: number[], p: number): number {
 export interface SurfaceMetrics {
   hd95Mm: number;
   assdMm: number;
+  nsd2Mm: number;
+  nsd5Mm: number;
 }
 
-/** HD95 (max of directed 95th percentiles) and ASSD (mean of all symmetric distances). */
+/** NSD tolerances (mm) reported in SegMetrics. */
+export const NSD_TOLERANCES_MM = [2, 5] as const;
+
+/** HD95 (max of directed 95th percentiles), ASSD (mean of all symmetric distances) and NSD at 2 / 5 mm. */
 export function surfaceMetrics(
   ref: Uint8Array,
   pred: Uint8Array,
@@ -187,7 +202,8 @@ export function surfaceMetrics(
   const sa = surfaceVoxels(ref, dims);
   const sb = surfaceVoxels(pred, dims);
   if (sa.length === 0 || sb.length === 0) {
-    return { hd95Mm: NaN, assdMm: NaN };
+    const nsd = sa.length === sb.length ? 1 : 0;
+    return { hd95Mm: NaN, assdMm: NaN, nsd2Mm: nsd, nsd5Mm: nsd };
   }
   // Exact EDT is O(N); brute force only wins for tiny surfaces.
   const dist = sa.length * sb.length > 4_000_000 ? directedDistancesEdt : directedDistances;
@@ -198,7 +214,8 @@ export function surfaceMetrics(
   const hd95 = Math.max(percentile(sortedAB, 95), percentile(sortedBA, 95));
   const all = dAB.concat(dBA);
   const assd = all.reduce((s, v) => s + v, 0) / all.length;
-  return { hd95Mm: hd95, assdMm: assd };
+  const nsd = (tau: number) => all.filter((d) => d <= tau + EPS).length / all.length;
+  return { hd95Mm: hd95, assdMm: assd, nsd2Mm: nsd(NSD_TOLERANCES_MM[0]), nsd5Mm: nsd(NSD_TOLERANCES_MM[1]) };
 }
 
 /**
@@ -237,18 +254,24 @@ export function segmentationMetrics(
 
   let hd95Mm = NaN;
   let assdMm = NaN;
+  let nsd: { nsd2Mm: number; nsd5Mm: number } | null = null;
   if (opts.surface !== false) {
     if (bothEmpty) {
       hd95Mm = 0;
       assdMm = 0;
+      nsd = { nsd2Mm: 1, nsd5Mm: 1 };
     } else {
       const s = surfaceMetrics(refBin, predBin, dims, spacing);
       hd95Mm = s.hd95Mm;
       assdMm = s.assdMm;
+      nsd = { nsd2Mm: s.nsd2Mm, nsd5Mm: s.nsd5Mm };
     }
   }
 
   return {
+    ...nsd,
+    refMl: refVoxels * voxelMl,
+    predMl: predVoxels * voxelMl,
     label,
     dice,
     iou,

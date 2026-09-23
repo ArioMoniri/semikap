@@ -8,6 +8,7 @@
  */
 
 import { segmentationMetrics, type SegMetrics, type SegMetricsOptions } from './segmentation';
+import { lesionDetection, type LesionDetection } from './lesions';
 
 export interface LabelGroup {
   /** Label id reported in SegMetrics.label for this group. */
@@ -82,6 +83,26 @@ export function scoreLabelGroupsMapped(
     ...segmentationMetrics(groupMask(ref, g.refMembers), groupMask(pred, g.predMembers), dims, spacing, 1, opts),
     label: g.id,
   }));
+}
+
+/**
+ * Per-group segmentation metrics plus lesion-wise detection of the tumour group
+ * (absent for models without a tumour class). Shared by the headless runner and
+ * the re-scorer so both record the same fields.
+ */
+export function scoreLiverTumourCase(
+  ref: Uint8Array,
+  pred: Uint8Array,
+  dims: [number, number, number],
+  spacing: [number, number, number],
+  groups: readonly MappedLabelGroup[],
+  opts: SegMetricsOptions & { minLesionMl?: number } = {}
+): { segmentation: SegMetrics[]; lesions?: LesionDetection } {
+  const segmentation = scoreLabelGroupsMapped(ref, pred, dims, spacing, groups, opts);
+  const t = groups.find((g) => g.id === 2);
+  if (!t) return { segmentation };
+  const lesions = lesionDetection(groupMask(ref, t.refMembers), groupMask(pred, t.predMembers), dims, spacing, opts.minLesionMl);
+  return { segmentation, lesions };
 }
 
 /** Binary ref/pred masks per canonical group (for the in-app scoring worker). */

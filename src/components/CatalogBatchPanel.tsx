@@ -17,7 +17,10 @@ import { findLocalModel } from '../lib/catalog/local-models';
 import { fetchCatalogAsset } from '../lib/catalog/fetch';
 import { cacheModel, loadCachedModel } from '../lib/fs/opfs';
 import { canonicalGroupMasks, groupsForModelLabels } from '../lib/metrics/label-groups';
-import { scoreSegmentation } from '../lib/metrics/score';
+import { scoreLesions, scoreSegmentation } from '../lib/metrics/score';
+import { applyPostprocess, parsePostprocess, POSTPROCESS_CHOICES } from '../lib/metrics/postprocess';
+import type { LesionDetection } from '../lib/metrics/lesions';
+import { datasetKey } from '../lib/benchmark/compare';
 import { buildKeySlice, toRadiological, toRadiologicalCt } from '../lib/benchmark/mask-compare';
 import { appendRecord } from '../lib/benchmark/store';
 import { captureEnv } from '../lib/benchmark/env';
@@ -64,6 +67,7 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
   const [ctFiles, setCtFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [skipRecorded, setSkipRecorded] = useState(true);
+  const [postSpec, setPostSpec] = useState<string>('none');
   const [results, setResults] = useState<Array<{ caseId: string; model: string; dice: number; tumour?: number; s: number }>>([]);
   const [failures, setFailures] = useState<string[]>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -115,7 +119,11 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
     const api = Comlink.wrap<InferenceApi>(worker);
     // One progress proxy per batch: each Comlink.proxy opens a MessagePort.
     const noop = Comlink.proxy((_e: InferenceProgressEvent) => {});
-    const recorded = skipRecorded ? records : [];
+    const post = parsePostprocess(postSpec);
+    // Resume only against records scored with the same post-processing.
+    const ppKey = datasetKey({ datasetName: dataset.id, postprocess: post });
+    const recorded = skipRecorded ? records.filter((r) => datasetKey(r) === ppKey) : [];
+    const lesionsByPrediction = new WeakMap<object, LesionDetection>();
     try {
       const cases: BatchCase[] = chosenCases.map((caseId) => ({ datasetId: dataset.id, caseId }));
       const summary = await runCatalogBatch<LoadedCase, { catalog: CatalogModel; rec: ModelRecord }>(
@@ -180,9 +188,17 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
               },
               noop
             );
-            return { mask: res.mask, dims: res.dims, spacing: res.spacing, elapsedMs: res.elapsedMs, provider: res.provider };
+            // Recorded post-processing on the model's own label map, before scoring (FOV uses the input CT grid).
+            const mask = post.length
+              ? applyPostprocess(res.mask, lc.voxels, res.dims, groupsForModelLabels(m.rec.manifest.output.labels)[0]!.predMembers, post)
+              : res.mask;
+            return { mask, dims: res.dims, spacing: res.spacing, elapsedMs: res.elapsedMs, provider: res.provider };
           },
           score: async (ref, pred, m) => {
+            const refGrid = { dims: ref.dims, spacing: ref.spacing };
+            const predGrid = { dims: pred.dims, spacing: pred.spacing };
+            const lesions = scoreLesions({ refMask: ref.mask, refGrid, predMask: pred.mask, predGrid, predLabels: m.rec.manifest.output.labels });
+            if (lesions) lesionsByPrediction.set(pred, lesions);
             const groups = canonicalGroupMasks(ref.mask, pred.mask, m.rec.manifest.output.labels);
             return groups.map((g) => {
               const r = scoreSegmentation({
@@ -218,6 +234,8 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
               },
               runtime: { provider: r.prediction.provider, inferMs: r.prediction.elapsedMs, totalMs: r.prediction.elapsedMs },
               segmentation: r.metrics,
+              ...(post.length ? { postprocess: [...post] } : {}),
+              ...(lesionsByPrediction.has(r.prediction) ? { lesions: lesionsByPrediction.get(r.prediction) } : {}),
               env: captureEnv(backend, __APP_VERSION__),
               createdAt: new Date().toISOString(),
               appVersion: __APP_VERSION__,
@@ -383,6 +401,23 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
             <Square className="h-3.5 w-3.5" /> Stop
           </Button>
         )}
+        <label className="flex items-center gap-1 text-[11px]" title="Applied to every prediction before scoring and stored in each record; variants are reported as separate datasets">
+          Post-processing
+          <select
+            aria-label="Post-processing"
+            value={postSpec}
+            disabled={running}
+            onChange={(e) => setPostSpec(e.currentTarget.value)}
+            className="rounded border border-slate-300 bg-white px-1 py-0.5 dark:border-slate-700 dark:bg-slate-900"
+            data-testid="batch-postprocess"
+          >
+            {POSTPROCESS_CHOICES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="flex items-center gap-1 text-[11px]" title="Resume: skip (case, model) pairs that already have a record in this profile">
           <input type="checkbox" checked={skipRecorded} disabled={running} onChange={(e) => setSkipRecorded(e.currentTarget.checked)} />
           skip recorded
