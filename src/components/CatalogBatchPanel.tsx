@@ -10,7 +10,8 @@ import * as Comlink from 'comlink';
 import { ListChecks, Play, Square, FolderOpen } from 'lucide-react';
 import { CATALOG_DATASETS, type CatalogModel } from '../lib/catalog/catalog';
 import { isPairRecorded, runCatalogBatch, type BatchCase } from '../lib/catalog/batch';
-import { loadIdcCase, loadLocalNiftiCase, pairLocalFiles, type LoadedCase } from '../lib/catalog/case-loader';
+import { loadIdcCase, loadImportedCase, loadLocalNiftiCase, pairLocalFiles, type LoadedCase } from '../lib/catalog/case-loader';
+import { IMPORTED_DATASET } from '../lib/catalog/imported-cases';
 import { loadCatalogModel } from '../lib/catalog/load';
 import { findLocalModel } from '../lib/catalog/local-models';
 import { fetchCatalogAsset } from '../lib/catalog/fetch';
@@ -54,7 +55,8 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
   const setVolume = useAppStore((s) => s.setVolume);
   const backend = useAppStore((s) => s.backend);
 
-  const dataset = CATALOG_DATASETS.find((d) => d.id === datasetId) ?? CATALOG_DATASETS[0]!;
+  const importedCases = useCatalogStore((s) => s.importedCases);
+  const dataset = [...CATALOG_DATASETS, IMPORTED_DATASET].find((d) => d.id === datasetId) ?? CATALOG_DATASETS[0]!;
   const idcCases = dataset.access.kind === 'idc-s3' ? dataset.access.cases : [];
   const [localPairs, setLocalPairs] = useState<ReturnType<typeof pairLocalFiles>>([]);
   const ctRef = useRef<HTMLInputElement>(null);
@@ -85,7 +87,13 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
     [setRunning]
   );
 
-  const caseChoices: string[] = dataset.access.kind === 'idc-s3' ? idcCases.map((c) => c.caseId) : localPairs.map((p) => p.caseId);
+  const listed = dataset.access.kind === 'idc-s3' || dataset.access.kind === 'imported';
+  const caseChoices: string[] =
+    dataset.access.kind === 'idc-s3'
+      ? idcCases.map((c) => c.caseId)
+      : dataset.access.kind === 'imported'
+        ? importedCases.map((c) => c.caseId)
+        : localPairs.map((p) => p.caseId);
   const runnable = models.filter((m) => m.status !== 'failed');
   const chosenModels = useMemo(() => runnable.filter((m) => selectedModels.includes(m.id)), [runnable, selectedModels]);
   const chosenCases = caseChoices.filter((c) => selectedCases.includes(c));
@@ -125,6 +133,10 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
             if (dataset.access.kind === 'idc-s3') {
               const idc = idcCases.find((x) => x.caseId === c.caseId)!;
               lc = await loadIdcCase(viewer, idc, (m) => setStatus(`${c.caseId} · ${m}`), signal);
+            } else if (dataset.access.kind === 'imported') {
+              const ic = importedCases.find((x) => x.caseId === c.caseId);
+              if (!ic) throw new Error(`Imported case ${c.caseId} is no longer available (re-import it).`);
+              lc = await loadImportedCase(viewer, ic, (m) => setStatus(`${c.caseId} · ${m}`), signal);
             } else {
               const pair = localPairs.find((p) => p.caseId === c.caseId)!;
               lc = await loadLocalNiftiCase(viewer, pair.ct, pair.label, dataset);
@@ -269,7 +281,7 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
         + tumour) and recorded. Results feed Benchmark → comparison statistics and the mask comparison grid.
       </p>
 
-      {dataset.access.kind === 'idc-s3' ? (
+      {listed ? (
         <div>
           <div className="mb-1 flex items-center justify-between text-[11px] font-medium">
             <span>Cases ({chosenCases.length}/{caseChoices.length})</span>
@@ -282,6 +294,9 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
               </button>
             </span>
           </div>
+          {caseChoices.length === 0 && (
+            <p className="text-[10px] text-slate-500">No imported cases — use “Import your own” (DICOM folder or IDC series).</p>
+          )}
           <div className="grid grid-cols-3 gap-x-2 text-[11px]">
             {caseChoices.map((c) => (
               <label key={c} className="flex items-center gap-1">

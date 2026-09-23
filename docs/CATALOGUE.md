@@ -45,6 +45,39 @@ redirect). The browser build uses a CORS-friendly Hugging Face mirror when one i
 otherwise it shows a **Download manually** link, and you drop the file into the Model panel.
 HCC-TACE-Seg loads in both builds.
 
+Catalogue models are the **full published weights**: fp32 ONNX exports of the original Zenodo
+checkpoints (18–370 MB), each parity-checked against PyTorch (max |Δlogit| is shown per model).
+They are not demos, thresholds or reduced models.
+
+## Import your own: Zenodo record, local DICOM CT+SEG, IDC series
+
+Sidebar → Catalogue → **Import your own** (browser and desktop):
+
+- **Zenodo record** — paste a record id, DOI (`10.5281/zenodo.N`) or `zenodo.org/records/N` URL
+  and click **Import**. TAMIAS reads `https://zenodo.org/api/records/N` (desktop: native
+  `catalog_fetch`; browser: direct fetch, with a clear message if CORS blocks it) and classifies
+  every file:
+  - `<name>.onnx` + `<name>.json` (TAMIAS manifest) → **Add** puts it in the model list; it loads
+    directly (sha256-verified when the manifest pins one).
+  - a PyTorch / nnU-Net checkpoint whose **md5** equals the source of a published conversion
+    (release index `sourceMd5`, or the conversion reports) → the verified full-precision ONNX
+    export of *that exact checkpoint*, shown as "converted from <file>, md5 match, parity max|Δ| …".
+  - anything else → **needs conversion**, with the exact `scripts/zenodo/export_onnx.py`
+    command to run locally. PyTorch cannot run in the app, and TAMIAS never substitutes a demo or
+    placeholder model.
+  Imported models work with **Load** and **Batch benchmark** like the built-ins and are
+  remembered on this device.
+- **Local DICOM CT + DICOM-SEG** — pick a folder (or files). TAMIAS groups them by series, makes
+  one case per SEG on the CT series it references and, for multi-phase CT, keeps the acquisition
+  the SEG references most. Segments are mapped by name (liver → 1, tumour/mass/lesion → 2,
+  vessels ignored), exactly as for HCC-TACE-Seg.
+- **IDC series** — paste a CT and a SEG `crdc_series_uuid` from the
+  [IDC portal](https://portal.imaging.datacommons.cancer.gov/explore/); the case downloads from
+  the IDC public bucket like the built-in HCC cases.
+
+Imported cases form the **Imported cases** dataset: use **Load CT + GT** for one case or select
+them in **Batch benchmark** (every selected model × case is scored and recorded).
+
 ## Run the whole benchmark (headless, reproducible)
 
 `.github/workflows/benchmark.yml` (Actions → *Catalogue benchmark* → Run workflow):

@@ -1,7 +1,8 @@
 /**
  * Load a benchmark case into the viewer + a ground-truth reference in the
  * catalogue label space (1 liver, 2 tumour) on the CT grid.
- *  - IDC (TCIA) cases: CT series (annotated acquisition only) + DICOM-SEG.
+ *  - DICOM cases (built-in IDC/TCIA, pasted IDC series ids, local folders):
+ *    CT series (annotated acquisition only) + DICOM-SEG, one shared path.
  *  - Local NIfTI cases: CT + label map in the dataset's own label values
  *    (CatalogDataset.gtLabels, e.g. BTCV 6 = liver), remapped to 1/2.
  */
@@ -14,6 +15,7 @@ import { listIdcSeriesUrls, readAcquisitionNumber } from './idc';
 import { fetchIdcSeriesFiles, filterByAcquisition } from './load';
 import { parseDicomSegGeometry, mapSegFramesToGrid, classifySegment } from '../datasets/seg-to-grid';
 import { readNiftiVolume } from '../datasets/nifti-volume';
+import { pickAcquisition, readDicomHeader, type ImportedCase } from './imported-cases';
 
 export interface LoadedCase {
   voxels: Int16Array | Uint16Array | Int32Array | Uint8Array | Float32Array;
@@ -23,8 +25,56 @@ export interface LoadedCase {
   note: string;
 }
 
+/**
+ * Shared DICOM CT + DICOM-SEG case loader (built-in IDC cases, pasted IDC
+ * series ids, local DICOM folders). Multi-phase CT series are reduced to one
+ * AcquisitionNumber: `acquisitionNumber` when given, else (with
+ * `autoAcquisition`) the acquisition the SEG references most.
+ */
+export async function loadDicomCtSegCase(
+  viewer: Pick<ViewerHandle, 'loadPrimaryFromFiles'>,
+  ctAll: Array<{ name: string; bytes: Bytes }>,
+  segBytes: Uint8Array,
+  opts: { acquisitionNumber?: number; autoAcquisition?: boolean; onProgress?: (msg: string) => void } = {}
+): Promise<LoadedCase> {
+  let acquisition = opts.acquisitionNumber;
+  let acqNote = '';
+  if (acquisition === undefined && opts.autoAcquisition) {
+    const segHeader = readDicomHeader(segBytes);
+    const picked = pickAcquisition(
+      ctAll.map((f) => {
+        const h = readDicomHeader(f.bytes);
+        return { sop: h?.sopInstanceUid ?? '', acquisition: h?.acquisitionNumber ?? null };
+      }),
+      segHeader?.referencedSops ?? []
+    );
+    acquisition = picked.chosen;
+    if (acquisition !== undefined) acqNote = ` (acquisition ${acquisition} of ${picked.acquisitions.map((a) => a.number).join('/')}, most referenced by the SEG)`;
+  }
+  const files = filterByAcquisition(ctAll, acquisition, readAcquisitionNumber);
+  opts.onProgress?.('Building volume…');
+  const loaded = await viewer.loadPrimaryFromFiles(files);
+  const meta = loaded.meta;
+  const seg = parseDicomSegGeometry(segBytes);
+  if (!meta.srowX || !meta.srowY || !meta.srowZ) throw new Error('Viewer did not expose the CT affine; cannot place the ground truth.');
+  const mapped = mapSegFramesToGrid(
+    seg,
+    { dims: meta.dims, srowX: meta.srowX, srowY: meta.srowY, srowZ: meta.srowZ },
+    (s) => classifySegment(seg.segments.get(s) ?? '')
+  );
+  return {
+    voxels: loaded.voxels,
+    meta,
+    firstFile: files[0]!,
+    reference: { mask: mapped.mask, dims: mapped.dims, spacing: meta.spacing },
+    note:
+      `${files.length} CT slices${acqNote} + GT (${[...seg.segments.values()].join(', ')})` +
+      (mapped.outOfGridFrames ? ` — ${mapped.outOfGridFrames} SEG frames outside the CT grid` : ''),
+  };
+}
+
 export async function loadIdcCase(
-  viewer: ViewerHandle,
+  viewer: Pick<ViewerHandle, 'loadPrimaryFromFiles'>,
   c: IdcCase,
   onProgress?: (msg: string) => void,
   signal?: AbortSignal
@@ -39,28 +89,40 @@ export async function loadIdcCase(
     concurrency: 8,
     onProgress: (d, t) => onProgress?.(`CT ${d}/${t} slices`),
   });
-  const files = filterByAcquisition(all, c.acquisitionNumber, readAcquisitionNumber);
-  onProgress?.('Building volume…');
-  const loaded = await viewer.loadPrimaryFromFiles(files);
-  const meta = loaded.meta;
   onProgress?.('Fetching ground-truth DICOM-SEG…');
   const segFiles = await fetchIdcSeriesFiles(c.segSeriesUuid, { list, fetchAsset, signal });
-  const seg = parseDicomSegGeometry(segFiles[0]!.bytes);
-  if (!meta.srowX || !meta.srowY || !meta.srowZ) throw new Error('Viewer did not expose the CT affine; cannot place the ground truth.');
-  const mapped = mapSegFramesToGrid(
-    seg,
-    { dims: meta.dims, srowX: meta.srowX, srowY: meta.srowY, srowZ: meta.srowZ },
-    (s) => classifySegment(seg.segments.get(s) ?? '')
-  );
-  return {
-    voxels: loaded.voxels,
-    meta,
-    firstFile: files[0]!,
-    reference: { mask: mapped.mask, dims: mapped.dims, spacing: meta.spacing },
-    note:
-      `${files.length} CT slices + GT (${[...seg.segments.values()].join(', ')})` +
-      (mapped.outOfGridFrames ? ` — ${mapped.outOfGridFrames} SEG frames outside the CT grid` : ''),
-  };
+  const segFile = segFiles.find((f) => readDicomHeader(f.bytes)?.modality === 'SEG') ?? segFiles[0]!;
+  return loadDicomCtSegCase(viewer, all, segFile.bytes, {
+    acquisitionNumber: c.acquisitionNumber,
+    autoAcquisition: c.acquisitionNumber === undefined,
+    onProgress,
+  });
+}
+
+/** Local DICOM folder case (CT slices + SEG picked from disk). */
+export async function loadLocalDicomCase(
+  viewer: Pick<ViewerHandle, 'loadPrimaryFromFiles'>,
+  c: Extract<ImportedCase, { source: 'dicom' }>,
+  onProgress?: (msg: string) => void
+): Promise<LoadedCase> {
+  onProgress?.(`Reading ${c.ctFiles.length} CT files…`);
+  const ct = await Promise.all(c.ctFiles.map(async (f) => ({ name: f.name, bytes: asBytes(new Uint8Array(await f.arrayBuffer())) })));
+  const seg = new Uint8Array(await c.segFile.arrayBuffer());
+  return loadDicomCtSegCase(viewer, ct, seg, {
+    acquisitionNumber: c.acquisitionNumber,
+    autoAcquisition: c.acquisitionNumber === undefined,
+    onProgress,
+  });
+}
+
+/** Any imported case (IDC series pair or local DICOM folder). */
+export function loadImportedCase(
+  viewer: Pick<ViewerHandle, 'loadPrimaryFromFiles'>,
+  c: ImportedCase,
+  onProgress?: (msg: string) => void,
+  signal?: AbortSignal
+): Promise<LoadedCase> {
+  return c.source === 'idc' ? loadIdcCase(viewer, c.idc, onProgress, signal) : loadLocalDicomCase(viewer, c, onProgress);
 }
 
 /**

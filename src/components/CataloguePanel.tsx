@@ -9,17 +9,18 @@ import {
   datasetsForModel,
   type CatalogModel,
   type CatalogDataset,
-  type IdcCase,
+  type ModelIndex,
 } from '../lib/catalog/catalog';
 import { fetchCatalogAsset, CatalogCorsError } from '../lib/catalog/fetch';
-import { listIdcSeriesUrls, readAcquisitionNumber } from '../lib/catalog/idc';
-import { loadCatalogModel, fetchIdcSeriesFiles, filterByAcquisition } from '../lib/catalog/load';
+import { loadCatalogModel } from '../lib/catalog/load';
+import { loadIdcCase, loadImportedCase } from '../lib/catalog/case-loader';
+import { IMPORTED_DATASET } from '../lib/catalog/imported-cases';
 import { cacheModel, loadCachedModel } from '../lib/fs/opfs';
-import { mapSegFramesToGrid, parseDicomSegGeometry, classifySegment } from '../lib/datasets/seg-to-grid';
 import { useAppStore } from '../lib/state/store';
 import { useBenchmarkStore } from '../lib/state/benchmarkStore';
 import { useCatalogStore } from '../lib/state/catalogStore';
 import { CatalogBatchPanel } from './CatalogBatchPanel';
+import { CatalogImportPanel } from './CatalogImportPanel';
 import { MaskCompareGrid } from './MaskCompareGrid';
 import { addLocalModel, findLocalModel, localModelIds, pairModelFiles } from '../lib/catalog/local-models';
 import { detectSourceFormat, asBytes } from '../types';
@@ -52,6 +53,9 @@ export function CataloguePanel({ viewerRef }: Props) {
   const models = useCatalogStore((s) => s.models);
   const setModels = useCatalogStore((s) => s.setModels);
   const [indexSource, setIndexSource] = useState<string | null>(null);
+  const [index, setIndex] = useState<ModelIndex | null>(null);
+  const importedCases = useCatalogStore((s) => s.importedCases);
+  const removeImportedModel = useCatalogStore((s) => s.removeImportedModel);
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -59,13 +63,12 @@ export function CataloguePanel({ viewerRef }: Props) {
   const datasetId = useCatalogStore((s) => s.datasetId);
   const setDatasetId = useCatalogStore((s) => s.setDatasetId);
   const batchRunning = useCatalogStore((s) => s.batchRunning);
-  const dataset = useMemo<CatalogDataset>(
-    () => CATALOG_DATASETS.find((d) => d.id === datasetId) ?? CATALOG_DATASETS[0]!,
-    [datasetId]
-  );
-  const cases = dataset.access.kind === 'idc-s3' ? dataset.access.cases : [];
+  const datasets = useMemo(() => [...CATALOG_DATASETS, IMPORTED_DATASET], []);
+  const dataset = useMemo<CatalogDataset>(() => datasets.find((d) => d.id === datasetId) ?? datasets[0]!, [datasets, datasetId]);
+  const cases: Array<{ caseId: string; description?: string }> =
+    dataset.access.kind === 'idc-s3' ? dataset.access.cases : dataset.access.kind === 'imported' ? importedCases : [];
   const [caseId, setCaseId] = useState<string>('');
-  const theCase: IdcCase | undefined = cases.find((c) => c.caseId === caseId) ?? cases[0];
+  const theCase = cases.find((c) => c.caseId === caseId) ?? cases[0];
 
   // Load the release index (HF mirror first, GitHub release fallback).
   useEffect(() => {
@@ -77,6 +80,7 @@ export function CataloguePanel({ viewerRef }: Props) {
           const idx = parseModelIndex(JSON.parse(new TextDecoder().decode(bytes)));
           if (cancelled) return;
           setModels(mergeModelIndex(CATALOG_MODELS, idx));
+          setIndex(idx);
           setIndexSource(url);
           return;
         } catch {
@@ -128,43 +132,27 @@ export function CataloguePanel({ viewerRef }: Props) {
     setError(null);
     setNotice(null);
     try {
-      setProgress('Listing CT series on IDC…');
-      const allFiles = await fetchIdcSeriesFiles(theCase.ctSeriesUuid, {
-        list: (uuid) => listIdcSeriesUrls(uuid),
-        fetchAsset: (url) => fetchCatalogAsset(url),
-        concurrency: 8,
-        onProgress: (d, t) => setProgress(`CT ${d}/${t} slices`),
-      });
-      // Multi-phase series: keep only the annotated acquisition.
-      const files = filterByAcquisition(allFiles, theCase.acquisitionNumber, readAcquisitionNumber);
-      setProgress('Building volume…');
-      const loaded = await viewerRef.current.loadPrimaryFromFiles(files);
+      const viewer = viewerRef.current;
+      const idc = dataset.access.kind === 'idc-s3' ? dataset.access.cases.find((c) => c.caseId === theCase.caseId) : undefined;
+      const imported = importedCases.find((c) => c.caseId === theCase.caseId);
+      const lc = idc
+        ? await loadIdcCase(viewer, idc, setProgress)
+        : imported && dataset.access.kind === 'imported'
+          ? await loadImportedCase(viewer, imported, setProgress)
+          : null;
+      if (!lc) throw new Error(`Unknown case ${theCase.caseId}.`);
+      const meta = lc.meta;
+      const mapped = lc.reference;
       setVolume({
         source: {
           name: `${dataset.name} · ${theCase.caseId}`,
-          bytes: files[0]!.bytes,
+          bytes: lc.firstFile.bytes,
           hint: `catalog:${dataset.id}/${theCase.caseId}`,
         },
-        voxels: loaded.voxels,
-        meta: loaded.meta,
-        sourceFormat: detectSourceFormat(files[0]!.name),
+        voxels: lc.voxels,
+        meta,
+        sourceFormat: detectSourceFormat(lc.firstFile.name),
       });
-
-      setProgress('Fetching ground-truth DICOM-SEG…');
-      const segFiles = await fetchIdcSeriesFiles(theCase.segSeriesUuid, {
-        list: (uuid) => listIdcSeriesUrls(uuid),
-        fetchAsset: (url) => fetchCatalogAsset(url),
-      });
-      const seg = parseDicomSegGeometry(segFiles[0]!.bytes);
-      const meta = loaded.meta;
-      if (!meta.srowX || !meta.srowY || !meta.srowZ) {
-        throw new Error('Viewer did not expose the CT affine; cannot place the ground truth.');
-      }
-      const mapped = mapSegFramesToGrid(
-        seg,
-        { dims: meta.dims, srowX: meta.srowX, srowY: meta.srowY, srowZ: meta.srowZ },
-        (s) => classifySegment(seg.segments.get(s) ?? '')
-      );
       setReference({
         source: 'volume',
         label: `${dataset.id}/${theCase.caseId} GT (1 liver, 2 tumour)`,
@@ -175,7 +163,7 @@ export function CataloguePanel({ viewerRef }: Props) {
       });
       let overlayWarning = '';
       try {
-        await viewerRef.current.addMaskOverlay('ground truth', mapped.mask, mapped.dims, meta.spacing, 'green', 0.4, {
+        await viewer.addMaskOverlay('ground truth', mapped.mask, mapped.dims, meta.spacing, 'green', 0.4, {
           srowX: meta.srowX,
           srowY: meta.srowY,
           srowZ: meta.srowZ,
@@ -184,20 +172,14 @@ export function CataloguePanel({ viewerRef }: Props) {
         // The reference is still set for scoring; only the display failed.
         overlayWarning = ` (GT overlay could not be drawn: ${(e as Error).message})`;
       }
-      const segNames = [...seg.segments.values()].join(', ');
-      setNotice(
-        `Loaded ${theCase.caseId}: ${files.length} CT slices + GT (${segNames})` +
-          (mapped.outOfGridFrames ? ` — ${mapped.outOfGridFrames} SEG frames outside the CT grid` : '') +
-          '. GT set as the Benchmark reference.' +
-          overlayWarning
-      );
+      setNotice(`Loaded ${theCase.caseId}: ${lc.note}. GT set as the Benchmark reference.` + overlayWarning);
     } catch (e) {
       fail(e);
     } finally {
       setProgress(null);
       setBusy(null);
     }
-  }, [theCase, viewerRef, dataset, setVolume, setReference, fail]);
+  }, [theCase, viewerRef, dataset, importedCases, setVolume, setReference, fail]);
 
   const [localIds, setLocalIds] = useState<string[]>(() => localModelIds());
   const addRef = useRef<HTMLInputElement>(null);
@@ -230,7 +212,9 @@ export function CataloguePanel({ viewerRef }: Props) {
       <Badge variant="accent" className="text-[10px]">on this device</Badge>
     ) :
     m.status === 'ok' ? (
-      <Badge variant="ok" className="text-[10px]">ONNX ready</Badge>
+      <Badge variant="ok" className="text-[10px]" title="Full published weights, fp32 ONNX, parity-checked vs PyTorch">
+        {m.imported ? (m.imported.via === 'onnx' ? 'Zenodo ONNX' : 'verified export') : 'full weights · ONNX'}
+      </Badge>
     ) : m.status === 'failed' ? (
       <Badge variant="warn" className="text-[10px]" title={m.error ?? ''}>export failed</Badge>
     ) : (
@@ -243,8 +227,9 @@ export function CataloguePanel({ viewerRef }: Props) {
         <Library className="h-4 w-4 text-tamias-accent" /> Model &amp; Dataset Catalogue
       </div>
       <p className="text-[11px] leading-snug text-slate-500">
-        Published liver-CT models (Zenodo → ONNX) and public datasets pulled straight from TCIA. Load a
-        case + a model, run inference, score in Benchmark; repeat per model to compare.
+        Published liver-CT models from Zenodo as their full published weights — fp32 ONNX exports of the original
+        checkpoints, parity-checked against PyTorch (not demos or reduced models) — and public datasets pulled straight
+        from TCIA. Load a case + a model, run inference, score in Benchmark; or import your own below.
       </p>
 
       {/* ---------------- Datasets ---------------- */}
@@ -261,14 +246,16 @@ export function CataloguePanel({ viewerRef }: Props) {
           }}
           className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
         >
-          {CATALOG_DATASETS.map((d) => (
+          {datasets.map((d) => (
             <option key={d.id} value={d.id}>
-              {d.name} — {d.subjects} subjects · {d.license}
+              {d.access.kind === 'imported' ? `${d.name} — ${importedCases.length} imported` : `${d.name} — ${d.subjects} subjects · ${d.license}`}
             </option>
           ))}
         </select>
         <p className="text-[10px] leading-tight text-slate-500">{dataset.description}</p>
-        {dataset.access.kind === 'idc-s3' ? (
+        {dataset.access.kind === 'imported' && cases.length === 0 ? (
+          <p className="text-[10px] text-slate-500">No imported cases yet — add a DICOM folder or IDC series under “Import your own” below.</p>
+        ) : dataset.access.kind === 'idc-s3' || dataset.access.kind === 'imported' ? (
           <div className="flex items-center gap-1.5">
             <select
               aria-label="Case"
@@ -355,20 +342,28 @@ export function CataloguePanel({ viewerRef }: Props) {
                 </Button>
               </div>
               <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-slate-500">
-                <span>{m.kind === 'cnn' ? 'CNN' : 'Transformer'}</span>
-                <span>{mb(m.bytes)}</span>
-                <span>trained: {m.trainedOn.join(', ')}</span>
+                {m.kind !== 'unknown' && <span>{m.kind === 'cnn' ? 'CNN' : 'Transformer'}</span>}
+                <span>{mb(m.bytes)} fp32</span>
+                {m.trainedOn.length > 0 && <span>trained: {m.trainedOn.join(', ')}</span>}
+                {m.imported && <span title={m.imported.note}>imported: {m.imported.note}</span>}
                 <span>test on: {datasetsForModel(m).map((d) => d.name).join(' · ')}</span>
                 {m.parity && <span>parity Δ {m.parity.maxAbsDiff.toExponential(1)}</span>}
                 <ExternalLink className="inline-flex items-center gap-0.5 underline" href={m.zenodoUrl}>
                   Zenodo <ExtIcon className="h-2.5 w-2.5" />
                 </ExternalLink>
                 <span title={m.citation}>{m.license}</span>
+                {m.imported && (
+                  <button type="button" className="underline" onClick={() => removeImportedModel(m.id)} aria-label={`Remove imported model ${m.name}`}>
+                    remove
+                  </button>
+                )}
               </div>
             </li>
           ))}
         </ul>
       </section>
+
+      <CatalogImportPanel index={index} disabled={batchRunning} />
 
       <CatalogBatchPanel viewerRef={viewerRef} />
 

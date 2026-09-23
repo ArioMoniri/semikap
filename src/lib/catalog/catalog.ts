@@ -36,15 +36,19 @@ export type ModelStatus = 'ok' | 'failed' | 'unpublished';
 export interface CatalogModel {
   id: string;
   name: string;
-  family: 'lightningmedseg3d' | 'nnunet';
+  /** 'imported' = added by the user from a Zenodo record (see zenodo.ts). */
+  family: 'lightningmedseg3d' | 'nnunet' | 'imported';
   arch: string;
-  /** 'cnn' | 'transformer' — for grouping in comparisons. */
-  kind: 'cnn' | 'transformer';
+  /** 'cnn' | 'transformer' — for grouping in comparisons ('unknown' for imported ONNX). */
+  kind: 'cnn' | 'transformer' | 'unknown';
   zenodoRecord: string;
   zenodoUrl: string;
   doi: string;
   /** File inside the Zenodo record the ONNX was exported from. */
   sourceFile: string;
+  /** md5 / sha256 of that source file (conversion report / release index). */
+  sourceMd5?: string;
+  sourceSha256?: string;
   license: string;
   citation: string;
   codeUrl: string;
@@ -64,6 +68,13 @@ export interface CatalogModel {
   parity?: { maxAbsDiff: number; ok: boolean };
   status: ModelStatus;
   error?: string | null;
+  /** Set on models the user imported from a Zenodo record. */
+  imported?: {
+    recordId: string;
+    /** 'onnx' = ONNX + manifest shipped in the record; 'verified-conversion' = checkpoint md5 matches a published export. */
+    via: 'onnx' | 'verified-conversion';
+    note: string;
+  };
 }
 
 export type DatasetAccess =
@@ -73,7 +84,9 @@ export type DatasetAccess =
       collectionId: string;
       cases: IdcCase[];
     }
-  | { kind: 'download'; url: string; sizeBytes?: number; note: string };
+  | { kind: 'download'; url: string; sizeBytes?: number; note: string }
+  /** Cases the user imported (local DICOM CT + SEG, IDC series ids); see imports.ts. */
+  | { kind: 'imported'; note: string };
 
 export interface IdcCase {
   caseId: string;
@@ -449,6 +462,11 @@ export interface ModelIndexEntry {
   parity?: { maxAbsDiff: number; ok: boolean };
   trainedOn?: string;
   license?: string;
+  /** Zenodo provenance of the converted checkpoint. */
+  zenodoRecord?: string;
+  sourceFile?: string;
+  sourceMd5?: string;
+  sourceSha256?: string;
 }
 
 export interface ModelIndex {
@@ -484,6 +502,16 @@ export function parseModelIndex(raw: unknown): ModelIndex {
     if (m.sha256 !== undefined && (typeof m.sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(m.sha256))) {
       throw new Error(`Model index: ${m.id}.sha256 must be 64 hex chars.`);
     }
+    if (m.sourceMd5 !== undefined && m.sourceMd5 !== null && (typeof m.sourceMd5 !== 'string' || !/^[0-9a-f]{32}$/i.test(m.sourceMd5))) {
+      throw new Error(`Model index: ${m.id}.sourceMd5 must be 32 hex chars.`);
+    }
+    if (
+      m.sourceSha256 !== undefined &&
+      m.sourceSha256 !== null &&
+      (typeof m.sourceSha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(m.sourceSha256))
+    ) {
+      throw new Error(`Model index: ${m.id}.sourceSha256 must be 64 hex chars.`);
+    }
     let labels: Record<number, string> | undefined;
     if (isObj(m.labels)) {
       labels = {};
@@ -507,6 +535,10 @@ export function parseModelIndex(raw: unknown): ModelIndex {
       parity,
       trainedOn: typeof m.trainedOn === 'string' ? m.trainedOn : undefined,
       license: typeof m.license === 'string' ? m.license : undefined,
+      zenodoRecord: typeof m.zenodoRecord === 'string' && /^\d+$/.test(m.zenodoRecord) ? m.zenodoRecord : undefined,
+      sourceFile: typeof m.sourceFile === 'string' ? m.sourceFile : undefined,
+      sourceMd5: typeof m.sourceMd5 === 'string' ? m.sourceMd5.toLowerCase() : undefined,
+      sourceSha256: typeof m.sourceSha256 === 'string' ? m.sourceSha256.toLowerCase() : undefined,
     };
   });
   const mirrors = Array.isArray(raw.mirrors) ? raw.mirrors.filter(isValidMirror) : [];
@@ -541,6 +573,8 @@ export function mergeModelIndex(models: readonly CatalogModel[], index: ModelInd
       labels: e.labels ?? m.labels,
       parity: e.parity ?? m.parity,
       license: e.license ?? m.license,
+      sourceMd5: e.sourceMd5 ?? m.sourceMd5,
+      sourceSha256: e.sourceSha256 ?? m.sourceSha256,
       status: e.status,
       error: e.error ?? null,
     };
