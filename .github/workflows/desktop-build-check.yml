@@ -1,0 +1,56 @@
+name: Desktop build check
+
+# Compiles the desktop app for every release target with the exact release
+# features (static ONNX Runtime for native inference) — without publishing —
+# so linking problems surface before a release tag.
+on:
+  push:
+    paths: ['src-tauri/**', '.github/workflows/desktop-build-check.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-build-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: macos-latest, target: aarch64-apple-darwin }
+          - { platform: macos-latest, target: x86_64-apple-darwin }
+          - { platform: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { platform: windows-latest, target: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: check-${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('src-tauri/Cargo.toml') }}
+          restore-keys: check-${{ runner.os }}-${{ matrix.target }}-cargo-
+      - name: Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Frontend placeholder dist (tauri needs frontendDist to exist)
+        shell: bash
+        run: mkdir -p dist && echo '<!doctype html><title>check</title>' > dist/index.html
+      - name: Build with release features (static ONNX Runtime)
+        shell: bash
+        working-directory: src-tauri
+        run: cargo build --release --target ${{ matrix.target }} --no-default-features --features custom-protocol,ort-static
+      - name: Native ONNX Runtime tests
+        if: matrix.target != 'x86_64-apple-darwin'
+        shell: bash
+        working-directory: src-tauri
+        run: cargo test --release --target ${{ matrix.target }} --no-default-features --features custom-protocol,ort-static
