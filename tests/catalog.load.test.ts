@@ -66,6 +66,20 @@ describe('loadCatalogModel', () => {
     expect(fetchAsset).toHaveBeenCalledWith(CATALOG_MODELS[0]!.onnxUrl, { expectedSha256: sha });
   });
 
+  it('uses a locally added copy (catalogue id → cached bytes + manifest) without any network call', async () => {
+    const model = { ...CATALOG_MODELS[0]!, status: 'unpublished' as const };
+    const fetchAsset = vi.fn();
+    const rec = await loadCatalogModel(model, {
+      fetchAsset,
+      cache: vi.fn(),
+      findCached: async () => null,
+      findLocal: async (id) => (id === model.id ? { bytes: onnx, manifest: { ...manifest, sha256: undefined } as never } : null),
+    });
+    expect(fetchAsset).not.toHaveBeenCalled();
+    expect(rec.manifest.name).toBe('LMS3D U-Net');
+    expect(rec.source.hint).toBe(`catalog:${model.id}`);
+  });
+
   it('refuses failed/unpublished models with a clear message', async () => {
     const failed = { ...CATALOG_MODELS[0]!, status: 'failed' as const, error: 'op X' };
     await expect(

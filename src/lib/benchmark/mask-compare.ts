@@ -134,3 +134,48 @@ export function buildKeySlice(input: KeySliceInput): KeySlice {
     preds,
   };
 }
+
+const PRED_RGB = [42, 120, 214]; // categorical slot 1
+const GT_RGB = [235, 104, 52]; // categorical slot 2
+
+/**
+ * RGBA pixels for one comparison tile: CT in a soft-tissue window
+ * (W 400 / L 40), prediction as a translucent fill, ground truth as a
+ * 1-px outline (any GT voxel with a 4-neighbour outside the GT).
+ */
+export function composeTile(
+  ct: Float32Array,
+  gt: Uint8Array,
+  pred: Uint8Array | null,
+  width: number,
+  height: number,
+  window: { level: number; width: number } = { level: 40, width: 400 }
+): Uint8ClampedArray<ArrayBuffer> {
+  const out = new Uint8ClampedArray(new ArrayBuffer(width * height * 4));
+  const lo = window.level - window.width / 2;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      let v = ((ct[i]! - lo) / window.width) * 255;
+      v = v < 0 ? 0 : v > 255 ? 255 : v;
+      let r = v;
+      let g = v;
+      let b = v;
+      if (pred && pred[i]) {
+        r = 0.55 * r + 0.45 * PRED_RGB[0]!;
+        g = 0.55 * g + 0.45 * PRED_RGB[1]!;
+        b = 0.55 * b + 0.45 * PRED_RGB[2]!;
+      }
+      if (gt[i]) {
+        const edge =
+          x === 0 || y === 0 || x === width - 1 || y === height - 1 || !gt[i - 1] || !gt[i + 1] || !gt[i - width] || !gt[i + width];
+        if (edge) [r, g, b] = GT_RGB as [number, number, number];
+      }
+      out[i * 4] = r;
+      out[i * 4 + 1] = g;
+      out[i * 4 + 2] = b;
+      out[i * 4 + 3] = 255;
+    }
+  }
+  return out;
+}

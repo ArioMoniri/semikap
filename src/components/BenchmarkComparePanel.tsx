@@ -11,7 +11,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { GitCompareArrows, Upload, Maximize2, X } from 'lucide-react';
+import { GitCompareArrows, Upload, Maximize2, X, Download } from 'lucide-react';
 import type { BenchmarkRecord } from '../lib/benchmark/types';
 import {
   recordsToMatrix,
@@ -22,6 +22,9 @@ import {
 } from '../lib/benchmark/compare';
 import { friedmanTest, nemenyiCriticalDifference, pairwiseWilcoxonHolm } from '../lib/stats/multi-model';
 import { appendRecord } from '../lib/benchmark/store';
+import { buildReportFiles } from '../lib/benchmark/report-tables';
+import { makeZip } from '../lib/fs/zip';
+import { MaskCompareGrid } from './MaskCompareGrid';
 import { Button } from './ui/Button';
 
 const METRICS: { key: SegMetricKey; label: string }[] = [
@@ -447,6 +450,17 @@ export function BenchmarkComparePanel({
     }
   }
 
+  function onExportTables() {
+    const files = buildReportFiles(seg);
+    const zip = makeZip(Object.fromEntries(Object.entries(files).map(([k, v]) => [`tamias_tables/${k}`, v])));
+    const url = URL.createObjectURL(new Blob([zip as Uint8Array<ArrayBuffer>], { type: 'application/zip' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'tamias_benchmark_tables.zip';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const controls = (
     <div className="flex flex-wrap items-center gap-2 text-[11px]">
       <select
@@ -524,6 +538,9 @@ export function BenchmarkComparePanel({
                 </Dialog.Title>
                 <div className="flex items-center gap-3">
                   {controls}
+                  <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-[11px]" onClick={onExportTables} data-testid="compare-export-tables">
+                    <Download className="h-3 w-3" /> Export tables (.zip)
+                  </Button>
                   <Dialog.Close className="rounded p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close">
                     <X className="h-4 w-4" />
                   </Dialog.Close>
@@ -534,6 +551,9 @@ export function BenchmarkComparePanel({
                 datasets. Complete cases only (every model scored on the case).
               </Dialog.Description>
               <Report records={seg} label={label} metric={metric} />
+              <div className="mt-8 border-t border-slate-200 pt-4 dark:border-slate-800">
+                <MaskCompareGrid size={200} />
+              </div>
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>

@@ -17,6 +17,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import type { ViewerHandle } from './Viewer';
+import { BENCHMARK_KITS } from '../lib/catalog/kits';
+import { useCatalogStore } from '../lib/state/catalogStore';
 
 interface Props {
   viewerRef: React.MutableRefObject<ViewerHandle | null>;
@@ -45,6 +47,7 @@ export function ExamplesPanel({ viewerRef }: Props) {
   const [busy, setBusy] = useState<'download' | 'apply' | 'clear' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const openKit = useCatalogStore((s) => s.openKit);
   const setVolume = useAppStore((s) => s.setVolume);
   const setModel = useAppStore((s) => s.setModel);
   const pushError = useAppStore((s) => s.pushError);
@@ -263,6 +266,27 @@ export function ExamplesPanel({ viewerRef }: Props) {
             {error}
           </pre>
         )}
+        <div className="space-y-1 rounded border border-blue-200 bg-blue-50/60 p-2 dark:border-blue-900 dark:bg-blue-950/30" data-testid="benchmark-kits">
+          <div className="font-medium text-slate-800 dark:text-slate-100">Benchmark kits — Zenodo models × TCIA / MSD data</div>
+          <p className="text-[10px] leading-tight text-slate-500">
+            Opens Catalogue → Batch benchmark with the dataset, cases and models preselected. Press Run: TAMIAS downloads the
+            cases (HCC-TACE-Seg straight from TCIA) and models, runs and scores every pair, then shows the statistics and the mask
+            comparison.
+          </p>
+          <ul className="space-y-1">
+            {BENCHMARK_KITS.map((k) => (
+              <li key={k.id} className="flex items-start justify-between gap-2">
+                <span className="min-w-0">
+                  <span className="block text-[11px] font-medium text-slate-700 dark:text-slate-200">{k.name}</span>
+                  <span className="block text-[10px] leading-tight text-slate-500">{k.description}</span>
+                </span>
+                <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => openKit(k)} data-testid={`kit-${k.id}`}>
+                  Open
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
         <div className="text-[11px] text-slate-500">
           Sources: <span className="font-mono">github.com/ArioMoniri/semikap/examples</span> · <span className="font-mono">github.com/niivue/niivue-demo-images</span>
         </div>

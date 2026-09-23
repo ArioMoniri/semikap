@@ -39,6 +39,7 @@ import { SettingsPanel } from './SettingsPanel';
 import { AboutPanel } from './AboutPanel';
 import { ExamplesPanel } from './ExamplesPanel';
 import { CataloguePanel } from './CataloguePanel';
+import { useCatalogStore } from '../lib/state/catalogStore';
 import { BenchmarkPanel } from './BenchmarkPanel';
 import { WorkspacePicker } from './WorkspacePicker';
 import { Logo } from './Logo';
@@ -95,6 +96,8 @@ export function AppShell() {
     return Number.isFinite(v) && v >= SIDEBAR_MIN && v <= SIDEBAR_MAX ? v : SIDEBAR_DEFAULT;
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const catalogOpen = useCatalogStore((s) => s.sectionOpen);
+  const setCatalogOpen = useCatalogStore((s) => s.setSectionOpen);
   const draggingRef = useRef(false);
 
   useEffect(() => {
@@ -385,7 +388,7 @@ export function AppShell() {
             <ExamplesPanel viewerRef={viewerRef} />
           </CollapsibleSection>
 
-          <CollapsibleSection title="Catalogue" defaultOpen={false} trailing="models + data">
+          <CollapsibleSection title="Catalogue" open={catalogOpen} onOpenChange={setCatalogOpen} trailing="models + data">
             <CataloguePanel viewerRef={viewerRef} />
           </CollapsibleSection>
 

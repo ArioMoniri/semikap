@@ -16,11 +16,25 @@ export interface ModelLoadDeps {
   cache(bytes: Bytes, manifest: ModelRecord['manifest']): Promise<unknown>;
   /** Bytes from the OPFS cache for this hash, or null. */
   findCached(hash: string): Promise<Bytes | null>;
+  /**
+   * A copy the user added from disk ("Add downloaded models") for this
+   * catalogue id — used first, so browser builds work without CORS access
+   * to the release host.
+   */
+  findLocal?(catalogId: string): Promise<{ bytes: Bytes; manifest: ModelRecord['manifest'] } | null>;
 }
 
 export async function loadCatalogModel(model: CatalogModel, deps: ModelLoadDeps): Promise<ModelRecord> {
   if (model.status === 'failed') {
     throw new Error(`${model.name} could not be exported to ONNX: ${model.error ?? 'unknown error'}`);
+  }
+  const local = await deps.findLocal?.(model.id);
+  if (local) {
+    const hash = await sha256Hex(local.bytes);
+    if (model.sha256 && model.sha256.toLowerCase() !== hash) {
+      throw new Error(`Locally added ${model.id}.onnx does not match the release sha256 (${model.sha256}).`);
+    }
+    return { source: { name: `${model.id}.onnx`, hint: `catalog:${model.id}`, bytes: local.bytes }, bytes: local.bytes, hash, manifest: local.manifest };
   }
   const withFallback = async (primary: string, fallback: string | undefined, o?: { expectedSha256?: string }) => {
     try {

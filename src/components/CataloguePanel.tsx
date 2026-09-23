@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Library, Download, Loader2, ExternalLink as ExtIcon, Database, Brain, Target } from 'lucide-react';
 import {
   CATALOG_DATASETS,
@@ -18,7 +18,11 @@ import { cacheModel, loadCachedModel } from '../lib/fs/opfs';
 import { mapSegFramesToGrid, parseDicomSegGeometry, classifySegment } from '../lib/datasets/seg-to-grid';
 import { useAppStore } from '../lib/state/store';
 import { useBenchmarkStore } from '../lib/state/benchmarkStore';
-import { detectSourceFormat } from '../types';
+import { useCatalogStore } from '../lib/state/catalogStore';
+import { CatalogBatchPanel } from './CatalogBatchPanel';
+import { MaskCompareGrid } from './MaskCompareGrid';
+import { addLocalModel, findLocalModel, localModelIds, pairModelFiles } from '../lib/catalog/local-models';
+import { detectSourceFormat, asBytes } from '../types';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import type { ViewerHandle } from './Viewer';
@@ -44,13 +48,15 @@ export function CataloguePanel({ viewerRef }: Props) {
   const volume = useAppStore((s) => s.volume);
   const setReference = useBenchmarkStore((s) => s.setReference);
 
-  const [models, setModels] = useState<CatalogModel[]>([...CATALOG_MODELS]);
+  const models = useCatalogStore((s) => s.models);
+  const setModels = useCatalogStore((s) => s.setModels);
   const [indexSource, setIndexSource] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<{ msg: string; url?: string } | null>(null);
-  const [datasetId, setDatasetId] = useState(CATALOG_DATASETS[0]!.id);
+  const datasetId = useCatalogStore((s) => s.datasetId);
+  const setDatasetId = useCatalogStore((s) => s.setDatasetId);
   const dataset = useMemo<CatalogDataset>(
     () => CATALOG_DATASETS.find((d) => d.id === datasetId) ?? CATALOG_DATASETS[0]!,
     [datasetId]
@@ -80,7 +86,7 @@ export function CataloguePanel({ viewerRef }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setModels]);
 
   const fail = useCallback(
     (e: unknown) => {
@@ -101,6 +107,7 @@ export function CataloguePanel({ viewerRef }: Props) {
           fetchAsset: (url, o) => fetchCatalogAsset(url, o),
           cache: (bytes, manifest) => cacheModel(bytes, manifest),
           findCached: async (h) => (await loadCachedModel(h))?.bytes ?? null,
+          findLocal: (id) => findLocalModel(id),
         });
         setModel(rec);
         setNotice(`Loaded ${m.name}. Run inference, then score it in Benchmark.`);
@@ -162,7 +169,7 @@ export function CataloguePanel({ viewerRef }: Props) {
         mask: mapped.mask,
         dims: mapped.dims,
         spacing: meta.spacing,
-        catalog: { datasetId: dataset.id, caseId: theCase.caseId, labelSpace: 'liver-tumour' },
+        catalog: { datasetId: dataset.id, caseId: theCase.caseId, labelSpace: 'liver-tumour' as const },
       });
       let overlayWarning = '';
       try {
@@ -190,7 +197,36 @@ export function CataloguePanel({ viewerRef }: Props) {
     }
   }, [theCase, viewerRef, dataset, setVolume, setReference, fail]);
 
+  const [localIds, setLocalIds] = useState<string[]>(() => localModelIds());
+  const addRef = useRef<HTMLInputElement>(null);
+  async function onAddLocal(files: FileList | null) {
+    if (!files?.length) return;
+    setError(null);
+    const pairs = pairModelFiles(Array.from(files));
+    if (!pairs.length) {
+      setError({ msg: 'Pick each model as a pair: <id>.onnx + <id>.json from the zenodo-models-v1 release (e.g. lms3d_unet.onnx + lms3d_unet.json).' });
+      return;
+    }
+    setBusy('add-local');
+    try {
+      for (const p of pairs) {
+        setProgress(`Caching ${p.id}…`);
+        await addLocalModel(p.id, asBytes(new Uint8Array(await p.onnx.arrayBuffer())), await p.json.text());
+      }
+      setLocalIds(localModelIds());
+      setNotice(`Added ${pairs.length} model(s) from disk: ${pairs.map((p) => p.id).join(', ')}.`);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setProgress(null);
+      setBusy(null);
+    }
+  }
+
   const statusBadge = (m: CatalogModel) =>
+    localIds.includes(m.id) ? (
+      <Badge variant="accent" className="text-[10px]">on this device</Badge>
+    ) :
     m.status === 'ok' ? (
       <Badge variant="ok" className="text-[10px]">ONNX ready</Badge>
     ) : m.status === 'failed' ? (
@@ -278,6 +314,13 @@ export function CataloguePanel({ viewerRef }: Props) {
             {indexSource ? (indexSource.includes('huggingface') ? 'index: HF mirror' : 'index: GitHub release') : 'index: offline'}
           </span>
         </div>
+        <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+          <span>Browser build can't reach the release host? Download the files, then add them here once.</span>
+          <input ref={addRef} type="file" multiple accept=".onnx,.json" className="hidden" data-testid="catalog-add-local" onChange={(e) => void onAddLocal(e.currentTarget.files)} />
+          <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => addRef.current?.click()} disabled={busy !== null}>
+            Add downloaded models
+          </Button>
+        </div>
         <ul className="space-y-1">
           {models.map((m) => (
             <li
@@ -315,6 +358,12 @@ export function CataloguePanel({ viewerRef }: Props) {
             </li>
           ))}
         </ul>
+      </section>
+
+      <CatalogBatchPanel viewerRef={viewerRef} />
+
+      <section className="rounded border border-slate-200 p-2 dark:border-slate-700">
+        <MaskCompareGrid size={96} />
       </section>
 
       {progress && (

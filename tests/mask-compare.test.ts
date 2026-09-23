@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickKeySlice, axialSlice, toRadiological, parseMaskFileName, buildKeySlice } from '../src/lib/benchmark/mask-compare';
+import { pickKeySlice, axialSlice, toRadiological, parseMaskFileName, buildKeySlice, composeTile } from '../src/lib/benchmark/mask-compare';
 
 describe('mask comparison helpers', () => {
   const dims: [number, number, number] = [3, 2, 4];
@@ -54,5 +54,25 @@ describe('mask comparison helpers', () => {
     expect(Array.from(ks.preds[0]!.mask)).toEqual([1, 1, 0, 0, 0, 0]);
     // slice Dice over whole liver: |P∩G|=2, |P|=2, |G|=3 → 0.8
     expect(ks.preds[0]!.sliceDice).toBeCloseTo(0.8, 9);
+  });
+});
+
+describe('composeTile', () => {
+  it('windows CT, fills prediction, outlines GT', () => {
+    const w = 4;
+    const h = 4;
+    const ct = new Float32Array(16).fill(40); // mid-grey at L40
+    const gt = new Uint8Array(16);
+    for (const i of [5, 6, 9, 10]) gt[i] = 1; // 2x2 block: every GT pixel is an edge
+    const pred = new Uint8Array(16);
+    pred[0] = 1;
+    const px = composeTile(ct, gt, pred, w, h);
+    expect(px[3]).toBe(255);
+    // pixel 15: plain CT at the window level → mid grey (127.5 → 128)
+    expect(px[15 * 4]).toBe(128);
+    // pixel 0: blended toward blue
+    expect(px[0 * 4 + 2]).toBeGreaterThan(px[0 * 4]!);
+    // pixel 5: GT outline orange
+    expect([px[20], px[21], px[22]]).toEqual([235, 104, 52]);
   });
 });
