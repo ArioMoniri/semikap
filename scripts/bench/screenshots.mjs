@@ -120,6 +120,8 @@ if (records) {
   await panel.locator('input[type=file]').setInputFiles(records);
   await panel.locator('text=/Imported \\d+ records/').waitFor();
   await shot('05_compare_panel_sidebar', panel);
+  // Tall viewport so each report section fits in one element screenshot.
+  await page.setViewportSize({ width: 1680, height: 2600 });
   await panel.getByTestId('compare-open-report').click();
   const report = page.getByTestId('compare-report');
   await report.waitFor();
