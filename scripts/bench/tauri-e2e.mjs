@@ -47,7 +47,10 @@ const elemId = (v) => {
 };
 const find = async (xpath) => elemId(await wd('POST', S('/element'), { using: 'xpath', value: xpath }));
 const findAll = async (xpath) => (await wd('POST', S('/elements'), { using: 'xpath', value: xpath })).map(elemId);
-const click = async (id) => wd('POST', S(`/element/${id}/click`), {});
+// Scroll into view first, then a JS click (WebKitWebDriver native clicks can miss off-screen targets).
+const click = async (id) => {
+  await wd('POST', S('/execute/sync'), { script: 'arguments[0].scrollIntoView({block:"center"}); arguments[0].click();', args: [{ [ELEM]: id }] });
+};
 const js = (script, args = []) => wd('POST', S('/execute/sync'), { script, args });
 const text = async (xpath) => js(`const n=document.evaluate(arguments[0],document,null,9,null).singleNodeValue;return n?n.innerText:''`, [xpath]);
 const shot = async (name) => {
@@ -60,7 +63,11 @@ const waitFor = async (fn, ms, label) => {
   for (;;) {
     const v = await fn().catch(() => null);
     if (v) return v;
-    if (Date.now() - t0 > ms) throw new Error(`timeout: ${label}`);
+    if (Date.now() - t0 > ms) {
+      await shot(`timeout_${label.replace(/\W+/g, '_')}`).catch(() => {});
+      const body = await js('return document.body.innerText').catch(() => '');
+      throw new Error(`timeout: ${label}\n${String(body).slice(-1500)}`);
+    }
     await new Promise((r) => setTimeout(r, 2000));
   }
 };
@@ -99,13 +106,22 @@ try {
 
   // Zenodo model through the native downloader
   await click(await find(`//*[@data-testid='catalog-model-${modelId}']//button[contains(., 'Load')]`));
-  await waitFor(async () => /Loaded .*Run inference|could not|mismatch|failed/i.test(await text(panel)), 900_000, 'model load');
+  await waitFor(
+    async () => /Loaded LightningMedSeg3D|Loaded nnU-Net|could not|mismatch|blocked/i.test(await text(panel)),
+    900_000,
+    'model load'
+  );
   await shot('d03_model_downloaded_natively');
 
   // Inference
   await openSection('Inference');
   await click(await find("//button[normalize-space(.)='Run']"));
-  await waitFor(async () => /done|elapsed|Done|voxels/i.test(await text("//*[contains(@class,'card')][.//*[contains(., 'Run inference')]]")), 3_600_000, 'inference');
+  const t0 = Date.now();
+  const doneMsg = await waitFor(async () => {
+    const b = await js('return document.body.innerText');
+    return b.match(/done · via [^\n]+|Inference failed: [^\n]+/)?.[0] ?? null;
+  }, 3_600_000, 'inference');
+  log('inference', doneMsg, `${((Date.now() - t0) / 1000).toFixed(0)}s wall`);
   await new Promise((r) => setTimeout(r, 4000));
   await shot('d04_inference_overlay');
 
