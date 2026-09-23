@@ -21,6 +21,7 @@ import numpy as np  # noqa: E402
 
 PRED = "#2a78d6"  # categorical slot 1 (prediction)
 GT = "#eb6834"  # categorical slot 2 (ground truth outline)
+TUM = "#facc15"  # ground-truth tumour outline (matches the app)
 LIVER = re.compile(r"^liver([ _-]?parenchyma)?$", re.I)  # mirrors src/lib/metrics/label-groups.ts
 TUMOUR = re.compile(r"^((liver|hepatic)[ _-]?)?(tumou?r|lesion|mass|cancer)s?$|^hcc$", re.I)
 
@@ -66,6 +67,13 @@ def main():
         view = lambda v: np.fliplr(np.rot90(v[:, :, z]))  # noqa: E731
         ctv = np.clip((view(ct) + 160) / 400, 0, 1)
         gtv = view(gt)
+        tp = os.path.join(d, "gt_tumor.nii.gz")
+        tuv = view(np.asarray(nib.as_closest_canonical(nib.load(tp)).dataobj) > 0) if os.path.exists(tp) else None
+
+        def outline(ax, lw):
+            ax.contour(gtv, levels=[0.5], colors=[GT], linewidths=lw)
+            if tuv is not None and tuv.any():
+                ax.contour(tuv, levels=[0.5], colors=[TUM], linewidths=lw)
 
         preds = []
         for mid, man in sorted(manifests.items()):
@@ -84,15 +92,15 @@ def main():
         for ax in axes:
             ax.axis("off")
         axes[0].imshow(ctv, cmap="gray")
-        axes[0].contour(gtv, levels=[0.5], colors=[GT], linewidths=1.2)
+        outline(axes[0], 1.2)
         axes[0].set_title("Ground truth", fontsize=9, color="#0b0b0b")
         for ax, (name, pm) in zip(axes[1:], preds):
             ax.imshow(ctv, cmap="gray")
             ax.imshow(np.ma.masked_where(~pm, pm), cmap=matplotlib.colors.ListedColormap([PRED]), alpha=0.45)
-            ax.contour(gtv, levels=[0.5], colors=[GT], linewidths=0.9)
+            outline(ax, 0.9)
             dv = dice.get((c["case_id"], name))
             ax.set_title(f"{short(name)}\nDice {dv:.3f}" if dv is not None else short(name), fontsize=8, color="#0b0b0b")
-        fig.suptitle(f"{c['source']} · {c['case_id']} · axial slice {z} — fill = prediction (whole liver), outline = ground truth · radiological view (R on left)",
+        fig.suptitle(f"{c['source']} · {c['case_id']} · axial slice {z} — fill = prediction (whole liver), orange = GT whole liver, yellow = GT tumour · radiological view (R on left)",
                      fontsize=9, color="#52514e")
         out = os.path.join(a.out, f"masks_{c['source']}_{c['case_id']}.png")
         fig.savefig(out, dpi=160)
