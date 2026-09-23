@@ -197,7 +197,7 @@ jobs:
 
             ### 🧠 What you'll need to actually run inference
 
-            TAMIAS doesn't ship medical AI models — bring your own ONNX. Or click **Examples → Download** in the app to fetch a tiny smoke-test kit and run an end-to-end inference in seconds. See [`examples/README.md`](https://github.com/${{ github.repository }}/blob/main/examples/README.md) for sources of real medical models (MONAI Model Zoo, TotalSegmentator, MedSAM, …).
+            Load published models from the in-app **Catalogue** (full-weight ONNX exports of Zenodo records, parity-checked against PyTorch) or bring your own ONNX. **Examples → Bundle** also offers benchmark kits (Zenodo models × TCIA / MSD data) and a tiny smoke-test kit. See [`examples/README.md`](https://github.com/${{ github.repository }}/blob/main/examples/README.md) for sources of real medical models (MONAI Model Zoo, TotalSegmentator, MedSAM, …).
 
             ### 📚 Learn more
 
@@ -253,6 +253,39 @@ jobs:
           fi
           echo "  resolved release id: $RELEASE_ID for tag $TAG"
           echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Release notes from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          RELEASE_ID: ${{ steps.rel.outputs.release_id }}
+        run: |
+          set -e
+          VERSION=${TAG#v}
+          # This version's section: from "## [VERSION]" up to the next "## [".
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > /tmp/changes.md
+          if [ ! -s /tmp/changes.md ]; then
+            echo "::warning::No CHANGELOG.md section for $VERSION — keeping the generic body."
+            exit 0
+          fi
+          TITLE=$(grep -m1 -F "## [$VERSION]" CHANGELOG.md | sed -E 's/^## \[[^]]*\] *(— *)?//')
+          gh api "repos/${{ github.repository }}/releases/$RELEASE_ID" --jq '.body' > /tmp/generic.md
+          {
+            echo "## 🐿️ TAMIAS $TAG${TITLE:+ — $TITLE}"
+            echo
+            cat /tmp/changes.md
+            echo
+            echo "---"
+            echo
+            # Keep the downloads / signing / auto-update blocks from the generic body.
+            sed '1,/^### 📥 Download/{/^### 📥 Download/!d}' /tmp/generic.md
+          } > /tmp/body.md
+          gh api -X PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" -F body=@/tmp/body.md --jq '.id' >/dev/null
+          echo "release notes set from CHANGELOG.md ($(wc -l < /tmp/changes.md) lines)"
 
       - name: Mirror versioned bundles → versionless aliases
         env:
@@ -410,3 +443,32 @@ jobs:
             gh release upload "$TAG" "/tmp/kit/$f" --repo "${{ github.repository }}" --clobber
             echo "  uploaded $f"
           done
+
+  # Publish the finished release (it stays a draft until every asset and
+  # latest.json are attached), mark it latest, and delete stale drafts left by
+  # earlier interrupted runs so the release list only shows published versions
+  # in chronological order. Tags are never deleted.
+  publish:
+    needs: alias-assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish, mark latest, clean stale drafts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          gh api --paginate "repos/$REPO/releases?per_page=100" > /tmp/rels.json
+          RELEASE_ID=$(jq -r --arg t "$TAG" '[.[] | select(.tag_name==$t)] | sort_by(.created_at) | reverse | .[0].id' /tmp/rels.json)
+          [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ] || { echo "::error::no release for $TAG"; exit 1; }
+          gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" -F draft=false -f make_latest=true --jq '.html_url'
+          jq -r --arg id "$RELEASE_ID" '.[] | select(.draft and ((.id|tostring) != $id)) | "\(.id) \(.tag_name)"' /tmp/rels.json |
+            while read -r id tag; do
+              echo "deleting stale draft $id ($tag)"
+              gh api -X DELETE "repos/$REPO/releases/$id"
+            done
+
