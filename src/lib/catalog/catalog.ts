@@ -21,6 +21,8 @@
  */
 
 export const MODEL_RELEASE_TAG = 'zenodo-models-v1';
+import { readHfSettings } from './hf-settings';
+
 export const MODEL_RELEASE_BASE = `https://github.com/ArioMoniri/semikap/releases/download/${MODEL_RELEASE_TAG}`;
 export const MODEL_INDEX_URL = `${MODEL_RELEASE_BASE}/zenodo-models-index.json`;
 /**
@@ -40,7 +42,18 @@ export function mirrorOwner(raw: string | undefined): string {
   const v = raw?.trim();
   return v && /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/.test(v) ? v : 'Aralario';
 }
-export const HF_MIRROR_BASE = `https://huggingface.co/${HF_MIRROR_OWNER}/tamias-zenodo-liver-models/resolve/main`;
+export const HF_MIRROR_BASE = hfMirrorBase(HF_MIRROR_OWNER);
+export function hfMirrorBase(owner: string): string {
+  return `https://huggingface.co/${owner}/tamias-zenodo-liver-models/resolve/main`;
+}
+/** The user's own mirror account (Catalogue → Hugging Face settings) or the build default. */
+export function activeMirrorOwner(): string {
+  return readHfSettings().mirrorOwner ?? HF_MIRROR_OWNER;
+}
+/** Index locations, the active mirror first (browser builds can't read GitHub release assets). */
+export function modelIndexUrls(): string[] {
+  return [`${hfMirrorBase(activeMirrorOwner())}/zenodo-models-index.json`, MODEL_INDEX_URL];
+}
 export const MODEL_INDEX_URLS = [`${HF_MIRROR_BASE}/zenodo-models-index.json`, MODEL_INDEX_URL];
 
 export type ModelStatus = 'ok' | 'failed' | 'unpublished';
@@ -551,13 +564,12 @@ export interface ModelIndex {
   mirrors: string[];
 }
 
-// Pinned to this build's HF mirror repo: the index may choose the revision, never the owner.
-const MIRROR_RE = new RegExp(
-  `^https://huggingface\\.co/${HF_MIRROR_OWNER.replace(/\./g, '\\.')}/tamias-zenodo-liver-models/resolve/[A-Za-z0-9._-]+$`
-);
-
-export function isValidMirror(base: unknown): base is string {
-  return typeof base === 'string' && MIRROR_RE.test(base);
+// Pinned to the active mirror repo (this user's choice or the build default): the index may
+// choose the revision, never the owner.
+export function isValidMirror(base: unknown, owner: string = activeMirrorOwner()): base is string {
+  if (typeof base !== 'string') return false;
+  const prefix = `https://huggingface.co/${owner}/tamias-zenodo-liver-models/resolve/`;
+  return base.startsWith(prefix) && /^[A-Za-z0-9._-]+$/.test(base.slice(prefix.length));
 }
 
 function isObj(x: unknown): x is Record<string, unknown> {
@@ -618,7 +630,7 @@ export function parseModelIndex(raw: unknown): ModelIndex {
       sourceSha256: typeof m.sourceSha256 === 'string' ? m.sourceSha256.toLowerCase() : undefined,
     };
   });
-  const mirrors = Array.isArray(raw.mirrors) ? raw.mirrors.filter(isValidMirror) : [];
+  const mirrors = Array.isArray(raw.mirrors) ? raw.mirrors.filter((m: unknown) => isValidMirror(m)) : [];
   return { release: typeof raw.release === 'string' ? raw.release : MODEL_RELEASE_TAG, models, mirrors };
 }
 

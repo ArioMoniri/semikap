@@ -52,6 +52,10 @@ the right statistics — per dataset and across datasets.
 - Benchmark kits live in the example loader's Bundle picker (dataset + model rows, Open kit).
 - Hugging Face mirror owner is a build setting (`VITE_HF_MIRROR_OWNER`, repo variable `HF_MIRROR_OWNER`),
   so forks mirror to and trust their own account; downloads stay sha256-pinned.
+- **Your own Hugging Face account** (Catalogue → "Your Hugging Face account"): each user can point the
+  catalogue at their own model mirror and use their own token (private/gated mirrors). Stored only on the
+  device, sent only to huggingface.co (web and desktop); public mirrors need no token, and models stay
+  sha256-pinned.
 - Records carry the hardware/runtime (runner, cores, CPU model, RAM, OS, onnxruntime version, peak RSS);
   the report's Methods states the runtime recorded, and repeats Friedman/Nemenyi on external models only
   when a model is scored on its own training data.

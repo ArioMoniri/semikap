@@ -78,13 +78,30 @@ fn client() -> Result<reqwest::Client, String> {
         .clone()
 }
 
+fn is_hf_host(url: &str) -> bool {
+    url::Url::parse(url)
+        .map(|u| u.scheme() == "https" && u.host_str().map(|h| h.eq_ignore_ascii_case("huggingface.co")).unwrap_or(false))
+        .unwrap_or(false)
+}
+
+fn is_hf_token(t: &str) -> bool {
+    t.len() >= 23 && t.len() <= 203 && t.starts_with("hf_") && t[3..].chars().all(|c| c.is_ascii_alphanumeric())
+}
+
 #[tauri::command]
-pub async fn catalog_fetch(url: String) -> Result<Response, String> {
+pub async fn catalog_fetch(url: String, hf_token: Option<String>) -> Result<Response, String> {
     if !is_allowed(&url) {
         return Err(format!("URL not allowed by the catalogue host allowlist: {url}"));
     }
-    let mut res = client()?
-        .get(&url)
+    let mut req = client()?.get(&url);
+    // The user's own Hugging Face token (optional), sent to https://huggingface.co only;
+    // reqwest drops Authorization when a redirect leaves that host (CDN blobs).
+    if let Some(token) = hf_token.as_deref().filter(|t| is_hf_token(t)) {
+        if is_hf_host(&url) {
+            req = req.bearer_auth(token);
+        }
+    }
+    let mut res = req
         .send()
         .await
         .map_err(|e| format!("Download failed for {url}: {e}"))?;
@@ -112,6 +129,17 @@ pub async fn catalog_fetch(url: String) -> Result<Response, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hf_token_only_for_huggingface_https() {
+        assert!(super::is_hf_host("https://huggingface.co/a/b/resolve/main/x.onnx"));
+        assert!(!super::is_hf_host("https://cdn-lfs.huggingface.co/x"));
+        assert!(!super::is_hf_host("https://github.com/x"));
+        assert!(!super::is_hf_host("http://huggingface.co/x"));
+        assert!(super::is_hf_token("hf_abcdefghijklmnopqrstuvwxyz"));
+        assert!(!super::is_hf_token("hf_bad token"));
+        assert!(!super::is_hf_token("ghp_abcdefghijklmnopqrstuvwxyz"));
+    }
+
     use super::is_allowed;
 
     #[test]

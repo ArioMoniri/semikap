@@ -15,6 +15,7 @@
 import type { Bytes } from '../../types';
 import { asBytes } from '../../types';
 import { sha256Hex } from '../fs/opfs';
+import { hfTokenFor } from './hf-settings';
 
 const EXACT_HOSTS = new Set(['github.com', 'zenodo.org', 'idc-open-data.s3.amazonaws.com', 'huggingface.co']);
 // HF serves LFS/xet blobs from CDN subdomains after a redirect.
@@ -60,6 +61,8 @@ export interface FetchCatalogOptions {
   /** null forces the browser path; undefined auto-detects Tauri. */
   tauriInvoke?: TauriInvoke | null;
   signal?: AbortSignal;
+  /** The user's own HF token (defaults to Catalogue → Hugging Face settings); sent to huggingface.co only. */
+  hfToken?: string | null;
 }
 
 /** Resolve the Tauri `invoke` if running inside the desktop app. */
@@ -107,14 +110,21 @@ export async function fetchCatalogAsset(url: string, opts: FetchCatalogOptions =
   }
   if (opts.signal?.aborted) throw abortError();
   const invoke = opts.tauriInvoke === undefined ? await detectTauriInvoke() : opts.tauriInvoke;
+  const token = opts.hfToken === null ? undefined : (opts.hfToken ?? hfTokenFor(url));
+  const hfToken = token && hfTokenFor(url, { token }) ? token : undefined;
   let bytes: Bytes;
   if (invoke) {
-    bytes = toBytes(await abortable(invoke('catalog_fetch', { url }), opts.signal));
+    bytes = toBytes(await abortable(invoke('catalog_fetch', hfToken ? { url, hfToken } : { url }), opts.signal));
   } else {
     const fetcher = opts.fetcher ?? ((u: string, i?: RequestInit) => fetch(u, i));
     let res: Response;
     try {
-      res = await fetcher(url, { signal: opts.signal, mode: 'cors', credentials: 'omit' });
+      res = await fetcher(url, {
+        signal: opts.signal,
+        mode: 'cors',
+        credentials: 'omit',
+        ...(hfToken ? { headers: { Authorization: `Bearer ${hfToken}` } } : {}),
+      });
     } catch (e) {
       if (e instanceof TypeError) throw new CatalogCorsError(url);
       throw e;

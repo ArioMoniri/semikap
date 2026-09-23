@@ -3,7 +3,7 @@ import { Library, Download, Loader2, ExternalLink as ExtIcon, Database, Brain, T
 import {
   CATALOG_DATASETS,
   CATALOG_MODELS,
-  MODEL_INDEX_URLS,
+  modelIndexUrls,
   mergeModelIndex,
   parseModelIndex,
   datasetsForModel,
@@ -21,6 +21,7 @@ import { useBenchmarkStore } from '../lib/state/benchmarkStore';
 import { useCatalogStore } from '../lib/state/catalogStore';
 import { CatalogBatchPanel } from './CatalogBatchPanel';
 import { CatalogImportPanel } from './CatalogImportPanel';
+import { HfSettingsPanel } from './HfSettingsPanel';
 import { MaskCompareGrid } from './MaskCompareGrid';
 import { addLocalModel, findLocalModel, localModelIds, pairModelFiles } from '../lib/catalog/local-models';
 import { detectSourceFormat, asBytes } from '../types';
@@ -70,11 +71,13 @@ export function CataloguePanel({ viewerRef }: Props) {
   const [caseId, setCaseId] = useState<string>('');
   const theCase = cases.find((c) => c.caseId === caseId) ?? cases[0];
 
-  // Load the release index (HF mirror first, GitHub release fallback).
+  // Load the release index (the user's / default HF mirror first, GitHub release fallback);
+  // reloaded when the user changes their Hugging Face settings.
+  const [indexNonce, setIndexNonce] = useState(0);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      for (const url of MODEL_INDEX_URLS) {
+      for (const url of modelIndexUrls()) {
         try {
           const bytes = await fetchCatalogAsset(url);
           const idx = parseModelIndex(JSON.parse(new TextDecoder().decode(bytes)));
@@ -92,7 +95,7 @@ export function CataloguePanel({ viewerRef }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [setModels]);
+  }, [setModels, indexNonce]);
 
   const fail = useCallback(
     (e: unknown) => {
@@ -364,6 +367,7 @@ export function CataloguePanel({ viewerRef }: Props) {
       </section>
 
       <CatalogImportPanel index={index} disabled={batchRunning} />
+      <HfSettingsPanel onSaved={() => setIndexNonce((n) => n + 1)} />
 
       <CatalogBatchPanel viewerRef={viewerRef} />
 
