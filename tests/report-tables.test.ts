@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildReportFiles, minWilcoxonP, bootstrapMedianCI } from '../src/lib/benchmark/report-tables';
+import { buildReportFiles, minWilcoxonP, bootstrapMedianCI, runtimeSummary } from '../src/lib/benchmark/report-tables';
 import type { BenchmarkRecord } from '../src/lib/benchmark/types';
 
 function rec(model: string, ds: string, caseId: string, dice: number): BenchmarkRecord {
@@ -66,5 +66,23 @@ describe('report provenance flags', () => {
     expect(files['REPORT.md']).toContain('resubstitution');
     expect(files['REPORT.md']).toContain('### Datasets and models');
     expect(files['summary.csv']).toContain(',true');
+  });
+});
+
+describe('report runtime + external-only analysis', () => {
+  it('Methods names the runtime recorded in the records, not a hard-coded one', () => {
+    const r = { ...rec('A', 'hcc', 'c1', 0.9), runtime: { provider: 'cpu (onnxruntime-node)', inferMs: 1, totalMs: 1 }, env: { provider: 'cpu', appVersion: 'headless-runner', runner: 'headless' as const, wasmThreads: 4, cpuCores: 4, ortVersion: 'onnxruntime-node 1.22.0' } };
+    expect(runtimeSummary([r])).toBe('headless runner, cpu (onnxruntime-node 1.22.0), 4 threads, 4 cores [1 record]');
+    expect(buildReportFiles([r, rec('B', 'hcc', 'c1', 0.8)])['REPORT.md']).toContain('headless runner, cpu (onnxruntime-node 1.22.0)');
+  });
+  it('repeats Friedman on external models when a † model is in the pool', () => {
+    const rs = ['a', 'b', 'c', 'd'].flatMap((c, i) => [
+      rec('nnU-Net v2 Liver+Lesion (BAMF, LiTS)', 'msd-task03-liver', c, 0.97),
+      rec('LightningMedSeg3D UNet (BTCV, 14-class)', 'msd-task03-liver', c, 0.9 + i / 100),
+      rec('LightningMedSeg3D VNet (BTCV, 14-class)', 'msd-task03-liver', c, 0.85 + i / 100),
+    ]);
+    const f = buildReportFiles(rs);
+    expect(f['REPORT.md']).toContain('External models only (excluding †)');
+    expect(f['friedman.csv']).toContain('dice (external only)');
   });
 });

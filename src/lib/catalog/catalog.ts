@@ -99,8 +99,8 @@ export interface IdcCase {
   segSeriesInstanceUid?: string;
   /**
    * HCC-TACE-Seg CT series hold 1–3 contrast phases at the same slice
-   * positions; only this acquisition is loaded (the portal-venous-most one
-   * that fully contains the SEG).
+   * positions; only this acquisition is loaded (the most venous available
+   * one that fully contains the SEG).
    */
   acquisitionNumber?: number;
   description?: string;
@@ -367,9 +367,10 @@ export const CATALOG_DATASETS: readonly CatalogDataset[] = [
       'catalogue model. Pulled directly from TCIA via the NCI Imaging Data Commons public bucket.',
     methodsNote:
       'HCC-TACE-Seg: CT series hold 1–3 contrast phases at identical slice positions and the DICOM-SEG ' +
-      'references instances from more than one; the acquisition that fully contains the SEG and is most ' +
-      'portal-venous (max portal-vein minus aorta HU in the SEG vessel segments) is used, assuming negligible ' +
-      'inter-phase motion. Reference whole liver = SEG "Liver" ∪ "Mass"; tumour = "Mass"; vessel segments ' +
+      'references instances from more than one; the acquisition that fully contains the SEG and is the most ' +
+      'venous available (max portal-vein minus aorta HU in the SEG vessel segments) is used, assuming negligible ' +
+      'inter-phase motion. The aorta is still brighter than the portal vein in most cases (late-arterial / early ' +
+      'portal inflow), so the phase is reported per case rather than labelled portal-venous. Reference whole liver = SEG "Liver" ∪ "Mass"; tumour = "Mass"; vessel segments ' +
       'are excluded, so intrahepatic vessels can appear as holes in the reference liver (see the hole-filled ' +
       'sensitivity analysis). Licence CC BY 4.0.',
   },

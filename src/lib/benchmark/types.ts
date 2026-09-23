@@ -24,6 +24,20 @@ export interface ReproEnv {
   crossOriginIsolated?: boolean;
   userAgent?: string;
   appVersion: string;
+  /** Where the run happened: browser PWA, Tauri desktop, or the headless runner. */
+  runner?: 'browser' | 'desktop' | 'headless';
+  /** Logical CPU cores visible to the runtime (navigator.hardwareConcurrency / os.cpus()). */
+  cpuCores?: number;
+  /** CPU model string (headless only; browsers do not expose it). */
+  cpuModel?: string;
+  /** Device / system memory in GB (navigator.deviceMemory is coarse and capped at 8). */
+  memoryGb?: number;
+  /** OS / platform string. */
+  os?: string;
+  /** onnxruntime package + version, e.g. "onnxruntime-node 1.22.0". */
+  ortVersion?: string;
+  /** Peak resident memory of the process in MB (headless). */
+  peakRssMb?: number;
 }
 
 export interface BenchmarkModelRef {

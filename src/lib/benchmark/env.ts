@@ -35,8 +35,14 @@ export function captureEnv(backend: BackendInfo | null, appVersion: string): Rep
     env.crossOriginIsolated = backend.crossOriginIsolated;
   }
 
-  const nav = globalThis.navigator;
+  const nav = globalThis.navigator as (Navigator & { deviceMemory?: number; userAgentData?: { platform?: string } }) | undefined;
   if (nav?.userAgent !== undefined) env.userAgent = nav.userAgent;
+  if (typeof nav?.hardwareConcurrency === 'number') env.cpuCores = nav.hardwareConcurrency;
+  if (typeof nav?.deviceMemory === 'number') env.memoryGb = nav.deviceMemory;
+  const platform = nav?.userAgentData?.platform ?? nav?.platform;
+  if (platform) env.os = platform;
+  // Node also has a navigator; only a window means a browser / desktop WebView.
+  if ('window' in globalThis) env.runner = '__TAURI_INTERNALS__' in globalThis ? 'desktop' : 'browser';
 
   return env;
 }

@@ -46,6 +46,13 @@ the right statistics — per dataset and across datasets.
 - Report statistics: Nemenyi critical-difference pairs, paired median differences vs the
   top model with bootstrap 95% CIs, the smallest attainable Wilcoxon p (power note), failure
   counts, and a † flag for models scored on their own training data.
+- **Import your own** (Catalogue): a Zenodo record by id/DOI/URL (ONNX + manifest loaded directly; PyTorch
+  checkpoints matched by md5 to their verified full-precision ONNX export; otherwise the exact conversion
+  command), a local DICOM CT + DICOM-SEG folder, or an IDC CT/SEG series pair.
+- Benchmark kits live in the example loader's Bundle picker (dataset + model rows, Open kit).
+- Records carry the hardware/runtime (runner, cores, CPU model, RAM, OS, onnxruntime version, peak RSS);
+  the report's Methods states the runtime recorded, and repeats Friedman/Nemenyi on external models only
+  when a model is scored on its own training data.
 - Sensitivity re-scoring (`scripts/bench/rescore.ts`): largest connected component and
   hole-filled reference, without re-running inference.
 

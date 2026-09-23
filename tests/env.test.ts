@@ -100,3 +100,11 @@ describe('describeEnv', () => {
     ).toBe('webgpu · apple');
   });
 });
+
+describe('captureEnv hardware fields', () => {
+  it('records visible cores and never claims a browser runner outside a window', () => {
+    const env = captureEnv(null, '0.16.0');
+    if (typeof globalThis.navigator?.hardwareConcurrency === 'number') expect(env.cpuCores).toBeGreaterThan(0);
+    expect(env.runner).toBeUndefined();
+  });
+});

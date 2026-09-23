@@ -18,6 +18,7 @@ import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync, append
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { join, basename } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { cpus, totalmem, platform, release } from 'node:os';
 import * as ort from 'onnxruntime-web'; // aliased to onnxruntime-node by vite.config.ts
 import { parseManifest } from '../../src/lib/inference/manifest';
 import { preparePreprocessing } from '../../src/lib/inference/preprocess';
@@ -46,6 +47,24 @@ if (!dataDir || !modelsDir || !outDir) throw new Error('need --data --models --o
 mkdirSync(join(outDir, 'masks'), { recursive: true });
 
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
+
+/** Hardware / runtime of this run, stored in every record for the Methods and runtime tables. */
+const ortVersion = (() => {
+  try {
+    const dir = process.env.ORT_NODE;
+    return dir ? `onnxruntime-node ${JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version}` : undefined;
+  } catch {
+    return undefined;
+  }
+})();
+const hostEnv = {
+  runner: 'headless' as const,
+  cpuCores: cpus().length,
+  cpuModel: cpus()[0]?.model?.trim(),
+  memoryGb: Math.round((totalmem() / 2 ** 30) * 10) / 10,
+  os: `${platform()} ${release()}`,
+  ortVersion,
+};
 
 function parseCsv(text: string): Array<Record<string, string>> {
   const rows: string[][] = [];
@@ -181,7 +200,13 @@ for (const id of models) {
         },
         runtime: { provider: 'cpu (onnxruntime-node)', loadMs, inferMs, metricMs, totalMs: performance.now() - t0 },
         segmentation: seg,
-        env: { provider: 'cpu', wasmThreads: threads, appVersion: 'headless-runner' },
+        env: {
+          provider: 'cpu',
+          wasmThreads: threads,
+          appVersion: 'headless-runner',
+          ...hostEnv,
+          peakRssMb: Math.round(process.resourceUsage().maxRSS / 1024),
+        },
         createdAt: new Date().toISOString(),
         appVersion: 'headless-runner',
       };

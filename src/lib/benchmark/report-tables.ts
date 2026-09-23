@@ -43,6 +43,25 @@ export function bootstrapMedianCI(d: readonly number[], reps = 2000, seed = 1): 
   return [stats[Math.floor(0.025 * (reps - 1))]!, stats[Math.ceil(0.975 * (reps - 1))]!];
 }
 
+/** "headless runner, cpu (onnxruntime-node 1.22.0), 4 threads, 4 cores (Intel …), 16 GB, linux …" per distinct environment. */
+export function runtimeSummary(records: readonly BenchmarkRecord[]): string {
+  const parts = new Map<string, number>();
+  for (const r of records) {
+    const e = r.env;
+    const bits = [
+      e?.runner ? `${e.runner}${e.runner === 'headless' ? ' runner' : ''}` : e?.appVersion === 'headless-runner' ? 'headless runner' : undefined,
+      e?.ortVersion ? `${r.runtime.provider.replace(/\s*\(.*\)$/, '')} (${e.ortVersion})` : r.runtime.provider,
+      e?.wasmThreads ? `${e.wasmThreads} threads` : undefined,
+      e?.cpuCores ? `${e.cpuCores} cores${e.cpuModel ? ` (${e.cpuModel})` : ''}` : undefined,
+      e?.memoryGb ? `${e.memoryGb} GB RAM` : undefined,
+      e?.os,
+    ].filter(Boolean);
+    const k = bits.join(', ');
+    parts.set(k, (parts.get(k) ?? 0) + 1);
+  }
+  return [...parts].map(([k, n]) => `${k} [${n} record${n === 1 ? '' : 's'}]`).join('; ') || 'not recorded';
+}
+
 /** Quote CSV text; prefix cells a spreadsheet would evaluate as a formula. */
 function csvText(v: string): string {
   const safe = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
@@ -143,6 +162,20 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
         const fr = friedmanTest(m.values, m.higherIsBetter);
         const cd =
           m.models.length <= 10 ? nemenyiCriticalDifference(m.models.length, m.cases.length) : NaN;
+        // Models trained on this dataset (†) inflate the omnibus test and shift everyone's mean ranks:
+        // repeat Friedman / Nemenyi on the external models only.
+        const extIdx = m.models.map((n, j) => (inTraining(n, ds) ? -1 : j)).filter((j) => j >= 0);
+        let externalNote = '';
+        if (extIdx.length >= 2 && extIdx.length < m.models.length && m.cases.length >= 2) {
+          const ev = m.values.map((row) => extIdx.map((j) => row[j]!));
+          const efr = friedmanTest(ev, m.higherIsBetter);
+          const ecd = extIdx.length <= 10 ? nemenyiCriticalDifference(extIdx.length, m.cases.length) : NaN;
+          const order = extIdx.map((j, i) => ({ n: m.models[j]!.replace(/@.*/, ''), r: efr.meanRanks[i]! })).sort((a, b) => a.r - b.r);
+          let pairs = 0;
+          for (let a = 0; a < order.length; a++) for (let b = a + 1; b < order.length; b++) if (order[b]!.r - order[a]!.r > ecd) pairs++;
+          externalNote = ` External models only (excluding †): Friedman χ²(${efr.df}) = ${efr.statistic.toFixed(2)}, p = ${fp(efr.pValue)}; Nemenyi CD = ${fmt(ecd, 2)} → ${pairs} pair(s) differ; best mean rank ${order[0]!.n} (${order[0]!.r.toFixed(2)}).`;
+          friedman.push([ds, LABELS[label]!, `${metric} (external only)`, extIdx.length, m.cases.length, efr.statistic, efr.df, efr.pValue, ecd, NaN, NaN, pairs]);
+        }
         const pw = pairwiseWilcoxonHolm(m.values, m.models);
         const minP = minWilcoxonP(m.cases.length);
         const holmFirst = 0.05 / Math.max(1, pw.length);
@@ -218,9 +251,9 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
         md.push(
           `## ${ds} — ${LABELS[label]} — ${metric}`,
           '',
-          `${m.models.length} models × ${m.cases.length} complete cases${m.droppedCases.length ? ` (${m.droppedCases.length} incomplete excluded)` : ''}. Friedman χ²(${fr.df}) = ${fr.statistic.toFixed(2)}, p = ${fp(fr.pValue)}; Nemenyi CD (α=0.05) = ${fmt(cd, 2)} ranks → ${Number.isFinite(cd) ? `${nemPairs.length} pair(s) differ${nemPairs.length ? `: ${nemPairs.map((p) => `${short(p.better.name)} > ${short(p.worse.name)}`).join('; ')}` : ''}` : 'n/a'}. ${pw.filter((p) => p.significant).length}/${pw.length} pairwise Wilcoxon comparisons significant after Holm.${powerNote}`,
+          `${m.models.length} models × ${m.cases.length} complete cases${m.droppedCases.length ? ` (${m.droppedCases.length} incomplete excluded)` : ''}. Friedman χ²(${fr.df}) = ${fr.statistic.toFixed(2)}, p = ${fp(fr.pValue)}; Nemenyi CD (α=0.05) = ${fmt(cd, 2)} ranks → ${Number.isFinite(cd) ? `${nemPairs.length} pair(s) differ${nemPairs.length ? `: ${nemPairs.map((p) => `${short(p.better.name)} > ${short(p.worse.name)}`).join('; ')}` : ''}` : 'n/a'}. ${pw.filter((p) => p.significant).length}/${pw.length} pairwise Wilcoxon comparisons significant after Holm.${powerNote}${externalNote}`,
           '',
-          `| Model | Mean ± SD | Median [IQR] | Mean rank | Paired median Δ vs ${short(top.name)} [95% CI] | Failures |`,
+          `| Model | Mean ± SD | Median [IQR] | Mean rank | Paired median Δ vs ${short(top.name)} [descriptive 95% CI] | Failures |`,
           '|---|---|---|---|---|---|',
           ...rows.map((r) => {
             const e = eff.get(r.name)!;
@@ -280,11 +313,11 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
   md.push(
     '## Methods (auto-generated)',
     '',
-    'Inference: TAMIAS pipeline (reorientation to the model training orientation, trilinear resampling to the manifest spacing, manifest intensity clipping/normalisation, Gaussian-weighted sliding window at the manifest patch/overlap, nearest-neighbour resampling of the label map back to the CT grid), ONNX exported from the published checkpoints, CPU (onnxruntime-web WASM). No test-time augmentation, no ensembling and no post-processing (no largest-connected-component or body-mask filtering) were applied, so HD95/ASSD include distant false-positive islands.',
+    `Inference: TAMIAS pipeline (reorientation to the model training orientation, trilinear resampling to the manifest spacing, manifest intensity clipping/normalisation, Gaussian-weighted sliding window at the manifest patch/overlap, nearest-neighbour resampling of the label map back to the CT grid), ONNX exported from the published checkpoints; runtime: ${runtimeSummary(records)}. No test-time augmentation, no ensembling and no post-processing (no largest-connected-component or body-mask filtering) were applied, so HD95/ASSD include distant false-positive islands.`,
     '',
     'Scoring: each model is mapped from its own label space; whole liver = liver ∪ tumour labels (models without a tumour class are scored on their liver label against the whole-liver reference, so this comparison also measures whether a model includes large tumours in the organ); tumour = tumour label (only models with a tumour class). Dice, IoU, HD95 and ASSD (exact anisotropic Euclidean distance transform, mm). Both masks empty: Dice = 1 and surface metrics undefined (case not measurable, excluded). Exactly one mask empty: Dice = 0 and the surface metric is scored as the worst value observed for that dataset/structure/metric (counted under Failures), never dropped.',
     '',
-    'Statistics: Friedman test on per-case scores (complete cases; latest record per model/case), mean ranks with Nemenyi critical difference (Demšar 2006; pairs whose mean-rank difference exceeds the CD are listed); pairwise Wilcoxon signed-rank (normal approximation with continuity correction) with Holm correction — the smallest attainable p for the given n is reported, and with ≤ 10 cases and many models Holm-corrected pairwise significance is unattainable by construction; paired median difference versus the top-ranked model with a percentile bootstrap 95% CI (2000 resamples, fixed seed). Across datasets: two-sided Mann-Whitney U with rank-biserial r per model; datasets differ in patients, scanners, slice thickness, contrast phase, tumour burden and annotation protocol, so this contrast is descriptive (confounded), not a causal domain-shift estimate.',
+    'Statistics: Friedman test on per-case scores (complete cases; latest record per model/case), mean ranks with Nemenyi critical difference (Demšar 2006; pairs whose mean-rank difference exceeds the CD are listed); pairwise Wilcoxon signed-rank (normal approximation with continuity correction) with Holm correction — the smallest attainable p for the given n is reported, and with ≤ 10 cases and many models Holm-corrected pairwise significance is unattainable by construction; paired median difference versus the top-ranked model with a percentile bootstrap 95% CI (2000 resamples, fixed seed; descriptive, not a hypothesis test). Across datasets: two-sided Mann-Whitney U with rank-biserial r per model; datasets differ in patients, scanners, slice thickness, contrast phase, tumour burden and annotation protocol, so this contrast is descriptive (confounded), not a causal domain-shift estimate.',
     ''
   );
   if (anyDagger)
