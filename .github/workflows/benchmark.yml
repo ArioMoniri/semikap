@@ -117,10 +117,18 @@ jobs:
       - name: Models from release
         run: |
           mkdir -p models
+          base=https://github.com/${{ github.repository }}/releases/download/$MODEL_RELEASE
           for m in ${{ matrix.models || matrix.model }}; do
-            for ext in onnx json; do
-              curl -fsSL --retry 5 -o models/$m.$ext https://github.com/${{ github.repository }}/releases/download/$MODEL_RELEASE/$m.$ext
-            done
+            curl -fsSL --retry 5 -o models/$m.json $base/$m.json
+            if jq -e '.ensemble' models/$m.json >/dev/null; then
+              # Ensemble manifest (no ONNX of its own): fetch every member ONNX, sha256-checked.
+              jq -r '.ensemble.members[] | "\(.file) \(.sha256)"' models/$m.json | while read -r f sha; do
+                curl -fsSL --retry 5 -o "models/$f" "$base/$f"
+                echo "$sha  models/$f" | sha256sum -c -
+              done
+            else
+              curl -fsSL --retry 5 -o models/$m.onnx $base/$m.onnx
+            fi
           done
           ls -la models
       - name: Skip cases already published (same model sha256 + case)
@@ -137,6 +145,7 @@ jobs:
         run: >
           npx vite-node --config scripts/bench/vite.config.ts scripts/bench/run-benchmark.ts --
           --data data --models models --out out --threads 4 ${{ matrix.cases && format('--cases {0}', matrix.cases) || '' }}
+          ${{ matrix.runnerArgs || '' }}
       - name: Keep only this job's new records
         if: always()
         run: |
