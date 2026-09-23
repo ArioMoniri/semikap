@@ -1,0 +1,37 @@
+name: Release notes backfill
+
+# Rewrites the notes of every published vX.Y.Z release from its CHANGELOG.md section plus
+# download links for the assets actually attached (scripts/release/release_notes.py), and
+# deletes leftover draft releases. Tags and assets are never touched.
+# Trigger: change .github/release-notes-request, or run manually.
+on:
+  push:
+    paths: ['.github/release-notes-request']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rewrite release notes, delete drafts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          gh api --paginate "repos/$REPO/releases?per_page=100" > /tmp/rels.json
+          jq -r '.[] | select(.draft) | "\(.id) \(.tag_name)"' /tmp/rels.json | while read -r id tag; do
+            echo "deleting draft $id ($tag)"; gh api -X DELETE "repos/$REPO/releases/$id"
+          done
+          jq -r '.[] | select((.draft|not) and (.tag_name|test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))) | "\(.id) \(.tag_name)"' /tmp/rels.json |
+            while read -r id tag; do
+              gh api "repos/$REPO/releases/$id/assets?per_page=100" > /tmp/assets.json
+              python3 scripts/release/release_notes.py --tag "$tag" --repo "$REPO" --assets /tmp/assets.json > /tmp/body.md
+              gh api -X PATCH "repos/$REPO/releases/$id" -F body=@/tmp/body.md --jq '.tag_name' >/dev/null
+              echo "notes updated: $tag"
+            done
