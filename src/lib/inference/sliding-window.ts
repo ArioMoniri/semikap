@@ -8,8 +8,14 @@ import type { Bytes } from '../../types';
  *   - For each patch: run the model, weight the output with a Gaussian kernel
  *     centred on the patch (so contributions taper at tile boundaries), and
  *     accumulate into a per-class sum buffer plus a per-voxel weight buffer.
- *   - At the end: per-voxel argmax over (sum / weight). Equivalent to the
- *     argmax over sum alone, so we skip the division.
+ *   - Per-voxel argmax over (sum / weight). Equivalent to the argmax over
+ *     sum alone, so we skip the division.
+ *
+ * Memory: tiles are visited z-outer, so once every tile starting at a given
+ * z0 has run, no later tile touches slices below the next z0 — those slices
+ * are final, get argmaxed and dropped. The class-sum buffer therefore only
+ * spans one patch depth (C × X × Y × PZ) instead of the whole volume, with
+ * bit-identical results (same tiles, same summation order per voxel).
  *
  * The Gaussian weighting eliminates the ridge artefacts you get with uniform
  * (constant=1) blending where two tiles meet — a clinically meaningful win at
@@ -68,8 +74,45 @@ export async function slidingWindowInference(
 
   // Infer number of classes from the first patch.
   let numClasses = opts.numClasses ?? 0;
+  const slabXY = X * Y;
+  // Rolling window of D slices starting at slice `base`.
+  const D = Math.min(Z, PZ);
+  const winVox = slabXY * D;
   let sumLogits: Float32Array | null = null;
-  const weights = new Float32Array(X * Y * Z);
+  const weights = new Float32Array(winVox);
+  let base = 0;
+  const mask = new Uint8Array(new ArrayBuffer(X * Y * Z)) as Bytes;
+
+  /** Argmax slices [base, zEnd) of the window into the mask. Zero-weight voxels stay 0. */
+  const finalize = (zEnd: number) => {
+    if (!sumLogits) return;
+    const n = (zEnd - base) * slabXY;
+    const off = base * slabXY;
+    for (let i = 0; i < n; i++) {
+      if (weights[i] === 0) continue;
+      let best = 0;
+      let bestVal = -Infinity;
+      for (let c = 0; c < numClasses; c++) {
+        const v = sumLogits[c * winVox + i]!;
+        if (v > bestVal) {
+          bestVal = v;
+          best = c;
+        }
+      }
+      mask[off + i] = best;
+    }
+  };
+  /** Advance the window start to `newBase` (slices below it must be finalized). */
+  const shift = (newBase: number) => {
+    const k = (newBase - base) * slabXY;
+    const shiftBuf = (buf: Float32Array, o: number) => {
+      buf.copyWithin(o, o + k, o + winVox);
+      buf.fill(0, o + winVox - k, o + winVox);
+    };
+    if (sumLogits) for (let c = 0; c < numClasses; c++) shiftBuf(sumLogits, c * winVox);
+    shiftBuf(weights, 0);
+    base = newBase;
+  };
 
   // Reusable patch buffer.
   const patchBuf = new Float32Array(PX * PY * PZ);
@@ -81,6 +124,10 @@ export async function slidingWindowInference(
   const ort = await import('onnxruntime-web');
 
   for (const z0 of zs) {
+    if (z0 > base) {
+      finalize(z0);
+      shift(z0);
+    }
     for (const y0 of ys) {
       for (const x0 of xs) {
         // Copy the patch from the volume.
@@ -108,28 +155,30 @@ export async function slidingWindowInference(
           );
         }
         const C = dimsOut[1]!;
-        if (numClasses === 0) {
+        if (sumLogits === null) {
+          if (numClasses !== 0 && C !== numClasses) {
+            throw new Error(`Inconsistent class count across patches: was ${numClasses}, now ${C}.`);
+          }
           numClasses = C;
-          sumLogits = new Float32Array(C * X * Y * Z);
+          sumLogits = new Float32Array(C * winVox);
         } else if (C !== numClasses) {
           throw new Error(
             `Inconsistent class count across patches: was ${numClasses}, now ${C}.`
           );
         }
 
-        // Accumulate weighted logits.
-        const sl = sumLogits!;
-        const slabXY = X * Y;
+        // Accumulate weighted logits into the window (slice sz → sz - base).
+        const sl = sumLogits;
         const patchSlabXY = PX * PY;
         for (let c = 0; c < C; c++) {
           const cOffOut = c * (PX * PY * PZ);
-          const cOffSum = c * (X * Y * Z);
+          const cOffSum = c * winVox;
           for (let pz = 0; pz < PZ; pz++) {
-            const sz = z0 + pz;
+            const wz = z0 + pz - base;
             for (let py = 0; py < PY; py++) {
               const sy = y0 + py;
               const srcRow = cOffOut + pz * patchSlabXY + py * PX;
-              const dstRow = cOffSum + sz * slabXY + sy * X + x0;
+              const dstRow = cOffSum + wz * slabXY + sy * X + x0;
               const kRow = pz * patchSlabXY + py * PX;
               for (let px = 0; px < PX; px++) {
                 sl[dstRow + px] = sl[dstRow + px]! + data[srcRow + px]! * kernel[kRow + px]!;
@@ -139,10 +188,10 @@ export async function slidingWindowInference(
         }
         // Spatial weights only depend on (px, py, pz).
         for (let pz = 0; pz < PZ; pz++) {
-          const sz = z0 + pz;
+          const wz = z0 + pz - base;
           for (let py = 0; py < PY; py++) {
             const sy = y0 + py;
-            const dstRow = sz * slabXY + sy * X + x0;
+            const dstRow = wz * slabXY + sy * X + x0;
             const kRow = pz * patchSlabXY + py * PX;
             for (let px = 0; px < PX; px++) {
               weights[dstRow + px] = weights[dstRow + px]! + kernel[kRow + px]!;
@@ -162,29 +211,7 @@ export async function slidingWindowInference(
   }
 
   if (!sumLogits) throw new Error('Inference produced no output.');
-
-  // Argmax per voxel. Argmax over (sum/weight) == argmax over sum because the
-  // divisor is the same for every class. Voxels with zero weight stay 0.
-  const mask = new Uint8Array(new ArrayBuffer(X * Y * Z)) as Bytes;
-  const slab = X * Y;
-  for (let z = 0; z < Z; z++) {
-    for (let y = 0; y < Y; y++) {
-      for (let x = 0; x < X; x++) {
-        const idx = z * slab + y * X + x;
-        if (weights[idx] === 0) continue;
-        let best = 0;
-        let bestVal = -Infinity;
-        for (let c = 0; c < numClasses; c++) {
-          const v = sumLogits[c * X * Y * Z + idx]!;
-          if (v > bestVal) {
-            bestVal = v;
-            best = c;
-          }
-        }
-        mask[idx] = best;
-      }
-    }
-  }
+  finalize(Math.min(Z, base + D));
 
   return { mask, dims, numClasses };
 }
