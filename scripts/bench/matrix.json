@@ -1,0 +1,15 @@
+{
+  "note": "Jobs for .github/workflows/benchmark.yml. 'cases' (optional) limits a job to those case ids — used to shard slow models (nnU-Net on MSD takes ~53 min per case on a 4-core runner). Results are merged into the benchmark-results-v1 release (dedupe by model sha256 + dataset + case).",
+  "include": [
+    { "model": "nnunet_liver_lits", "dataset": "msd_task03_liver", "cases": "liver_1" },
+    { "model": "nnunet_liver_lits", "dataset": "msd_task03_liver", "cases": "liver_22" },
+    { "model": "nnunet_liver_lits", "dataset": "msd_task03_liver", "cases": "liver_51" },
+    { "model": "nnunet_liver_lits", "dataset": "msd_task03_liver", "cases": "liver_53" },
+    { "model": "nnunet_liver_lits", "dataset": "msd_task03_liver", "cases": "liver_55" },
+    { "model": "nnunet_liver_lits", "dataset": "msd_task03_liver", "cases": "liver_67" },
+    { "model": "nnunet_liver_lits", "dataset": "msd_task03_liver", "cases": "liver_69" },
+    { "model": "nnunet_liver_lits", "dataset": "msd_task03_liver", "cases": "liver_75" },
+    { "model": "nnunet_liver_lits", "dataset": "msd_task03_liver", "cases": "liver_77" },
+    { "model": "nnunet_liver_lits", "dataset": "msd_task03_liver", "cases": "liver_79" }
+  ]
+}

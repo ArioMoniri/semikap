@@ -23,6 +23,17 @@ env:
   RESULTS_RELEASE: benchmark-results-v1
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        name: Job matrix from scripts/bench/matrix.json
+        run: |
+          echo "matrix=$(jq -c '{include: .include}' scripts/bench/matrix.json)" >> "$GITHUB_OUTPUT"
+
   data:
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -45,14 +56,12 @@ jobs:
         with: { name: bench-data, path: data, retention-days: 3, compression-level: 0 }
 
   bench:
-    needs: data
+    needs: [plan, data]
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      matrix:
-        model: [lms3d_unet, lms3d_vnet, lms3d_resunet, lms3d_attention_unet, lms3d_unetpp, lms3d_unetr, lms3d_swin_unetr, lms3d_medformer, lms3d_segformer, nnunet_liver_lits]
-        dataset: [hcc_tace_seg, msd_task03_liver]
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -81,10 +90,13 @@ jobs:
         env: { ORT_NODE: /tmp/ortnode/node_modules/onnxruntime-node }
         run: >
           npx vite-node --config scripts/bench/vite.config.ts scripts/bench/run-benchmark.ts --
-          --data data --models models --out out --threads 4
+          --data data --models models --out out --threads 4 ${{ matrix.cases && format('--cases {0}', matrix.cases) || '' }}
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: 'res-${{ matrix.model }}-${{ matrix.dataset }}', path: out, retention-days: 7 }
+        with:
+          name: "res-${{ matrix.model }}-${{ matrix.dataset }}-${{ matrix.cases || 'all' }}"
+          path: out
+          retention-days: 7
 
   publish:
     needs: bench
@@ -93,14 +105,26 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with: { pattern: 'res-*', path: res }
-      - name: Merge
+      - name: Merge with the published results (dedupe by model sha256 + dataset + case)
+        env: { GH_TOKEN: '${{ github.token }}' }
         run: |
-          mkdir -p pub/masks
-          cat res/*/records.ndjson > pub/records.ndjson || true
-          cat res/*/run.log > pub/run.log || true
+          mkdir -p prev pub/masks
+          gh release download $RESULTS_RELEASE -R ${{ github.repository }} -D prev 2>/dev/null || true
+          [ -f prev/masks.zip ] && unzip -q -o prev/masks.zip -d pub || true
+          cat prev/records.ndjson res/*/records.ndjson 2>/dev/null | python3 -c "
+          import sys, json
+          seen = {}
+          for line in sys.stdin:
+              line = line.strip()
+              if not line: continue
+              r = json.loads(line)
+              seen[(r['model']['sha256'], r['datasetName'], r['case']['caseId'])] = r  # newest wins
+          for r in seen.values(): print(json.dumps(r))
+          " > pub/records.ndjson
+          cat prev/run.log res/*/run.log > pub/run.log 2>/dev/null || true
           find res -path '*/masks/*.nii.gz' -exec cp {} pub/masks/ \;
           (cd pub && zip -qr masks.zip masks && rm -rf masks)
-          wc -l pub/records.ndjson; grep -c FAIL pub/run.log || true; ls -la pub
+          wc -l pub/records.ndjson; ls -la pub
       - name: Publish ${{ env.RESULTS_RELEASE }}
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |
