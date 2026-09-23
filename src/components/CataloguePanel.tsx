@@ -24,6 +24,7 @@ import { MaskCompareGrid } from './MaskCompareGrid';
 import { addLocalModel, findLocalModel, localModelIds, pairModelFiles } from '../lib/catalog/local-models';
 import { detectSourceFormat, asBytes } from '../types';
 import { Button } from './ui/Button';
+import { ExternalLink } from './ExternalLink';
 import { Badge } from './ui/Badge';
 import type { ViewerHandle } from './Viewer';
 
@@ -57,6 +58,7 @@ export function CataloguePanel({ viewerRef }: Props) {
   const [error, setError] = useState<{ msg: string; url?: string } | null>(null);
   const datasetId = useCatalogStore((s) => s.datasetId);
   const setDatasetId = useCatalogStore((s) => s.setDatasetId);
+  const batchRunning = useCatalogStore((s) => s.batchRunning);
   const dataset = useMemo<CatalogDataset>(
     () => CATALOG_DATASETS.find((d) => d.id === datasetId) ?? CATALOG_DATASETS[0]!,
     [datasetId]
@@ -199,10 +201,10 @@ export function CataloguePanel({ viewerRef }: Props) {
 
   const [localIds, setLocalIds] = useState<string[]>(() => localModelIds());
   const addRef = useRef<HTMLInputElement>(null);
-  async function onAddLocal(files: FileList | null) {
-    if (!files?.length) return;
+  async function onAddLocal(files: File[]) {
+    if (!files.length) return;
     setError(null);
-    const pairs = pairModelFiles(Array.from(files));
+    const pairs = pairModelFiles(files);
     if (!pairs.length) {
       setError({ msg: 'Pick each model as a pair: <id>.onnx + <id>.json from the zenodo-models-v1 release (e.g. lms3d_unet.onnx + lms3d_unet.json).' });
       return;
@@ -281,25 +283,20 @@ export function CataloguePanel({ viewerRef }: Props) {
                 </option>
               ))}
             </select>
-            <Button size="sm" onClick={onLoadCase} disabled={!theCase || busy !== null} className="gap-1">
+            <Button size="sm" onClick={onLoadCase} disabled={!theCase || busy !== null || batchRunning} className="gap-1">
               {busy === 'case' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Target className="h-3.5 w-3.5" />}
               Load CT + GT
             </Button>
           </div>
         ) : (
-          <a
-            href={dataset.access.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-[11px] text-blue-700 underline"
-          >
+          <ExternalLink href={dataset.access.url} className="inline-flex items-center gap-1 text-[11px] text-blue-700 underline">
             <Download className="h-3 w-3" /> {mb(dataset.access.sizeBytes)} archive — {dataset.access.note}
-          </a>
+          </ExternalLink>
         )}
         <div className="text-[10px] text-slate-400">
-          <a className="underline" href={dataset.pageUrl} target="_blank" rel="noreferrer">
+          <ExternalLink className="underline" href={dataset.pageUrl}>
             {dataset.pageUrl.replace(/^https?:\/\//, '')}
-          </a>{' '}
+          </ExternalLink>{' '}
           · doi:{dataset.doi}
         </div>
       </section>
@@ -316,7 +313,20 @@ export function CataloguePanel({ viewerRef }: Props) {
         </div>
         <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
           <span>Browser build can't reach the release host? Download the files, then add them here once.</span>
-          <input ref={addRef} type="file" multiple accept=".onnx,.json" className="hidden" data-testid="catalog-add-local" onChange={(e) => void onAddLocal(e.currentTarget.files)} />
+          <input
+            ref={addRef}
+            type="file"
+            multiple
+            accept=".onnx,.json"
+            className="hidden"
+            data-testid="catalog-add-local"
+            onChange={(e) => {
+              // Copy before resetting: clearing value empties the live FileList.
+              const files = Array.from(e.currentTarget.files ?? []);
+              e.currentTarget.value = '';
+              void onAddLocal(files);
+            }}
+          />
           <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => addRef.current?.click()} disabled={busy !== null}>
             Add downloaded models
           </Button>
@@ -337,7 +347,7 @@ export function CataloguePanel({ viewerRef }: Props) {
                   size="sm"
                   variant="outline"
                   onClick={() => onLoadModel(m)}
-                  disabled={busy !== null || m.status === 'failed'}
+                  disabled={busy !== null || batchRunning || m.status === 'failed'}
                   className="h-6 gap-1 px-2 text-[11px]"
                 >
                   {busy === `model:${m.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
@@ -350,9 +360,9 @@ export function CataloguePanel({ viewerRef }: Props) {
                 <span>trained: {m.trainedOn.join(', ')}</span>
                 <span>test on: {datasetsForModel(m).map((d) => d.name).join(' · ')}</span>
                 {m.parity && <span>parity Δ {m.parity.maxAbsDiff.toExponential(1)}</span>}
-                <a className="inline-flex items-center gap-0.5 underline" href={m.zenodoUrl} target="_blank" rel="noreferrer">
+                <ExternalLink className="inline-flex items-center gap-0.5 underline" href={m.zenodoUrl}>
                   Zenodo <ExtIcon className="h-2.5 w-2.5" />
-                </a>
+                </ExternalLink>
                 <span title={m.citation}>{m.license}</span>
               </div>
             </li>
@@ -378,9 +388,9 @@ export function CataloguePanel({ viewerRef }: Props) {
           {error.url && (
             <>
               {' '}
-              <a className="underline" href={error.url} target="_blank" rel="noreferrer">
+              <ExternalLink className="underline" href={error.url}>
                 Download manually
-              </a>
+              </ExternalLink>
             </>
           )}
         </div>

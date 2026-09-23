@@ -27,6 +27,9 @@ export interface CatalogState {
   keySlices: Record<string, KeySlice>;
   putKeySlice(base: Omit<KeySlice, 'preds'>, pred?: KeySlicePrediction): void;
   clearKeySlices(): void;
+  /** A catalogue batch benchmark is running (single-model / single-case loads are disabled). */
+  batchRunning: boolean;
+  setBatchRunning(running: boolean): void;
 }
 
 export const useCatalogStore = create<CatalogState>((set) => ({
@@ -60,4 +63,6 @@ export const useCatalogStore = create<CatalogState>((set) => ({
       return { keySlices: { ...s.keySlices, [base.caseKey]: { ...base, preds } } };
     }),
   clearKeySlices: () => set({ keySlices: {} }),
+  batchRunning: false,
+  setBatchRunning: (batchRunning) => set({ batchRunning }),
 }));

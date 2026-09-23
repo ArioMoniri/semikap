@@ -2,12 +2,13 @@
  * Load a benchmark case into the viewer + a ground-truth reference in the
  * catalogue label space (1 liver, 2 tumour) on the CT grid.
  *  - IDC (TCIA) cases: CT series (annotated acquisition only) + DICOM-SEG.
- *  - Local NIfTI cases: CT + label map (MSD convention 1 liver, 2 tumour).
+ *  - Local NIfTI cases: CT + label map in the dataset's own label values
+ *    (CatalogDataset.gtLabels, e.g. BTCV 6 = liver), remapped to 1/2.
  */
 import type { ViewerHandle } from '../../components/Viewer';
 import type { VolumeMetadata, Bytes } from '../../types';
 import { asBytes } from '../../types';
-import type { IdcCase } from './catalog';
+import type { CatalogDataset, IdcCase } from './catalog';
 import { fetchCatalogAsset } from './fetch';
 import { listIdcSeriesUrls, readAcquisitionNumber } from './idc';
 import { fetchIdcSeriesFiles, filterByAcquisition } from './load';
@@ -25,12 +26,16 @@ export interface LoadedCase {
 export async function loadIdcCase(
   viewer: ViewerHandle,
   c: IdcCase,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
+  signal?: AbortSignal
 ): Promise<LoadedCase> {
+  const list = (u: string) => listIdcSeriesUrls(u, (url, init) => fetch(url, { ...init, signal }));
+  const fetchAsset = (u: string) => fetchCatalogAsset(u, { signal });
   onProgress?.('Listing CT series on IDC…');
   const all = await fetchIdcSeriesFiles(c.ctSeriesUuid, {
-    list: (u) => listIdcSeriesUrls(u),
-    fetchAsset: (u) => fetchCatalogAsset(u),
+    list,
+    fetchAsset,
+    signal,
     concurrency: 8,
     onProgress: (d, t) => onProgress?.(`CT ${d}/${t} slices`),
   });
@@ -39,10 +44,7 @@ export async function loadIdcCase(
   const loaded = await viewer.loadPrimaryFromFiles(files);
   const meta = loaded.meta;
   onProgress?.('Fetching ground-truth DICOM-SEG…');
-  const segFiles = await fetchIdcSeriesFiles(c.segSeriesUuid, {
-    list: (u) => listIdcSeriesUrls(u),
-    fetchAsset: (u) => fetchCatalogAsset(u),
-  });
+  const segFiles = await fetchIdcSeriesFiles(c.segSeriesUuid, { list, fetchAsset, signal });
   const seg = parseDicomSegGeometry(segFiles[0]!.bytes);
   if (!meta.srowX || !meta.srowY || !meta.srowZ) throw new Error('Viewer did not expose the CT affine; cannot place the ground truth.');
   const mapped = mapSegFramesToGrid(
@@ -61,8 +63,33 @@ export async function loadIdcCase(
   };
 }
 
-/** Local NIfTI case: CT + label map on the same grid (1 liver, 2 tumour; other labels ignored). */
-export async function loadLocalNiftiCase(viewer: ViewerHandle, ct: File, label: File): Promise<LoadedCase> {
+/**
+ * Remap a dataset label map to the canonical catalogue label space
+ * (1 liver, 2 tumour, 0 everything else) using the dataset's own label values.
+ */
+export function remapGtLabels(
+  voxels: ArrayLike<number>,
+  gt: CatalogDataset['gtLabels']
+): Uint8Array {
+  const lut = new Map<number, number>();
+  for (const v of gt.liver) lut.set(v, 1);
+  for (const v of gt.tumour) lut.set(v, 2);
+  const mask = new Uint8Array(voxels.length);
+  for (let i = 0; i < mask.length; i++) mask[i] = lut.get(Math.round(Number(voxels[i]))) ?? 0;
+  return mask;
+}
+
+/**
+ * Local NIfTI case: CT + label map on the same grid. The label map is in the
+ * dataset's native label values (`dataset.gtLabels`) and is remapped to the
+ * canonical 1 liver / 2 tumour; other labels are ignored.
+ */
+export async function loadLocalNiftiCase(
+  viewer: Pick<ViewerHandle, 'loadPrimary'>,
+  ct: File,
+  label: File,
+  dataset: Pick<CatalogDataset, 'gtLabels'>
+): Promise<LoadedCase> {
   const ctBytes = asBytes(new Uint8Array(await ct.arrayBuffer()));
   const lbBytes = new Uint8Array(await label.arrayBuffer());
   const loaded = await viewer.loadPrimary(ct.name, ctBytes);
@@ -71,11 +98,7 @@ export async function loadLocalNiftiCase(viewer: ViewerHandle, ct: File, label: 
   if (a !== loaded.meta.dims[0] || b !== loaded.meta.dims[1] || c !== loaded.meta.dims[2]) {
     throw new Error(`Label map ${lb.dims.join('×')} does not match CT ${loaded.meta.dims.join('×')}.`);
   }
-  const mask = new Uint8Array(lb.voxels.length);
-  for (let i = 0; i < mask.length; i++) {
-    const v = Math.round(Number(lb.voxels[i]));
-    mask[i] = v === 1 || v === 2 ? v : 0;
-  }
+  const mask = remapGtLabels(lb.voxels, dataset.gtLabels);
   return {
     voxels: loaded.voxels,
     meta: loaded.meta,

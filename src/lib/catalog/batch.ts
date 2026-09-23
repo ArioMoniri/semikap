@@ -6,7 +6,9 @@
  * Case-outer / model-inner: exactly one decoded case and one model are held in
  * memory at a time (model bytes come from the OPFS cache on repeat loads), so a
  * 10 × 10 grid fits in a browser tab. Each (case, model) pair is isolated: a
- * failure is recorded and the batch continues. Cancellable and resumable.
+ * failure is recorded and the batch continues; a model that fails to load is
+ * not downloaded again for later cases (each remaining pair records the
+ * error). Cancellable, and resumable via `isDone` (see {@link isPairRecorded}).
  * Pure orchestration — all I/O is injected.
  */
 
@@ -83,6 +85,18 @@ export interface BatchSummary {
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** Minimal shape of a stored benchmark record needed to detect a finished pair. */
+export interface RecordedPair {
+  datasetName: string;
+  case: { caseId: string };
+  model: { catalogId?: string };
+}
+
+/** True when `records` already hold a result for this catalogue (case, model) pair. */
+export function isPairRecorded(records: readonly RecordedPair[], c: BatchCase, m: BatchModel): boolean {
+  return records.some((r) => r.datasetName === c.datasetId && r.case.caseId === c.caseId && r.model.catalogId === m.id);
+}
+
 export async function runCatalogBatch<V, M>(
   cases: readonly BatchCase[],
   models: readonly BatchModel[],
@@ -91,6 +105,8 @@ export async function runCatalogBatch<V, M>(
   const total = cases.length * models.length;
   const out: BatchSummary = { completed: 0, skipped: 0, failed: [], cancelled: false };
   let done = 0;
+  /** Models that failed to load: not retried for later cases. */
+  const modelLoadErrors = new Map<string, string>();
   const progress = (p: Omit<BatchProgress, 'done' | 'total'>) => deps.onProgress?.({ done, total, ...p });
 
   for (const c of cases) {
@@ -108,6 +124,10 @@ export async function runCatalogBatch<V, M>(
     try {
       loaded = await deps.loadCase(c);
     } catch (e) {
+      if (deps.signal?.aborted) {
+        out.cancelled = true;
+        break;
+      }
       out.failed.push({ datasetId: c.datasetId, caseId: c.caseId, error: msg(e) });
       done += todo.length;
       continue;
@@ -118,9 +138,27 @@ export async function runCatalogBatch<V, M>(
         out.cancelled = true;
         break;
       }
+      const loadError = modelLoadErrors.get(m.id);
+      if (loadError !== undefined) {
+        out.failed.push({ datasetId: c.datasetId, caseId: c.caseId, modelId: m.id, error: `model failed to load earlier: ${loadError}` });
+        done++;
+        continue;
+      }
+      let lm: M;
       try {
         progress({ caseId: c.caseId, modelId: m.id, stage: 'loading model' });
-        const lm = await deps.loadModel(m);
+        lm = await deps.loadModel(m);
+      } catch (e) {
+        if (deps.signal?.aborted) {
+          out.cancelled = true;
+          break;
+        }
+        modelLoadErrors.set(m.id, msg(e));
+        out.failed.push({ datasetId: c.datasetId, caseId: c.caseId, modelId: m.id, error: msg(e) });
+        done++;
+        continue;
+      }
+      try {
         progress({ caseId: c.caseId, modelId: m.id, stage: 'inference' });
         const prediction = await deps.infer(loaded.volume, lm);
         progress({ caseId: c.caseId, modelId: m.id, stage: 'scoring' });

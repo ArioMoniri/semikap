@@ -31,6 +31,8 @@ export interface BenchmarkModelRef {
   version: string;
   /** SHA-256 of the .onnx bytes. */
   sha256: string;
+  /** Catalogue model id when the model came from the Model & Dataset Catalogue. */
+  catalogId?: string;
 }
 
 export interface BenchmarkCaseRef {

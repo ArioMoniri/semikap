@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Comlink from 'comlink';
 import { ListChecks, Play, Square, FolderOpen } from 'lucide-react';
 import { CATALOG_DATASETS, type CatalogModel } from '../lib/catalog/catalog';
-import { runCatalogBatch, type BatchCase } from '../lib/catalog/batch';
+import { isPairRecorded, runCatalogBatch, type BatchCase } from '../lib/catalog/batch';
 import { loadIdcCase, loadLocalNiftiCase, pairLocalFiles, type LoadedCase } from '../lib/catalog/case-loader';
 import { loadCatalogModel } from '../lib/catalog/load';
 import { findLocalModel } from '../lib/catalog/local-models';
@@ -48,6 +48,9 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
   const profileId = useBenchmarkStore((s) => s.currentProfileId);
   const addRecord = useBenchmarkStore((s) => s.addRecord);
   const setReference = useBenchmarkStore((s) => s.setReference);
+  const records = useBenchmarkStore((s) => s.records);
+  const running = useCatalogStore((s) => s.batchRunning);
+  const setRunning = useCatalogStore((s) => s.setBatchRunning);
   const setVolume = useAppStore((s) => s.setVolume);
   const backend = useAppStore((s) => s.backend);
 
@@ -58,15 +61,29 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
   const lbRef = useRef<HTMLInputElement>(null);
   const [ctFiles, setCtFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
+  const [skipRecorded, setSkipRecorded] = useState(true);
   const [results, setResults] = useState<Array<{ caseId: string; model: string; dice: number; tumour?: number; s: number }>>([]);
   const [failures, setFailures] = useState<string[]>([]);
-  const signal = useRef({ aborted: false });
+  const abortRef = useRef<AbortController | null>(null);
+  const workerRef = useRef<Worker | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (kitNonce) rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [kitNonce]);
+
+  // Unmount mid-run: stop the batch, free the worker, release the lock.
+  useEffect(
+    () => () => {
+      if (!abortRef.current) return;
+      abortRef.current.abort();
+      abortRef.current = null;
+      workerRef.current?.terminate();
+      workerRef.current = null;
+      setRunning(false);
+    },
+    [setRunning]
+  );
 
   const caseChoices: string[] = dataset.access.kind === 'idc-s3' ? idcCases.map((c) => c.caseId) : localPairs.map((p) => p.caseId);
   const runnable = models.filter((m) => m.status !== 'failed');
@@ -79,33 +96,38 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
   async function run() {
     if (!viewerRef.current || !profileId) return;
     const viewer = viewerRef.current;
-    signal.current = { aborted: false };
+    const ctrl = new AbortController();
+    const signal = ctrl.signal;
+    abortRef.current = ctrl;
     setRunning(true);
     setFailures([]);
     setResults([]);
     const worker = new Worker(new URL('../workers/inference.worker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = worker;
     const api = Comlink.wrap<InferenceApi>(worker);
-    const byCase = new Map<string, LoadedCase>();
+    // One progress proxy per batch: each Comlink.proxy opens a MessagePort.
+    const noop = Comlink.proxy((_e: InferenceProgressEvent) => {});
+    const recorded = skipRecorded ? records : [];
     try {
       const cases: BatchCase[] = chosenCases.map((caseId) => ({ datasetId: dataset.id, caseId }));
       const summary = await runCatalogBatch<LoadedCase, { catalog: CatalogModel; rec: ModelRecord }>(
         cases,
         chosenModels.map((m) => ({ id: m.id, name: m.name })),
         {
-          signal: signal.current,
+          signal,
+          isDone: (c, m) => isPairRecorded(recorded, c, m),
           onProgress: (p) =>
             setStatus(
               `${p.done}/${p.total} · ${p.caseId}${p.modelId ? ` · ${short(models.find((m) => m.id === p.modelId)?.name ?? p.modelId)}` : ''} · ${p.stage}…`
             ),
           loadCase: async (c) => {
-            byCase.clear(); // one decoded case in memory at a time
             let lc: LoadedCase;
             if (dataset.access.kind === 'idc-s3') {
               const idc = idcCases.find((x) => x.caseId === c.caseId)!;
-              lc = await loadIdcCase(viewer, idc, (m) => setStatus(`${c.caseId} · ${m}`));
+              lc = await loadIdcCase(viewer, idc, (m) => setStatus(`${c.caseId} · ${m}`), signal);
             } else {
               const pair = localPairs.find((p) => p.caseId === c.caseId)!;
-              lc = await loadLocalNiftiCase(viewer, pair.ct, pair.label);
+              lc = await loadLocalNiftiCase(viewer, pair.ct, pair.label, dataset);
             }
             setVolume({
               source: { name: `${dataset.name} · ${c.caseId}`, bytes: lc.firstFile.bytes, hint: `catalog:${dataset.id}/${c.caseId}` },
@@ -119,13 +141,12 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
               ...lc.reference,
               catalog: { datasetId: dataset.id, caseId: c.caseId, labelSpace: 'liver-tumour' },
             });
-            byCase.set(c.caseId, lc);
             return { volume: lc, reference: lc.reference };
           },
           loadModel: async (m) => {
             const catalog = models.find((x) => x.id === m.id)!;
             const rec = await loadCatalogModel(catalog, {
-              fetchAsset: (url, o) => fetchCatalogAsset(url, o),
+              fetchAsset: (url, o) => fetchCatalogAsset(url, { ...o, signal }),
               cache: (bytes, manifest) => cacheModel(bytes, manifest),
               findCached: async (h) => (await loadCachedModel(h))?.bytes ?? null,
               findLocal: (id) => findLocalModel(id),
@@ -133,7 +154,6 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
             return { catalog, rec };
           },
           infer: async (lc, m) => {
-            const noop = Comlink.proxy((_e: InferenceProgressEvent) => {});
             const res = await api.run(
               {
                 voxels: lc.voxels,
@@ -172,7 +192,12 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
               profileId,
               datasetName: r.case.datasetId,
               task: 'segmentation',
-              model: { name: r.loadedModel.rec.manifest.name, version: r.loadedModel.rec.manifest.version, sha256: r.loadedModel.rec.hash },
+              model: {
+                name: r.loadedModel.rec.manifest.name,
+                version: r.loadedModel.rec.manifest.version,
+                sha256: r.loadedModel.rec.hash,
+                catalogId: r.model.id,
+              },
               case: {
                 caseId: r.case.caseId,
                 imageName: `${r.case.datasetId}/${r.case.caseId}`,
@@ -212,14 +237,22 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
       );
       setFailures(summary.failed.map((f) => `${f.caseId}${f.modelId ? ` × ${f.modelId}` : ''}: ${f.error}`));
       setStatus(
-        `${summary.cancelled ? 'Cancelled' : 'Done'} — ${summary.completed} scored, ${summary.failed.length} failed. ` +
+        `${summary.cancelled ? 'Cancelled' : 'Done'} — ${summary.completed} scored, ` +
+          (summary.skipped ? `${summary.skipped} already recorded, ` : '') +
+          `${summary.failed.length} failed. ` +
           'Open Benchmark → comparison → Full report for statistics and mask comparison.'
       );
     } catch (e) {
       setStatus(`Batch failed: ${(e as Error).message}`);
     } finally {
+      api[Comlink.releaseProxy]();
       worker.terminate();
-      setRunning(false);
+      // Skip if unmount cleanup already released the lock (a new run may own it).
+      if (abortRef.current === ctrl) {
+        abortRef.current = null;
+        workerRef.current = null;
+        setRunning(false);
+      }
     }
   }
 
@@ -260,8 +293,23 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
         </div>
       ) : (
         <div className="space-y-1 text-[11px]">
-          <div className="font-medium">Local NIfTI cases — CT + label map (1 liver, 2 tumour), paired by file name</div>
-          <input ref={ctRef} type="file" multiple accept=".nii,.gz" className="hidden" data-testid="batch-ct-input" onChange={(e) => setCtFiles(Array.from(e.currentTarget.files ?? []))} />
+          <div className="font-medium">
+            Local NIfTI cases — CT + label map (liver {dataset.gtLabels.liver.join('/')}
+            {dataset.gtLabels.tumour.length ? `, tumour ${dataset.gtLabels.tumour.join('/')}` : ', no tumour'}), paired by file name
+          </div>
+          <input
+            ref={ctRef}
+            type="file"
+            multiple
+            accept=".nii,.gz"
+            className="hidden"
+            data-testid="batch-ct-input"
+            onChange={(e) => {
+              setCtFiles(Array.from(e.currentTarget.files ?? []));
+              setLocalPairs([]); // old pairs refer to the previous CT pick
+              e.currentTarget.value = '';
+            }}
+          />
           <input
             ref={lbRef}
             type="file"
@@ -273,6 +321,7 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
               const pairs = pairLocalFiles(ctFiles, Array.from(e.currentTarget.files ?? []));
               setLocalPairs(pairs);
               setSelectedCases(pairs.map((p) => p.caseId));
+              e.currentTarget.value = '';
             }}
           />
           <div className="flex gap-1.5">
@@ -314,10 +363,14 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
           <Play className="h-3.5 w-3.5" /> Run {chosenCases.length * chosenModels.length} runs
         </Button>
         {running && (
-          <Button size="sm" variant="outline" className="gap-1" onClick={() => (signal.current.aborted = true)}>
-            <Square className="h-3.5 w-3.5" /> Stop after current
+          <Button size="sm" variant="outline" className="gap-1" onClick={() => abortRef.current?.abort()}>
+            <Square className="h-3.5 w-3.5" /> Stop
           </Button>
         )}
+        <label className="flex items-center gap-1 text-[11px]" title="Resume: skip (case, model) pairs that already have a record in this profile">
+          <input type="checkbox" checked={skipRecorded} disabled={running} onChange={(e) => setSkipRecorded(e.currentTarget.checked)} />
+          skip recorded
+        </label>
       </div>
       {status && <p className="text-[11px] text-slate-600 dark:text-slate-300" data-testid="batch-status">{status}</p>}
       {results.length > 0 && (

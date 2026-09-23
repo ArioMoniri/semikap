@@ -95,9 +95,9 @@ export function MaskCompareGrid({ size = 170 }: { size?: number }) {
     return m;
   }, [records]);
 
-  async function onImport(files: FileList | null) {
+  async function onImport(files: File[]) {
     setMsg(null);
-    if (!files?.length) return;
+    if (!files.length) return;
     const cat = reference?.catalog;
     if (!cat || !volume || !reference) {
       setMsg('Load a catalogue case (Load CT + GT) first — imported masks are matched to it by case id.');
@@ -109,7 +109,7 @@ export function MaskCompareGrid({ size = 170 }: { size?: number }) {
     const gt = toRadiological(reference.mask, reference.dims, affine);
     let added = 0;
     const skipped: string[] = [];
-    for (const f of Array.from(files)) {
+    for (const f of files) {
       const parsed = parseMaskFileName(f.name);
       if (!parsed || parsed.caseId !== cat.caseId) {
         skipped.push(f.name);
@@ -172,7 +172,11 @@ export function MaskCompareGrid({ size = 170 }: { size?: number }) {
             accept=".nii,.gz"
             className="hidden"
             data-testid="mask-import-input"
-            onChange={(e) => void onImport(e.currentTarget.files)}
+            onChange={(e) => {
+              const files = Array.from(e.currentTarget.files ?? []);
+              e.currentTarget.value = ''; // re-picking the same file fires onChange again
+              void onImport(files);
+            }}
           />
           <Button size="sm" variant="outline" className="h-6 gap-1 px-2 text-[11px]" onClick={() => fileRef.current?.click()}>
             <Upload className="h-3 w-3" /> Import masks

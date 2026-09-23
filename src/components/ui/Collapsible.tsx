@@ -1,6 +1,6 @@
 import * as CollapsiblePrimitive from '@radix-ui/react-collapsible';
 import { ChevronDown } from 'lucide-react';
-import { forwardRef, type ComponentPropsWithoutRef, type ElementRef, type ReactNode } from 'react';
+import { forwardRef, useState, type ComponentPropsWithoutRef, type ElementRef, type ReactNode } from 'react';
 import { cn } from '../../lib/ui/cn';
 
 export const Collapsible = CollapsiblePrimitive.Root;
@@ -15,6 +15,13 @@ interface SectionProps extends RootProps {
   trailing?: ReactNode;
   /** Additional content classes. */
   contentClassName?: string;
+  /**
+   * Keep the children mounted (just hidden) while collapsed, so long-running
+   * work inside the section (e.g. the catalogue batch) survives a collapse.
+   * Children still mount lazily, on the first open. Requires the controlled
+   * `open` prop.
+   */
+  keepMounted?: boolean;
 }
 
 /**
@@ -26,9 +33,11 @@ export const CollapsibleSection = forwardRef<
   ElementRef<typeof CollapsiblePrimitive.Root>,
   SectionProps
 >(function CollapsibleSection(
-  { title, trailing, children, className, contentClassName, ...props },
+  { title, trailing, children, className, contentClassName, keepMounted, ...props },
   ref
 ) {
+  const [opened, setOpened] = useState(!!props.open);
+  if (keepMounted && props.open && !opened) setOpened(true);
   return (
     <CollapsiblePrimitive.Root
       ref={ref}
@@ -51,16 +60,27 @@ export const CollapsibleSection = forwardRef<
         </div>
         {trailing && <div className="text-xs text-slate-500 dark:text-slate-400">{trailing}</div>}
       </CollapsiblePrimitive.Trigger>
-      <CollapsiblePrimitive.Content
-        className={cn(
-          'overflow-hidden border-t border-slate-100 px-3 py-3 text-sm',
-          'dark:border-slate-800',
-          'data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down',
-          contentClassName
-        )}
-      >
-        {children}
-      </CollapsiblePrimitive.Content>
+      {keepMounted ? (
+        // Radix Content unmounts children when closed even with forceMount.
+        <div
+          hidden={!props.open}
+          data-state={props.open ? 'open' : 'closed'}
+          className={cn('border-t border-slate-100 px-3 py-3 text-sm', 'dark:border-slate-800', contentClassName)}
+        >
+          {opened && children}
+        </div>
+      ) : (
+        <CollapsiblePrimitive.Content
+          className={cn(
+            'overflow-hidden border-t border-slate-100 px-3 py-3 text-sm',
+            'dark:border-slate-800',
+            'data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down',
+            contentClassName
+          )}
+        >
+          {children}
+        </CollapsiblePrimitive.Content>
+      )}
     </CollapsiblePrimitive.Root>
   );
 });

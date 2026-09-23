@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runCatalogBatch, type BatchDeps } from '../src/lib/catalog/batch';
+import { isPairRecorded, runCatalogBatch, type BatchDeps } from '../src/lib/catalog/batch';
 
 type Vol = { id: string };
 type Mdl = { id: string };
@@ -102,6 +102,48 @@ describe('runCatalogBatch', () => {
     const r = await runCatalogBatch(cases, models, { ...d, isDone: (c, m) => c.caseId === 'A' && m.id === 'm1' });
     expect(calls).not.toContain('infer:A:m1');
     expect(r.completed).toBe(3);
+    expect(r.skipped).toBe(1);
+  });
+
+  it('does not re-download a model that failed to load; later cases record the error', async () => {
+    const { d, calls } = deps({
+      loadModel: vi.fn(async (m) => {
+        calls.push(`model:${m.id}`);
+        if (m.id === 'm1') throw new Error('404');
+        return { id: m.id };
+      }),
+    });
+    const r = await runCatalogBatch(cases, models, d);
+    expect(calls.filter((c) => c === 'model:m1')).toHaveLength(1);
+    expect(r.completed).toBe(2);
+    expect(r.failed).toEqual([
+      { datasetId: 'hcc-tace-seg', caseId: 'A', modelId: 'm1', error: '404' },
+      { datasetId: 'hcc-tace-seg', caseId: 'B', modelId: 'm1', error: 'model failed to load earlier: 404' },
+    ]);
+  });
+
+  it('treats an error raised after abort as cancellation, not a failure', async () => {
+    const signal = { aborted: false };
+    const { d } = deps({
+      loadModel: vi.fn(async () => {
+        signal.aborted = true;
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }),
+    });
+    const r = await runCatalogBatch(cases, models, { ...d, signal });
+    expect(r.cancelled).toBe(true);
+    expect(r.failed).toEqual([]);
+  });
+
+  it('isPairRecorded matches dataset, case and catalogue model id (resume from stored records)', async () => {
+    const records = [{ datasetName: 'hcc-tace-seg', case: { caseId: 'A' }, model: { catalogId: 'm1' } }];
+    expect(isPairRecorded(records, cases[0]!, models[0]!)).toBe(true);
+    expect(isPairRecorded(records, cases[0]!, models[1]!)).toBe(false);
+    expect(isPairRecorded(records, cases[1]!, models[0]!)).toBe(false);
+    expect(isPairRecorded([{ datasetName: 'hcc-tace-seg', case: { caseId: 'A' }, model: {} }], cases[0]!, models[0]!)).toBe(false);
+    const { d, calls } = deps();
+    const r = await runCatalogBatch(cases, models, { ...d, isDone: (c, m) => isPairRecorded(records, c, m) });
+    expect(calls).not.toContain('infer:A:m1');
     expect(r.skipped).toBe(1);
   });
 });

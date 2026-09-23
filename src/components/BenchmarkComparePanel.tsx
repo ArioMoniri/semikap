@@ -24,6 +24,7 @@ import { friedmanTest, nemenyiCriticalDifference, pairwiseWilcoxonHolm } from '.
 import { appendRecord } from '../lib/benchmark/store';
 import { buildReportFiles } from '../lib/benchmark/report-tables';
 import { makeZip } from '../lib/fs/zip';
+import { downloadBlob } from '../lib/ui/download';
 import { MaskCompareGrid } from './MaskCompareGrid';
 import { Button } from './ui/Button';
 
@@ -453,12 +454,7 @@ export function BenchmarkComparePanel({
   function onExportTables() {
     const files = buildReportFiles(seg);
     const zip = makeZip(Object.fromEntries(Object.entries(files).map(([k, v]) => [`tamias_tables/${k}`, v])));
-    const url = URL.createObjectURL(new Blob([zip as Uint8Array<ArrayBuffer>], { type: 'application/zip' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'tamias_benchmark_tables.zip';
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob('tamias_benchmark_tables.zip', zip as Uint8Array<ArrayBuffer>, 'application/zip');
   }
 
   const controls = (
@@ -515,7 +511,11 @@ export function BenchmarkComparePanel({
           type="file"
           accept=".ndjson,.json,.jsonl"
           className="hidden"
-          onChange={(e) => void onImport(e.currentTarget.files?.[0])}
+          onChange={(e) => {
+            const file = e.currentTarget.files?.[0];
+            e.currentTarget.value = ''; // re-picking the same file fires onChange again
+            void onImport(file);
+          }}
         />
         <Button size="sm" variant="outline" className="h-6 gap-1 px-2 text-[11px]" onClick={() => fileRef.current?.click()}>
           <Upload className="h-3 w-3" /> Import records

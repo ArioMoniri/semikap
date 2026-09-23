@@ -77,14 +77,39 @@ function toBytes(x: unknown): Bytes {
   throw new Error('Desktop downloader returned an unexpected payload.');
 }
 
+/** The standard `AbortError` a cancelled fetch() rejects with. */
+export function abortError(): DOMException {
+  return new DOMException('The operation was aborted.', 'AbortError');
+}
+
+export function isAbortError(e: unknown): boolean {
+  return (e as { name?: unknown } | null)?.name === 'AbortError';
+}
+
+/**
+ * Reject with AbortError as soon as `signal` aborts. The underlying work
+ * (a native download that has no cancel channel) keeps running, but the
+ * caller stops waiting for it.
+ */
+function abortable<T>(p: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return p;
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    p.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
 export async function fetchCatalogAsset(url: string, opts: FetchCatalogOptions = {}): Promise<Bytes> {
   if (!isAllowedCatalogUrl(url)) {
     throw new Error(`URL not allowed by the catalogue host allowlist: ${url}`);
   }
+  if (opts.signal?.aborted) throw abortError();
   const invoke = opts.tauriInvoke === undefined ? await detectTauriInvoke() : opts.tauriInvoke;
   let bytes: Bytes;
   if (invoke) {
-    bytes = toBytes(await invoke('catalog_fetch', { url }));
+    bytes = toBytes(await abortable(invoke('catalog_fetch', { url }), opts.signal));
   } else {
     const fetcher = opts.fetcher ?? ((u: string, i?: RequestInit) => fetch(u, i));
     let res: Response;
@@ -97,6 +122,7 @@ export async function fetchCatalogAsset(url: string, opts: FetchCatalogOptions =
     if (!res.ok) throw new Error(`Download failed (${res.status}) for ${url}`);
     bytes = asBytes(new Uint8Array(await res.arrayBuffer()));
   }
+  if (opts.signal?.aborted) throw abortError();
   if (opts.expectedSha256) {
     const actual = await sha256Hex(bytes);
     if (actual.toLowerCase() !== opts.expectedSha256.toLowerCase()) {

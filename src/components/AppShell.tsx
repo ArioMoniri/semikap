@@ -388,7 +388,8 @@ export function AppShell() {
             <ExamplesPanel viewerRef={viewerRef} />
           </CollapsibleSection>
 
-          <CollapsibleSection title="Catalogue" open={catalogOpen} onOpenChange={setCatalogOpen} trailing="models + data">
+          {/* keepMounted: collapsing must not unmount a running batch benchmark. */}
+          <CollapsibleSection title="Catalogue" open={catalogOpen} onOpenChange={setCatalogOpen} keepMounted trailing="models + data">
             <CataloguePanel viewerRef={viewerRef} />
           </CollapsibleSection>
 
