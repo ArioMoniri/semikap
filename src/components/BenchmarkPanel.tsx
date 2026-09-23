@@ -384,7 +384,16 @@ export function BenchmarkPanel() {
         result.mask,
         { dims: result.dims, spacing: result.spacing },
       );
-      const d = diffVolume(result.mask, aligned.ref);
+      // Catalogue GT: compare whole liver in both label spaces (a BTCV model's
+      // other organs are not disagreements with a liver ground truth).
+      let predMask: Uint8Array = result.mask;
+      let refMask: Uint8Array = aligned.ref;
+      if (reference.catalog?.labelSpace === 'liver-tumour' && model) {
+        const whole = canonicalGroupMasks(aligned.ref, result.mask, model.manifest.output.labels)[0]!;
+        predMask = whole.pred;
+        refMask = whole.ref;
+      }
+      const d = diffVolume(predMask, refMask);
       const dims: [number, number, number] = [aligned.dims[0], aligned.dims[1], aligned.dims[2]];
       setDiffSlice(maxDisagreementSlice(d.diff, dims));
       setNotice(`Difference: IoU ${fmt(d.agreeFraction)} · only-result ${d.aOnly} · only-reference ${d.bOnly} voxels.`);

@@ -21,14 +21,17 @@ const loadCase = arg('load-case', false);
 const modelId = arg('model');
 const run = arg('run', false);
 const dark = arg('dark', false);
+// Web build: load a model from local files through the Model panel (the path a user takes
+// after "Download manually"), then run + score against the catalogue GT.
+const modelFile = arg('model-file');
 mkdirSync(out, { recursive: true });
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || undefined,
   // Behind an egress proxy (CI/sandbox) route the browser through it too.
   args: [
-    '--enable-unsafe-webgpu',
-    '--use-angle=swiftshader',
+    // No --enable-unsafe-webgpu: on a GPU-less runner WebGPU would be SwiftShader
+    // (CPU-emulated) and ORT would pick it over the far faster WASM backend.
     ...(process.env.HTTPS_PROXY
       ? [`--proxy-server=${process.env.HTTPS_PROXY.replace(/^http:\/\//, '')}`, '--proxy-bypass-list=localhost;127.0.0.1']
       : []),
@@ -36,6 +39,10 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({ viewport: { width: 1680, height: 1050 }, deviceScaleFactor: 2, colorScheme: dark ? 'dark' : 'light' });
 page.on('console', (m) => m.type() === 'error' && console.error('[page]', m.text()));
+// Headless: force the <input type=file> fallback (the File System Access picker can't be automated).
+await page.addInitScript(() => {
+  delete window.showOpenFilePicker;
+});
 await page.goto(url, { waitUntil: 'networkidle' });
 const shot = async (name, locator) => {
   const p = join(out, `${name}.png`);
@@ -76,6 +83,32 @@ if (modelId) {
     await page.locator('text=/done|Done|elapsed/').first().waitFor({ timeout: 3_600_000 });
     await page.waitForTimeout(3000);
     await shot('04_inference_overlay');
+  }
+}
+
+if (modelFile) {
+  const fc1 = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Pick \.onnx/ }).click();
+  (await fc1).setFiles(`${modelFile}.onnx`);
+  const fc2 = page.waitForEvent('filechooser');
+  (await fc2).setFiles(`${modelFile}.json`);
+  await page.waitForTimeout(3000);
+  await page.getByRole('button', { name: /^Run$/ }).first().click();
+  await page.locator('text=/done · via|Inference failed/').first().waitFor({ timeout: 3_600_000 });
+  await page.waitForTimeout(3000);
+  await shot('04_inference_overlay_vs_gt');
+  await openSection('Benchmark');
+  const scoreBtn = page.getByRole('button', { name: /Score vs reference/ });
+  await scoreBtn.scrollIntoViewIfNeeded();
+  await scoreBtn.click();
+  await page.locator('text=/Scored: macro Dice/').waitFor({ timeout: 600_000 });
+  console.log('score:', await page.locator('text=/Scored: macro Dice[^\n]*/').first().innerText());
+  await shot('05_scored_vs_tcia_gt');
+  const diff = page.getByRole('button', { name: /Show difference/ });
+  if (await diff.count()) {
+    await diff.first().click();
+    await page.waitForTimeout(1500);
+    await shot('05b_mask_difference');
   }
 }
 
