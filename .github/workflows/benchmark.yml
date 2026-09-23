@@ -63,7 +63,7 @@ jobs:
           cp data/*_flow.csv meta/ 2>/dev/null || true
           (cd data && find "$DS" -name '*.nii.gz' | sort | xargs sha256sum) > "meta/SHA256SUMS-$DS"
           du -sh "data/$DS"
-          { echo "### $DS: $n cases"; for f in meta/*_flow.csv; do [ -f "$f" ] && python3 -c "import csv,collections,sys; print(dict(collections.Counter((r['status'], r['reason_codes']) for r in csv.DictReader(open(sys.argv[1])))))" "$f"; done; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### $DS: $n cases"; for f in meta/*_flow.csv; do if [ -f "$f" ]; then python3 -c "import csv,collections,sys; print(dict(collections.Counter((r['status'], r['reason_codes']) for r in csv.DictReader(open(sys.argv[1])))))" "$f"; fi; done; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with: { name: 'bench-data-${{ matrix.dataset }}', path: 'data/${{ matrix.dataset }}', retention-days: 3, compression-level: 0 }
       - uses: actions/upload-artifact@v4
