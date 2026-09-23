@@ -86,6 +86,33 @@ export function scoreLabelGroupsMapped(
 }
 
 /**
+ * Tumour inclusion: fraction of reference tumour voxels (ref ∈ tumourRefMembers) that the
+ * prediction labels as whole liver (pred ∈ liverPredMembers — liver ∪ tumour labels of the
+ * model). Answers "does the model's organ include the tumour?" — models without a tumour
+ * class that exclude large tumours from the liver score low. Undefined without reference tumour.
+ */
+export function tumourInclusion(
+  ref: Uint8Array,
+  pred: Uint8Array,
+  liverPredMembers: readonly number[],
+  tumourRefMembers: readonly number[] = [2]
+): number | undefined {
+  const inRef = new Uint8Array(256);
+  for (const m of tumourRefMembers) inRef[m] = 1;
+  const inPred = new Uint8Array(256);
+  for (const m of liverPredMembers) inPred[m] = 1;
+  let n = 0;
+  let hit = 0;
+  const len = Math.min(ref.length, pred.length);
+  for (let i = 0; i < len; i++) {
+    if (!inRef[ref[i]!]) continue;
+    n++;
+    if (inPred[pred[i]!]) hit++;
+  }
+  return n ? hit / n : undefined;
+}
+
+/**
  * Per-group segmentation metrics plus lesion-wise detection of the tumour group
  * (absent for models without a tumour class). Shared by the headless runner and
  * the re-scorer so both record the same fields.
@@ -97,12 +124,15 @@ export function scoreLiverTumourCase(
   spacing: [number, number, number],
   groups: readonly MappedLabelGroup[],
   opts: SegMetricsOptions & { minLesionMl?: number } = {}
-): { segmentation: SegMetrics[]; lesions?: LesionDetection } {
+): { segmentation: SegMetrics[]; lesions?: LesionDetection; tumourInclusion?: number } {
   const segmentation = scoreLabelGroupsMapped(ref, pred, dims, spacing, groups, opts);
+  const liver = groups.find((g) => g.id === 1);
+  const inc = liver ? tumourInclusion(ref, pred, liver.predMembers) : undefined;
+  const incl = inc === undefined ? {} : { tumourInclusion: inc };
   const t = groups.find((g) => g.id === 2);
-  if (!t) return { segmentation };
+  if (!t) return { segmentation, ...incl };
   const lesions = lesionDetection(groupMask(ref, t.refMembers), groupMask(pred, t.predMembers), dims, spacing, opts.minLesionMl);
-  return { segmentation, lesions };
+  return { segmentation, lesions, ...incl };
 }
 
 /** Binary ref/pred masks per canonical group (for the in-app scoring worker). */

@@ -2,28 +2,69 @@
  * Multi-model & cross-dataset comparison — the benchmarking-platform view.
  *
  * Per dataset: every model that ran on the same cases is compared with a
- * Friedman omnibus test, mean ranks + Nemenyi critical difference, per-case
- * score strips, and Holm-corrected pairwise Wilcoxon p-values. Across
- * datasets: each model's median on source A vs source B with a Mann-Whitney U
- * test (domain shift). Records come from in-app runs or are imported
+ * Friedman omnibus test, a Demšar critical-difference diagram (Nemenyi),
+ * bootstrap rank uncertainty (Kendall's W), per-case score strips,
+ * Holm-corrected pairwise Wilcoxon p-values and a power / sample-size curve.
+ * Across datasets: each model's median on source A vs source B (Mann-Whitney
+ * U). The full report adds the manuscript figures: volume agreement
+ * (Bland–Altman), tumour inclusion, lesion detection, runtime, case
+ * covariates, post-processing effect and the mask grid with a failure list.
+ * Every figure exports as SVG / PNG (300 dpi, white background), and all of
+ * them at once as a .zip. Records come from in-app runs or are imported
  * (NDJSON/JSON) from the headless runner / another machine.
  */
 
 import { useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { GitCompareArrows, Upload, Maximize2, X, Download } from 'lucide-react';
+import { GitCompareArrows, Upload, Maximize2, X, Download, Images } from 'lucide-react';
 import type { BenchmarkRecord } from '../lib/benchmark/types';
 import {
   recordsToMatrix,
   crossDatasetSummary,
   importRecordsText,
+  datasetKey,
+  baseDatasetId,
   type SegMetricKey,
-  type ScoreMatrix,
 } from '../lib/benchmark/compare';
 import { friedmanTest, nemenyiCriticalDifference, pairwiseWilcoxonHolm } from '../lib/stats/multi-model';
 import { appendRecord } from '../lib/benchmark/store';
-import { buildReportFiles, lesionDetectionRows, volumeAgreementRows } from '../lib/benchmark/report-tables';
-import { Scatter } from './plots/Plots';
+import { buildReportFiles, lesionDetectionRows, volumeAgreementRows, runtimeSummary } from '../lib/benchmark/report-tables';
+import {
+  availableCovariates,
+  bootstrapRanks,
+  canonicalModelOrder,
+  covariatePoints,
+  covariateTest,
+  datasetLabel,
+  displayModel,
+  kendallW,
+  lesionStrips,
+  modelSlots,
+  postprocessComparison,
+  powerAnalysis,
+  runtimeGroups,
+  segRecords,
+  shortModelName,
+  trainedOnMap,
+  tumourInclusionPoints,
+} from '../lib/benchmark/figures';
+import {
+  BlandAltmanFigure,
+  CovariateFigure,
+  CriticalDifferenceFigure,
+  CrossDatasetFigure,
+  LesionDetectionFigure,
+  PairHeatmapFigure,
+  PostprocessFigure,
+  PowerFigure,
+  RankUncertaintyFigure,
+  RuntimeFigure,
+  StripFigure,
+  TumourInclusionFigure,
+  type ModelStyle,
+} from './plots/BenchmarkFigures';
+import { FigureCard } from './plots/FigureCard';
+import { FigureRegistry, FigureRegistryProvider } from './plots/figure-registry';
 import { makeZip } from '../lib/fs/zip';
 import { downloadBlob } from '../lib/ui/download';
 import { MaskCompareGrid } from './MaskCompareGrid';
@@ -39,18 +80,14 @@ const METRICS: { key: SegMetricKey; label: string }[] = [
   { key: 'nsd5Mm', label: 'NSD @ 5 mm' },
 ];
 const LABELS = [
-  { id: 1, name: 'Whole liver (liver ∪ tumour)' },
-  { id: 2, name: 'Tumour' },
+  { id: 1, name: 'Whole liver (liver ∪ tumour)', slug: 'whole_liver', short: 'Whole-liver' },
+  { id: 2, name: 'Tumour', slug: 'tumour', short: 'Tumour' },
 ];
 
-function short(model: string): string {
-  // "LightningMedSeg3D UNet (BTCV, 14-class)@1.0.0" → "UNet"; nnU-Net → "nnU-Net (LiTS)"
-  const base = model.replace(/@[^@]*$/, '').replace(/\s*\(.*\)\s*$/, '').replace(/^LightningMedSeg3D /, '');
-  const s = base.startsWith('nnU-Net') ? 'nnU-Net (LiTS)' : base;
-  return s.length > 26 ? `${s.slice(0, 25)}…` : s;
-}
 const f = (v: number, d = 3) => (Number.isFinite(v) ? v.toFixed(d) : '—');
 const fp = (p: number) => (!Number.isFinite(p) ? '—' : p < 0.001 ? '<0.001' : p.toFixed(3));
+const metricLabelOf = (k: SegMetricKey) => METRICS.find((x) => x.key === k)!.label;
+const labelOf = (id: number) => LABELS.find((l) => l.id === id)!;
 
 function stats(xs: number[]) {
   const s = [...xs].sort((a, b) => a - b);
@@ -64,257 +101,81 @@ function stats(xs: number[]) {
   return { mean, sd, median: q(0.5), q1: q(0.25), q3: q(0.75), min: s[0]!, max: s[s.length - 1]! };
 }
 
+/** One colour/shape per model for the whole report (colour follows the model, never its rank). */
+function useModelStyle(records: BenchmarkRecord[]): ModelStyle {
+  return useMemo(() => {
+    const trained = trainedOnMap(records);
+    const slots = modelSlots(records.map((r) => shortModelName(r.model.name)));
+    return { slots, name: (m: string, ds?: string) => displayModel(m, ds, trained) };
+  }, [records]);
+}
+
+const h4 = 'text-sm font-semibold text-slate-800 dark:text-slate-100';
+const note = 'text-[11px] text-slate-500 dark:text-slate-400';
+
 /* ------------------------------------------------------------------ */
-/* Charts (inline SVG, one series hue, text in ink tokens)             */
-/* ------------------------------------------------------------------ */
 
-function RankPlot({ names, ranks, cd }: { names: string[]; ranks: number[]; cd: number | null }) {
-  const k = names.length;
-  const W = 560;
-  const L = 170;
-  const R = 20;
-  const rowH = 22;
-  const top = 34;
-  const H = top + k * rowH + 24;
-  const x = (r: number) => L + ((r - 1) / Math.max(1, k - 1)) * (W - L - R);
-  const order = names.map((n, i) => ({ n, r: ranks[i]! })).sort((a, b) => a.r - b.r);
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={W} className="h-auto max-w-full" role="img" aria-label="Mean rank per model (1 = best)">
-      {Array.from({ length: k }, (_, i) => i + 1).map((t) => (
-        <g key={t}>
-          <line x1={x(t)} x2={x(t)} y1={top - 6} y2={H - 20} className="stroke-slate-200 dark:stroke-slate-700" />
-          <text x={x(t)} y={H - 6} textAnchor="middle" className="fill-slate-500 text-[10px]">
-            {t}
-          </text>
-        </g>
-      ))}
-      {cd !== null && (
-        <g>
-          <line x1={x(1)} x2={x(1 + cd)} y1={12} y2={12} strokeWidth={2} className="stroke-slate-700 dark:stroke-slate-300" />
-          <line x1={x(1)} x2={x(1)} y1={8} y2={16} strokeWidth={2} className="stroke-slate-700 dark:stroke-slate-300" />
-          <line x1={x(1 + cd)} x2={x(1 + cd)} y1={8} y2={16} strokeWidth={2} className="stroke-slate-700 dark:stroke-slate-300" />
-          <text x={x(1 + cd) + 6} y={16} className="fill-slate-600 text-[10px] dark:fill-slate-300">
-            Nemenyi CD = {cd.toFixed(2)} (α 0.05)
-          </text>
-        </g>
-      )}
-      {order.map((o, i) => {
-        const y = top + i * rowH + rowH / 2;
-        return (
-          <g key={o.n}>
-            <text x={L - 8} y={y + 3} textAnchor="end" className="fill-slate-700 text-[11px] dark:fill-slate-200">
-              {short(o.n)}
-            </text>
-            <line x1={x(1)} x2={x(o.r)} y1={y} y2={y} strokeWidth={2} className="stroke-slate-300 dark:stroke-slate-600" />
-            <circle cx={x(o.r)} cy={y} r={5} className="viz-s1" strokeWidth={2}>
-              <title>{`${short(o.n)} — mean rank ${o.r.toFixed(2)}`}</title>
-            </circle>
-            <text x={x(o.r) + 9} y={y + 3} className="fill-slate-500 text-[10px]">
-              {o.r.toFixed(2)}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-function StripPlot({ m, metricLabel }: { m: ScoreMatrix; metricLabel: string }) {
-  const W = 560;
-  const L = 170;
-  const R = 20;
-  const rowH = 24;
-  const top = 8;
-  const H = top + m.models.length * rowH + 26;
-  const all = m.values.flat();
-  let lo = Math.min(...all);
-  let hi = Math.max(...all);
-  if (m.higherIsBetter && hi <= 1) {
-    hi = 1;
-    lo = Math.max(0, Math.floor(lo * 10) / 10);
-  }
-  if (hi === lo) hi = lo + 1;
-  const x = (v: number) => L + ((v - lo) / (hi - lo)) * (W - L - R);
-  const ticks = Array.from({ length: 5 }, (_, i) => lo + ((hi - lo) * i) / 4);
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={W} className="h-auto max-w-full" role="img" aria-label={`Per-case ${metricLabel} per model`}>
-      {ticks.map((t) => (
-        <g key={t}>
-          <line x1={x(t)} x2={x(t)} y1={top} y2={H - 20} className="stroke-slate-200 dark:stroke-slate-700" />
-          <text x={x(t)} y={H - 6} textAnchor="middle" className="fill-slate-500 text-[10px]">
-            {t.toFixed(2)}
-          </text>
-        </g>
-      ))}
-      {m.models.map((name, j) => {
-        const xs = m.values.map((r) => r[j]!);
-        const s = stats(xs);
-        const y = top + j * rowH + rowH / 2;
-        return (
-          <g key={name}>
-            <text x={L - 8} y={y + 3} textAnchor="end" className="fill-slate-700 text-[11px] dark:fill-slate-200">
-              {short(name)}
-            </text>
-            <rect x={x(s.q1)} y={y - 6} width={Math.max(1, x(s.q3) - x(s.q1))} height={12} rx={3} className="viz-box" />
-            <line x1={x(s.median)} x2={x(s.median)} y1={y - 8} y2={y + 8} strokeWidth={2} className="stroke-slate-800 dark:stroke-slate-100" />
-            {xs.map((v, i) => (
-              <circle key={i} cx={x(v)} cy={y} r={3.2} className="viz-s1-dot">
-                <title>{`${short(name)} · ${m.cases[i]} · ${metricLabel} ${v.toFixed(4)}`}</title>
-              </circle>
-            ))}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-function PairHeatmap({ names, pw }: { names: string[]; pw: ReturnType<typeof pairwiseWilcoxonHolm> }) {
-  const k = names.length;
-  const cell = 34;
-  const L = 170;
-  const T = 8;
-  const W = L + k * cell + 10;
-  const H = T + k * cell + 90;
-  const get = (a: string, b: string) => pw.find((p) => (p.a === a && p.b === b) || (p.a === b && p.b === a));
-  // sequential single hue on −log10(p_Holm), capped at 4
-  const shade = (p: number) => Math.min(1, -Math.log10(Math.max(p, 1e-4)) / 4);
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={W} className="h-auto max-w-full" role="img" aria-label="Holm-adjusted pairwise Wilcoxon p-values">
-      {names.map((a, i) => (
-        <g key={a}>
-          <text x={L - 6} y={T + i * cell + cell / 2 + 3} textAnchor="end" className="fill-slate-700 text-[10px] dark:fill-slate-200">
-            {short(a)}
-          </text>
-          <text
-            transform={`translate(${L + i * cell + cell / 2},${T + k * cell + 6}) rotate(50)`}
-            className="fill-slate-700 text-[10px] dark:fill-slate-200"
-          >
-            {short(a)}
-          </text>
-          {names.map((b, j) => {
-            if (i === j)
-              return <rect key={b} x={L + j * cell + 1} y={T + i * cell + 1} width={cell - 2} height={cell - 2} rx={3} className="fill-slate-100 dark:fill-slate-800" />;
-            const p = get(a, b)!;
-            return (
-              <g key={b}>
-                <rect
-                  x={L + j * cell + 1}
-                  y={T + i * cell + 1}
-                  width={cell - 2}
-                  height={cell - 2}
-                  rx={3}
-                  className="viz-heat"
-                  style={{ fillOpacity: 0.12 + 0.88 * shade(p.pHolm) }}
-                >
-                  <title>{`${short(a)} vs ${short(b)} · Δmean ${(i < j ? p.meanDiff : -p.meanDiff).toFixed(4)} · p_Holm ${fp(p.pHolm)}`}</title>
-                </rect>
-                <text
-                  x={L + j * cell + cell / 2}
-                  y={T + i * cell + cell / 2 + 3}
-                  textAnchor="middle"
-                  className={`pointer-events-none text-[9px] ${shade(p.pHolm) > 0.55 ? 'fill-white' : 'fill-slate-800 dark:fill-slate-100'}`}
-                >
-                  {p.significant ? '*' : ''}
-                  {fp(p.pHolm)}
-                </text>
-              </g>
-            );
-          })}
-        </g>
-      ))}
-    </svg>
-  );
-}
-
-function Dumbbell({
-  rows,
-  datasets,
-  metricLabel,
+function DatasetBlock({
+  records,
+  dataset,
+  label,
+  metric,
+  st,
+  full,
 }: {
-  rows: ReturnType<typeof crossDatasetSummary>;
-  datasets: string[];
-  metricLabel: string;
+  records: BenchmarkRecord[];
+  dataset: string;
+  label: number;
+  metric: SegMetricKey;
+  st: ModelStyle;
+  full: boolean;
 }) {
-  const W = 560;
-  const L = 170;
-  const R = 20;
-  const rowH = 22;
-  const top = 26;
-  const H = top + rows.length * rowH + 24;
-  const all = rows.flatMap((r) => r.median).filter(Number.isFinite);
-  const lo = all.length ? Math.min(...all) : 0;
-  const hi = all.length ? Math.max(...all, lo + 1e-6) : 1;
-  const x = (v: number) => L + ((v - lo) / Math.max(1e-9, hi - lo)) * (W - L - R);
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={W} className="h-auto max-w-full" role="img" aria-label={`Median ${metricLabel} per model on each dataset`}>
-      <g className="text-[10px]">
-        <circle cx={L} cy={10} r={5} className="viz-s1" />
-        <text x={L + 9} y={13} className="fill-slate-700 dark:fill-slate-200">{datasets[0]}</text>
-        <circle cx={L + 170} cy={10} r={5} className="viz-s2" />
-        <text x={L + 179} y={13} className="fill-slate-700 dark:fill-slate-200">{datasets[1]}</text>
-      </g>
-      {[lo, (lo + hi) / 2, hi].map((t) => (
-        <text key={t} x={x(t)} y={H - 6} textAnchor="middle" className="fill-slate-500 text-[10px]">
-          {t.toFixed(2)}
-        </text>
-      ))}
-      {rows.map((r, i) => {
-        const y = top + i * rowH + rowH / 2;
-        const [a, b] = r.median;
-        return (
-          <g key={r.model}>
-            <text x={L - 8} y={y + 3} textAnchor="end" className="fill-slate-700 text-[11px] dark:fill-slate-200">
-              {short(r.model)}
-            </text>
-            {Number.isFinite(a!) && Number.isFinite(b!) && (
-              <line x1={x(a!)} x2={x(b!)} y1={y} y2={y} strokeWidth={2} className="stroke-slate-300 dark:stroke-slate-600" />
-            )}
-            {Number.isFinite(a!) && (
-              <circle cx={x(a!)} cy={y} r={5} className="viz-s1">
-                <title>{`${short(r.model)} · ${datasets[0]} median ${a!.toFixed(4)} (n=${r.n[0]})`}</title>
-              </circle>
-            )}
-            {Number.isFinite(b!) && (
-              <circle cx={x(b!)} cy={y} r={5} className="viz-s2">
-                <title>{`${short(r.model)} · ${datasets[1]} median ${b!.toFixed(4)} (n=${r.n[1]})`}</title>
-              </circle>
-            )}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-
-function DatasetBlock({ records, dataset, label, metric }: { records: BenchmarkRecord[]; dataset: string; label: number; metric: SegMetricKey }) {
   const m = useMemo(() => recordsToMatrix(records, { dataset, label, metric }), [records, dataset, label, metric]);
-  const metricLabel = METRICS.find((x) => x.key === metric)!.label;
-  if (m.models.length < 2 || m.cases.length < 2) {
+  const ok = m.models.length >= 2 && m.cases.length >= 2;
+  const extra = useMemo(() => {
+    if (!ok || !full) return null;
+    return {
+      ru: bootstrapRanks(m.values, m.higherIsBetter),
+      w: kendallW(m.values, m.higherIsBetter),
+      power: powerAnalysis(m.values, metric === 'dice' || metric === 'iou' || metric === 'volumetricSimilarity' || metric.startsWith('nsd') ? [0.01, 0.02] : [1, 2]),
+    };
+  }, [m, ok, full, metric]);
+  const metricLabel = metricLabelOf(metric);
+  const lab = labelOf(label);
+  if (!ok) {
     return (
       <p className="text-[11px] text-slate-500">
-        {dataset}: need ≥2 models on ≥2 shared cases ({m.models.length} models, {m.cases.length} complete cases).
+        {datasetLabel(dataset)}: need ≥2 models on ≥2 shared cases ({m.models.length} models, {m.cases.length} complete cases).
       </p>
     );
   }
   const fr = friedmanTest(m.values, m.higherIsBetter);
   const cd = m.models.length <= 10 ? nemenyiCriticalDifference(m.models.length, m.cases.length) : null;
   const pw = pairwiseWilcoxonHolm(m.values, m.models);
+  const nSig = (() => {
+    if (cd === null) return NaN;
+    let c = 0;
+    for (let a = 0; a < m.models.length; a++) for (let b = a + 1; b < m.models.length; b++) if (Math.abs(fr.meanRanks[a]! - fr.meanRanks[b]!) > cd) c++;
+    return c;
+  })();
   const table = m.models
     .map((name, j) => ({ name, s: stats(m.values.map((r) => r[j]!)), rank: fr.meanRanks[j]! }))
     .sort((a, b) => a.rank - b.rank);
+  const tag = `${dataset}_${lab.slug}_${metric}`;
+  const models = canonicalModelOrder(m.models);
+  const order = models.map((x) => m.models.indexOf(x));
+  const mCanon = { ...m, models, values: m.values.map((r) => order.map((j) => r[j]!)) };
   return (
     <section className="space-y-3" data-testid={`compare-dataset-${dataset}`}>
-      <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-        {dataset} — {LABELS.find((l) => l.id === label)?.name} · {metricLabel}
+      <h4 className={h4}>
+        {datasetLabel(dataset)} — {lab.name} · {metricLabel}
       </h4>
       <p className="text-[11px] text-slate-600 dark:text-slate-300">
         {m.models.length} models × {m.cases.length} cases
         {m.droppedCases.length ? ` (${m.droppedCases.length} incomplete cases excluded)` : ''}. Friedman χ²({fr.df}) ={' '}
         {fr.statistic.toFixed(2)}, p = {fp(fr.pValue)}
         {fr.pValue < 0.05 ? ' — models differ significantly.' : ' — no significant difference.'}
+        {extra ? ` Kendall's W = ${extra.w.toFixed(2)}.` : ''}
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-[11px]">
@@ -325,74 +186,101 @@ function DatasetBlock({ records, dataset, label, metric }: { records: BenchmarkR
               <th className="py-1 pr-2">Median [IQR]</th>
               <th className="py-1 pr-2">Min–max</th>
               <th className="py-1 pr-2">Mean rank</th>
+              {extra && <th className="py-1 pr-2">Bootstrap rank [95%]</th>}
             </tr>
           </thead>
           <tbody className="text-slate-700 dark:text-slate-200">
-            {table.map((t) => (
-              <tr key={t.name} className="border-t border-slate-100 dark:border-slate-800">
-                <td className="py-1 pr-2">{short(t.name)}</td>
-                <td className="py-1 pr-2 tabular-nums">
-                  {f(t.s.mean)} ± {f(t.s.sd)}
-                </td>
-                <td className="py-1 pr-2 tabular-nums">
-                  {f(t.s.median)} [{f(t.s.q1)}–{f(t.s.q3)}]
-                </td>
-                <td className="py-1 pr-2 tabular-nums">
-                  {f(t.s.min)}–{f(t.s.max)}
-                </td>
-                <td className="py-1 pr-2 tabular-nums">{t.rank.toFixed(2)}</td>
-              </tr>
-            ))}
+            {table.map((t) => {
+              const j = m.models.indexOf(t.name);
+              return (
+                <tr key={t.name} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="py-1 pr-2">{st.name(t.name, dataset)}</td>
+                  <td className="py-1 pr-2 tabular-nums">
+                    {f(t.s.mean)} ± {f(t.s.sd)}
+                  </td>
+                  <td className="py-1 pr-2 tabular-nums">
+                    {f(t.s.median)} [{f(t.s.q1)}–{f(t.s.q3)}]
+                  </td>
+                  <td className="py-1 pr-2 tabular-nums">
+                    {f(t.s.min)}–{f(t.s.max)}
+                  </td>
+                  <td className="py-1 pr-2 tabular-nums">{t.rank.toFixed(2)}</td>
+                  {extra && (
+                    <td className="py-1 pr-2 tabular-nums">
+                      {extra.ru.median[j]!.toFixed(1)} [{extra.ru.lo[j]!.toFixed(1)}–{extra.ru.hi[j]!.toFixed(1)}]
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      <div className="grid gap-4 xl:grid-cols-2">
-        <figure>
-          <figcaption className="mb-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
-            Mean rank (1 = best); models closer than the CD bar are not significantly different
-          </figcaption>
-          <RankPlot names={m.models} ranks={fr.meanRanks} cd={cd} />
-        </figure>
-        <figure>
-          <figcaption className="mb-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
-            Per-case {metricLabel} (box = IQR, bar = median, dots = cases)
-          </figcaption>
-          <StripPlot m={m} metricLabel={metricLabel} />
-        </figure>
-      </div>
-      <figure>
-        <figcaption className="mb-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
-          Pairwise Wilcoxon signed-rank, Holm-adjusted p (* p &lt; 0.05; darker = smaller p)
-        </figcaption>
-        <PairHeatmap names={m.models} pw={pw} />
-      </figure>
+      <FigureCard
+        name={`fig05_critical_difference_${tag}`}
+        render={(t) => (
+          <CriticalDifferenceFigure
+            models={m.models}
+            ranks={fr.meanRanks}
+            cd={cd}
+            dataset={dataset}
+            subtitle={`${lab.short} ${metricLabel}; n = ${m.cases.length} cases, Friedman ${fp(fr.pValue).startsWith('<') ? `p ${fp(fr.pValue)}` : `p = ${fp(fr.pValue)}`}${cd !== null ? `, ${nSig} pair(s) differ (Nemenyi α = 0.05)` : ''}. Mean rank (1 = best) on the axis; thick bars join models not significantly different.`}
+            st={st}
+            theme={t}
+          />
+        )}
+      />
+      {extra && (
+        <FigureCard
+          name={`fig04_rank_uncertainty_${tag}`}
+          render={(t) => (
+            <RankUncertaintyFigure models={m.models} ru={extra.ru} w={extra.w} n={m.cases.length} dataset={dataset} metricLabel={metricLabel} st={st} theme={t} />
+          )}
+        />
+      )}
+      <FigureCard name={`figS_per_case_${tag}`} render={(t) => <StripFigure m={mCanon} dataset={dataset} metricLabel={metricLabel} st={st} theme={t} />} />
+      {full && (
+        <FigureCard
+          name={`figS_pairwise_wilcoxon_${tag}`}
+          render={(t) => <PairHeatmapFigure models={models} pw={pw} dataset={dataset} metricLabel={metricLabel} st={st} theme={t} />}
+        />
+      )}
+      {extra?.power && (
+        <FigureCard name={`fig06_power_${tag}`} render={(t) => <PowerFigure pa={extra.power!} dataset={dataset} metricLabel={metricLabel} theme={t} />} />
+      )}
     </section>
   );
 }
 
-function Report({ records, label, metric }: { records: BenchmarkRecord[]; label: number; metric: SegMetricKey }) {
+function Report({ records, label, metric, full = false }: { records: BenchmarkRecord[]; label: number; metric: SegMetricKey; full?: boolean }) {
+  const st = useModelStyle(records);
   const datasets = useMemo(() => recordsToMatrix(records, { label, metric }).datasets, [records, label, metric]);
   const cross = useMemo(
     () =>
       datasets.length >= 2
-        ? crossDatasetSummary(records, { label, metric, datasets: datasets.slice(0, 2) }).filter((r) =>
-            r.median.some(Number.isFinite)
-          )
+        ? crossDatasetSummary(records, { label, metric, datasets: datasets.slice(0, 2) }).filter((r) => r.median.some(Number.isFinite))
         : [],
     [records, label, metric, datasets]
   );
-  const metricLabel = METRICS.find((x) => x.key === metric)!.label;
+  const metricLabel = metricLabelOf(metric);
+  const crossSorted = useMemo(() => {
+    const order = canonicalModelOrder(cross.map((r) => r.model));
+    return order.map((m) => cross.find((r) => r.model === m)!);
+  }, [cross]);
   return (
-    <div className="viz-root space-y-6">
+    <div className="space-y-6">
       {datasets.map((d) => (
-        <DatasetBlock key={d} records={records} dataset={d} label={label} metric={metric} />
+        <DatasetBlock key={d} records={records} dataset={d} label={label} metric={metric} st={st} full={full} />
       ))}
       {cross.length > 0 && (
         <section className="space-y-2" data-testid="compare-cross-dataset">
-          <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-            Across datasets — {datasets[0]} vs {datasets[1]} ({metricLabel})
+          <h4 className={h4}>
+            Across datasets — {datasetLabel(datasets[0]!)} vs {datasetLabel(datasets[1]!)} ({metricLabel})
           </h4>
-          <Dumbbell rows={cross} datasets={datasets.slice(0, 2)} metricLabel={metricLabel} />
+          <FigureCard
+            name={`figS_cross_dataset_${labelOf(label).slug}_${metric}`}
+            render={(t) => <CrossDatasetFigure rows={crossSorted} datasets={[datasets[0]!, datasets[1]!]} metricLabel={metricLabel} st={st} theme={t} />}
+          />
           <table className="w-full text-[11px]">
             <thead className="text-slate-500">
               <tr className="text-left">
@@ -405,9 +293,9 @@ function Report({ records, label, metric }: { records: BenchmarkRecord[]; label:
               </tr>
             </thead>
             <tbody className="text-slate-700 dark:text-slate-200">
-              {cross.map((r) => (
+              {crossSorted.map((r) => (
                 <tr key={r.model} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="py-1 pr-2">{short(r.model)}</td>
+                  <td className="py-1 pr-2">{st.name(r.model)}</td>
                   <td className="py-1 pr-2 tabular-nums">
                     {f(r.median[0]!)} ({r.n[0]})
                   </td>
@@ -427,20 +315,87 @@ function Report({ records, label, metric }: { records: BenchmarkRecord[]; label:
   );
 }
 
-/** Lesion detection + whole-liver volume agreement (sections omitted when records lack the data). */
-function AgreementBlocks({ records }: { records: BenchmarkRecord[] }) {
+/** Manuscript figures beyond the per-dataset comparison (sections omitted when records lack the data). */
+function ManuscriptFigures({ records, label, metric }: { records: BenchmarkRecord[]; label: number; metric: SegMetricKey }) {
+  const st = useModelStyle(records);
+  const seg = useMemo(() => segRecords(records), [records]);
   const lesions = useMemo(() => lesionDetectionRows(records), [records]);
+  const strips = useMemo(() => lesionStrips(records), [records]);
   const volumes = useMemo(() => volumeAgreementRows(records), [records]);
+  const tumourVolumes = useMemo(() => volumeAgreementRows(records, 2), [records]);
+  const inclusion = useMemo(() => tumourInclusionPoints(records), [records]);
+  const runtime = useMemo(() => runtimeGroups(records), [records]);
+  const env = useMemo(() => runtimeSummary(records), [records]);
+  const covariates = useMemo(() => availableCovariates(records), [records]);
+  const [covId, setCovId] = useState<string>('');
+  const cov = covariates.find((c) => c.id === covId) ?? covariates[0];
+  const covPts = useMemo(() => (cov ? covariatePoints(records, cov, label, metric) : []), [records, cov, label, metric]);
+  const [ppMetric, setPpMetric] = useState<SegMetricKey>('hd95Mm');
+  const pp = useMemo(() => postprocessComparison(records, label, ppMetric), [records, label, ppMetric]);
+  const byDs = <T extends { dataset: string }>(rows: T[]) => {
+    const m = new Map<string, T[]>();
+    for (const r of rows) m.set(r.dataset, [...(m.get(r.dataset) ?? []), r]);
+    return [...m].sort(([a], [b]) => a.localeCompare(b));
+  };
+  const sortRows = <T extends { model: string }>(rows: T[]) => canonicalModelOrder(rows.map((r) => r.model)).map((m) => rows.find((r) => r.model === m)!);
   const th = 'py-1 pr-2';
+  const covDatasets = [...new Set(covPts.map((p) => p.dataset))].sort();
+  const runtimeModels = canonicalModelOrder([...new Set(runtime.map((g) => g.model))]);
+  const runtimeDatasets = [...new Set(runtime.map((g) => g.dataset))].sort();
+  const incDatasets = [...new Set(inclusion.map((p) => p.dataset))].sort();
+  const select = 'rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] dark:border-slate-700 dark:bg-slate-900';
   return (
-    <div className="mt-6 space-y-6">
+    <div className="mt-6 space-y-8">
+      {volumes.length > 0 && (
+        <section className="space-y-2" data-testid="compare-volumes">
+          <h4 className={h4}>Volume agreement — whole liver (mL)</h4>
+          <p className={note}>Bland–Altman bias (pred − ref) with 95% limits of agreement; ICC(A,1) two-way random, absolute agreement, single rater.</p>
+          <table className="w-full text-[11px]">
+            <thead className="text-slate-500">
+              <tr className="text-left">
+                <th className={th}>Dataset</th>
+                <th className={th}>Model</th>
+                <th className={th}>n</th>
+                <th className={th}>Bias</th>
+                <th className={th}>95% LoA</th>
+                <th className={th}>ICC(A,1)</th>
+              </tr>
+            </thead>
+            <tbody className="text-slate-700 dark:text-slate-200">
+              {volumes.map((v) => (
+                <tr key={v.dataset + v.model} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className={th}>{datasetLabel(v.dataset)}</td>
+                  <td className={th}>{st.name(v.model, v.dataset)}</td>
+                  <td className={`${th} tabular-nums`}>{v.n}</td>
+                  <td className={`${th} tabular-nums`}>{f(v.bias, 1)}</td>
+                  <td className={`${th} tabular-nums`}>
+                    {f(v.loaLow, 1)} to {f(v.loaHigh, 1)}
+                  </td>
+                  <td className={`${th} tabular-nums`}>{f(v.icc)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {byDs(volumes).map(([ds, rows]) => (
+            <FigureCard key={ds} name={`fig01_bland_altman_${ds}`} render={(t) => <BlandAltmanFigure rows={sortRows(rows)} dataset={ds} structure="Whole-liver" st={st} theme={t} />} />
+          ))}
+          {byDs(tumourVolumes).map(([ds, rows]) => (
+            <FigureCard key={ds} name={`fig01c_bland_altman_tumour_${ds}`} render={(t) => <BlandAltmanFigure rows={sortRows(rows)} dataset={ds} structure="Tumour" st={st} theme={t} />} />
+          ))}
+        </section>
+      )}
+      {inclusion.length > 0 && (
+        <section className="space-y-2" data-testid="compare-inclusion">
+          <h4 className={h4}>Tumour inclusion</h4>
+          <FigureCard name="fig02_tumour_inclusion" render={(t) => <TumourInclusionFigure points={inclusion} datasets={incDatasets} st={st} theme={t} />} />
+        </section>
+      )}
       {lesions.length > 0 && (
         <section className="space-y-2" data-testid="compare-lesions">
-          <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Lesion detection (tumour)</h4>
-          <p className="text-[11px] text-slate-500">
-            Reference lesions = 26-connected tumour components ≥ {[...new Set(lesions.map((l) => l.minVolumeMl))].join('/')} mL; detected when
-            any voxel is predicted tumour. Sensitivity pooled over lesions (Wilson 95% CI); FP = predicted components of that size touching no
-            reference tumour.
+          <h4 className={h4}>Lesion detection (tumour)</h4>
+          <p className={note}>
+            Reference lesions = 26-connected tumour components ≥ {[...new Set(lesions.map((l) => l.minVolumeMl))].join('/')} mL; detected when any voxel is
+            predicted tumour. Sensitivity pooled over lesions (Wilson 95% CI); FP = predicted components of that size touching no reference tumour.
           </p>
           <table className="w-full text-[11px]">
             <thead className="text-slate-500">
@@ -456,8 +411,8 @@ function AgreementBlocks({ records }: { records: BenchmarkRecord[] }) {
             <tbody className="text-slate-700 dark:text-slate-200">
               {lesions.map((l) => (
                 <tr key={l.dataset + l.model} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className={th}>{l.dataset}</td>
-                  <td className={th}>{short(l.model)}</td>
+                  <td className={th}>{datasetLabel(l.dataset)}</td>
+                  <td className={th}>{st.name(l.model, l.dataset)}</td>
                   <td className={`${th} tabular-nums`}>{l.cases}</td>
                   <td className={`${th} tabular-nums`}>
                     {l.tp} / {l.refLesions}
@@ -470,61 +425,86 @@ function AgreementBlocks({ records }: { records: BenchmarkRecord[] }) {
               ))}
             </tbody>
           </table>
+          {byDs(strips).map(([ds, rows]) => (
+            <FigureCard key={ds} name={`fig03_lesion_detection_${ds}`} render={(t) => <LesionDetectionFigure strips={sortRows(rows)} dataset={ds} st={st} theme={t} />} />
+          ))}
         </section>
       )}
-      {volumes.length > 0 && (
-        <section className="space-y-2" data-testid="compare-volumes">
-          <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Volume agreement — whole liver (mL)</h4>
-          <p className="text-[11px] text-slate-500">
-            Bland–Altman bias (pred − ref) with 95% limits of agreement; ICC(A,1) two-way random, absolute agreement, single rater.
-          </p>
-          <table className="w-full text-[11px]">
-            <thead className="text-slate-500">
-              <tr className="text-left">
-                <th className={th}>Dataset</th>
-                <th className={th}>Model</th>
-                <th className={th}>n</th>
-                <th className={th}>Bias</th>
-                <th className={th}>95% LoA</th>
-                <th className={th}>ICC(A,1)</th>
-              </tr>
-            </thead>
-            <tbody className="text-slate-700 dark:text-slate-200">
-              {volumes.map((v) => (
-                <tr key={v.dataset + v.model} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className={th}>{v.dataset}</td>
-                  <td className={th}>{short(v.model)}</td>
-                  <td className={`${th} tabular-nums`}>{v.n}</td>
-                  <td className={`${th} tabular-nums`}>{f(v.bias, 1)}</td>
-                  <td className={`${th} tabular-nums`}>
-                    {f(v.loaLow, 1)} to {f(v.loaHigh, 1)}
-                  </td>
-                  <td className={`${th} tabular-nums`}>{f(v.icc)}</td>
-                </tr>
+      {runtime.length > 0 && (
+        <section className="space-y-2" data-testid="compare-runtime">
+          <h4 className={h4}>Runtime</h4>
+          <p className={note}>Environment: {env}</p>
+          <FigureCard
+            name="fig07_runtime"
+            render={(t) => <RuntimeFigure groups={runtime} models={runtimeModels} datasets={runtimeDatasets} env={env} st={st} theme={t} />}
+          />
+        </section>
+      )}
+      {covariates.length > 0 && cov && (
+        <section className="space-y-2" data-testid="compare-covariate">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className={h4}>
+              {labelOf(label).short} {metricLabelOf(metric)} vs case covariate
+            </h4>
+            <select aria-label="Case covariate" className={select} value={cov.id} onChange={(e) => setCovId(e.currentTarget.value)}>
+              {covariates.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
               ))}
-            </tbody>
-          </table>
-          <div className="flex flex-wrap gap-4">
-            {volumes.map((v) => (
-              <figure key={v.dataset + v.model} className="text-center">
-                <Scatter
-                  points={v.points.map((p) => ({ x: p.mean, y: p.diff }))}
-                  xLabel="mean volume (mL)"
-                  yLabel="pred − ref (mL)"
-                  refLines={[
-                    { y: v.bias, color: '#2563eb' },
-                    { y: v.loaLow, color: '#94a3b8', dash: true },
-                    { y: v.loaHigh, color: '#94a3b8', dash: true },
-                  ]}
-                />
-                <figcaption className="text-[10px] text-slate-500">
-                  {short(v.model)} · {v.dataset}
-                </figcaption>
-              </figure>
-            ))}
+            </select>
           </div>
+          {covPts.length > 0 ? (
+            <FigureCard
+              name={`fig09_covariate_${cov.id}_${labelOf(label).slug}_${metric}`}
+              render={(t) => (
+                <CovariateFigure
+                  points={covPts}
+                  cov={cov}
+                  datasets={covDatasets}
+                  tests={covDatasets.map((d) => covariateTest(covPts.filter((p) => p.dataset === d), cov.kind))}
+                  metricLabel={`${labelOf(label).short} ${metricLabelOf(metric)}`}
+                  st={st}
+                  theme={t}
+                />
+              )}
+            />
+          ) : (
+            <p className={note}>No cases carry both this covariate and the selected metric.</p>
+          )}
         </section>
       )}
+      {pp.length > 0 && (
+        <section className="space-y-2" data-testid="compare-postprocess">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className={h4}>Post-processing effect</h4>
+            <select aria-label="Post-processing metric" className={select} value={ppMetric} onChange={(e) => setPpMetric(e.currentTarget.value as SegMetricKey)}>
+              {METRICS.map((m) => (
+                <option key={m.key} value={m.key}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {pp.map((b) => (
+            <FigureCard
+              key={b.base}
+              name={`fig10_postprocessing_${b.base}_${labelOf(label).slug}_${ppMetric}`}
+              render={(t) => (
+                <PostprocessFigure
+                  block={b}
+                  dataset={b.base}
+                  metricLabel={`${labelOf(label).short} ${metricLabelOf(ppMetric)}`}
+                  log={ppMetric === 'hd95Mm' || ppMetric === 'assdMm'}
+                  st={st}
+                  theme={t}
+                />
+              )}
+            />
+          ))}
+        </section>
+      )}
+      {seg.length === 0 && <p className={note}>No segmentation records.</p>}
     </div>
   );
 }
@@ -541,7 +521,9 @@ export function BenchmarkComparePanel({
   const [label, setLabel] = useState(1);
   const [metric, setMetric] = useState<SegMetricKey>('dice');
   const [msg, setMsg] = useState<string | null>(null);
+  const [figMsg, setFigMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const registry = useMemo(() => new FigureRegistry(), []);
   const seg = records.filter((r) => r.task === 'segmentation');
 
   async function onImport(file: File | undefined) {
@@ -560,6 +542,27 @@ export function BenchmarkComparePanel({
     const files = buildReportFiles(seg);
     const zip = makeZip(Object.fromEntries(Object.entries(files).map(([k, v]) => [`tamias_tables/${k}`, v])));
     downloadBlob('tamias_benchmark_tables.zip', zip as Uint8Array<ArrayBuffer>, 'application/zip');
+  }
+
+  async function onExportFigures() {
+    const entries = registry.list();
+    const files: Record<string, string | Uint8Array> = {};
+    let i = 0;
+    for (const e of entries) {
+      setFigMsg(`Rendering figure ${++i}/${entries.length}…`);
+      try {
+        if (e.svg) files[`tamias_figures/${e.name}.svg`] = await e.svg();
+        files[`tamias_figures/${e.name}.png`] = await e.png();
+      } catch (err) {
+        files[`tamias_figures/${e.name}.error.txt`] = String((err as Error).message);
+      }
+    }
+    files['tamias_figures/README.txt'] =
+      `TAMIAS benchmark figures (${new Date().toISOString()}), ${seg.length} records, structure ${labelOf(label).name}, metric ${metricLabelOf(metric)}.\n` +
+      'SVG = vector (light theme, white background); PNG = 300 dpi raster of the same figure.\n' +
+      '† = model evaluated on (a subset of) its own training data.\n';
+    downloadBlob('tamias_benchmark_figures.zip', makeZip(files) as Uint8Array<ArrayBuffer>, 'application/zip');
+    setFigMsg(`Exported ${entries.length} figures.`);
   }
 
   const controls = (
@@ -591,18 +594,11 @@ export function BenchmarkComparePanel({
     </div>
   );
 
+  // Base datasets present — the mask grid's failure list links to catalogue case keys.
+  const hasPost = seg.some((r) => r.postprocess?.length);
+
   return (
     <section className="space-y-2 rounded border border-slate-200 p-2 dark:border-slate-700" data-testid="compare-panel">
-      <style>{`
-        .viz-root, .viz-inline { --s1:#2a78d6; --s2:#eb6834; }
-        .dark .viz-root, .dark .viz-inline { --s1:#3987e5; --s2:#d95926; }
-        .viz-s1 { fill: var(--s1); stroke: var(--viz-surface, #fff); }
-        .viz-s2 { fill: var(--s2); stroke: var(--viz-surface, #fff); }
-        .viz-s1-dot { fill: var(--s1); fill-opacity: .8; }
-        .viz-box { fill: var(--s1); fill-opacity: .18; }
-        .viz-heat { fill: var(--s1); }
-        .dark .viz-s1, .dark .viz-s2 { --viz-surface: #0f172a; }
-      `}</style>
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-xs font-medium">
           <GitCompareArrows className="h-3.5 w-3.5" /> Multi-model &amp; cross-dataset comparison
@@ -616,6 +612,7 @@ export function BenchmarkComparePanel({
           type="file"
           accept=".ndjson,.json,.jsonl"
           className="hidden"
+          data-testid="compare-import-input"
           onChange={(e) => {
             const file = e.currentTarget.files?.[0];
             e.currentTarget.value = ''; // re-picking the same file fires onChange again
@@ -625,7 +622,7 @@ export function BenchmarkComparePanel({
         <Button size="sm" variant="outline" className="h-6 gap-1 px-2 text-[11px]" onClick={() => fileRef.current?.click()}>
           <Upload className="h-3 w-3" /> Import records
         </Button>
-        <Dialog.Root>
+        <Dialog.Root onOpenChange={() => setFigMsg(null)}>
           <Dialog.Trigger asChild>
             <Button size="sm" className="h-6 gap-1 px-2 text-[11px]" disabled={seg.length === 0} data-testid="compare-open-report">
               <Maximize2 className="h-3 w-3" /> Full report
@@ -634,17 +631,24 @@ export function BenchmarkComparePanel({
           <Dialog.Portal>
             <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
             <Dialog.Content
-              className="fixed inset-4 z-50 overflow-y-auto rounded-lg bg-white p-5 shadow-xl dark:bg-slate-950"
+              className="fixed inset-2 z-50 overflow-y-auto rounded-lg bg-white p-3 shadow-xl sm:inset-4 sm:p-5 dark:bg-slate-950"
               data-testid="compare-report"
             >
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <Dialog.Title className="text-base font-semibold text-slate-900 dark:text-slate-50">
-                  TAMIAS benchmark — model comparison
-                </Dialog.Title>
-                <div className="flex items-center gap-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <Dialog.Title className="text-base font-semibold text-slate-900 dark:text-slate-50">TAMIAS benchmark — model comparison</Dialog.Title>
+                <div className="flex flex-wrap items-center gap-2">
                   {controls}
                   <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-[11px]" onClick={onExportTables} data-testid="compare-export-tables">
                     <Download className="h-3 w-3" /> Export tables (.zip)
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 px-2 text-[11px]"
+                    onClick={() => void onExportFigures()}
+                    data-testid="compare-export-figures"
+                  >
+                    <Images className="h-3 w-3" /> Export all figures (.zip)
                   </Button>
                   <Dialog.Close className="rounded p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close">
                     <X className="h-4 w-4" />
@@ -652,22 +656,31 @@ export function BenchmarkComparePanel({
                 </div>
               </div>
               <Dialog.Description className="mb-4 text-[11px] text-slate-500">
-                Friedman omnibus + Nemenyi CD (Demšar 2006), Holm-corrected pairwise Wilcoxon signed-rank, Mann-Whitney U across
-                datasets. Complete cases only (every model scored on the case). Post-processed variants appear as separate datasets
-                (e.g. “hcc-tace-seg [lcc]”).
+                Friedman omnibus + Demšar critical-difference diagram (Nemenyi), bootstrap rank uncertainty (2000 case resamples, fixed seed) with
+                Kendall&apos;s W, Holm-corrected pairwise Wilcoxon signed-rank, paired-t power (Bonferroni over pairs), Mann-Whitney U across datasets.
+                Complete cases only (every model scored on the case). Post-processed variants appear as separate datasets (e.g. “hcc-tace-seg [lcc]”).
+                † = model evaluated on its own training data. Every figure exports as SVG and 300-dpi PNG (white background).
+                {figMsg && <span className="ml-1 font-medium text-slate-700 dark:text-slate-200"> {figMsg}</span>}
               </Dialog.Description>
-              <Report records={seg} label={label} metric={metric} />
-              <AgreementBlocks records={seg} />
-              <div className="mt-8 border-t border-slate-200 pt-4 dark:border-slate-800">
-                <MaskCompareGrid size={200} />
-              </div>
+              <FigureRegistryProvider registry={registry}>
+                <Report records={seg} label={label} metric={metric} full />
+                <ManuscriptFigures records={seg} label={label} metric={metric} />
+                <div className="mt-8 border-t border-slate-200 pt-4 dark:border-slate-800">
+                  <MaskCompareGrid size={200} records={seg} />
+                </div>
+              </FigureRegistryProvider>
+              {hasPost && (
+                <p className="mt-2 text-[10px] text-slate-400">
+                  Datasets: {[...new Set(seg.map(datasetKey))].sort().join(', ')} (base: {[...new Set(seg.map((r) => baseDatasetId(datasetKey(r))))].join(', ')}).
+                </p>
+              )}
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>
       </div>
       {msg && <p className="text-[11px] text-slate-600">{msg}</p>}
       {seg.length > 0 && (
-        <div className="viz-inline max-h-[520px] overflow-y-auto">
+        <div className="max-h-[520px] overflow-y-auto">
           <Report records={seg} label={label} metric={metric} />
         </div>
       )}

@@ -105,12 +105,12 @@ export interface VolumeAgreementRow {
   points: { mean: number; diff: number }[];
 }
 
-/** Whole-liver volume agreement (predicted vs reference, mL) per dataset × model: Bland–Altman + ICC(A,1). */
-export function volumeAgreementRows(records: readonly BenchmarkRecord[]): VolumeAgreementRow[] {
+/** Volume agreement (predicted vs reference, mL; default whole liver = label 1) per dataset × model: Bland–Altman + ICC(A,1). */
+export function volumeAgreementRows(records: readonly BenchmarkRecord[], label = 1): VolumeAgreementRow[] {
   const out: VolumeAgreementRow[] = [];
   for (const [k, recs] of groupByDatasetModel(records)) {
     const pairs = recs
-      .map((r) => r.segmentation?.find((s) => s.label === 1))
+      .map((r) => r.segmentation?.find((s) => s.label === label))
       .map((m) => (m ? volumesMl(m) : null))
       .filter((v): v is { ref: number; pred: number } => v !== null);
     if (pairs.length < 2) continue;

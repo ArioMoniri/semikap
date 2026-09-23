@@ -101,6 +101,11 @@ export interface BenchmarkRecord {
    * dataset key in comparisons so variants are never mixed.
    */
   postprocess?: string[];
+  /**
+   * Fraction of reference tumour voxels the model labels as whole liver (liver ∪ tumour
+   * labels); absent when the reference has no tumour or the record predates the field.
+   */
+  tumourInclusion?: number;
   /** Lesion-wise detection of the tumour structure (tumour-capable models only). */
   lesions?: LesionDetection;
   /** Classification metrics (task === "classification"). */

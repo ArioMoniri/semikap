@@ -2,13 +2,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { downloadBlob, downloadText } from '../src/lib/ui/download';
 
 describe('downloadBlob / downloadText', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
 
   it('downloads binary and text through one anchor-click path and revokes the URL', async () => {
-    const anchors: Array<{ href: string; download: string; click: ReturnType<typeof vi.fn> }> = [];
+    vi.useFakeTimers();
+    const anchors: Array<{ href: string; download: string; click: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> }> = [];
+    const append = vi.fn();
     vi.stubGlobal('document', {
+      body: { appendChild: append },
       createElement: () => {
-        const a = { href: '', download: '', click: vi.fn() };
+        const a = { href: '', download: '', rel: '', style: {}, click: vi.fn(), remove: vi.fn() };
         anchors.push(a);
         return a;
       },
@@ -33,6 +39,11 @@ describe('downloadBlob / downloadText', () => {
     expect(blobs[0]!.type).toBe('application/zip');
     expect(Array.from(new Uint8Array(await blobs[0]!.arrayBuffer()))).toEqual([80, 75, 3, 4]);
     expect(await blobs[1]!.text()).toBe('{}');
+    expect(append).toHaveBeenCalledTimes(2);
+    // revoked late (WebKit / Tauri hand the blob to the native download handler asynchronously)
+    expect(revoke).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(60_000);
     expect(revoke).toHaveBeenCalledTimes(2);
+    expect(anchors.every((a) => a.remove.mock.calls.length === 1)).toBe(true);
   });
 });
