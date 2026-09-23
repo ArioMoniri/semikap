@@ -1,4 +1,4 @@
-import type { ModelManifest } from '../../types';
+import type { EnsembleMember, EnsembleSpec, ModelManifest } from '../../types';
 
 /**
  * Validate a parsed JSON object as a ModelManifest. Throws with a precise
@@ -155,7 +155,70 @@ export function parseManifest(raw: unknown): ModelManifest {
     }
     manifest.tta = { flips };
   }
+  if (m.ensemble !== undefined) manifest.ensemble = parseEnsemble(m.ensemble);
   return manifest;
+}
+
+const MEMBER_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function parseEnsemble(raw: unknown): EnsembleSpec {
+  if (typeof raw !== 'object' || raw === null) throw new Error('Manifest "ensemble" must be an object.');
+  const e = raw as Record<string, unknown>;
+  if (!Array.isArray(e.members) || e.members.length === 0) {
+    throw new Error('Manifest "ensemble.members" must be a non-empty array.');
+  }
+  const members = e.members.map((x, i): EnsembleMember => {
+    if (typeof x !== 'object' || x === null) throw new Error(`Manifest "ensemble.members[${i}]" must be an object.`);
+    const mm = x as Record<string, unknown>;
+    // Ids / files are resolved next to the manifest: plain names only (no paths).
+    if (typeof mm.id !== 'string' || !MEMBER_ID_RE.test(mm.id)) {
+      throw new Error(`Manifest "ensemble.members[${i}].id" must be a plain model id.`);
+    }
+    if (typeof mm.sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(mm.sha256)) {
+      throw new Error(`Manifest "ensemble.members[${i}].sha256" must be 64 hex chars.`);
+    }
+    const out: EnsembleMember = { id: mm.id, sha256: mm.sha256.toLowerCase() };
+    if (mm.file !== undefined) {
+      if (typeof mm.file !== 'string' || !MEMBER_ID_RE.test(mm.file) || !mm.file.endsWith('.onnx')) {
+        throw new Error(`Manifest "ensemble.members[${i}].file" must be a plain *.onnx file name.`);
+      }
+      out.file = mm.file;
+    }
+    return out;
+  });
+  if (new Set(members.map((x) => x.id)).size !== members.length) {
+    throw new Error('Manifest "ensemble.members" ids must be unique.');
+  }
+  if (e.aggregation !== 'softmax-mean' && e.aggregation !== 'logit-mean') {
+    throw new Error('Manifest "ensemble.aggregation" must be softmax-mean|logit-mean.');
+  }
+  const spec: EnsembleSpec = { members, aggregation: e.aggregation };
+  if (e.tta !== undefined && e.tta !== null) {
+    if (e.tta !== 'mirror') throw new Error('Manifest "ensemble.tta" must be "mirror" when present.');
+    spec.tta = 'mirror';
+  }
+  return spec;
+}
+
+/**
+ * Text whose sha256 identifies an ensemble run (benchmark records store it as
+ * `model.sha256`): the member ONNX sha256 values (lower-case hex, member order)
+ * joined by '\n', followed by '\ntta=mirror' when mirror TTA is used — so a
+ * TTA and a non-TTA run of the same members never dedupe into each other.
+ * Mirrors scripts/zenodo/export_onnx.py ensemble_sha256().
+ */
+export function ensembleDigestInput(spec: EnsembleSpec, tta: boolean = spec.tta === 'mirror'): string {
+  return spec.members.map((m) => m.sha256.toLowerCase()).join('\n') + (tta ? '\ntta=mirror' : '');
+}
+
+/** Record / display name of an ensemble run: the manifest name plus ' (+mirror TTA)' when TTA is on. */
+export function ensembleRunName(manifest: ModelManifest, tta: boolean): string {
+  return tta ? `${manifest.name} (+mirror TTA)` : manifest.name;
+}
+
+/** ONNX file name of an ensemble member (resolved next to the ensemble manifest). */
+export function ensembleMemberFile(member: EnsembleMember): string {
+  return member.file ?? `${member.id}.onnx`;
 }
 
 function expectString(o: Record<string, unknown>, key: string): string {

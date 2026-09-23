@@ -1,5 +1,5 @@
 import type { InferenceSession, Tensor } from 'onnxruntime-web';
-import type { Bytes } from '../../types';
+import type { Bytes, EnsembleAggregation } from '../../types';
 
 /**
  * Sliding-window 3D inference. Mirrors the algorithm used by MONAI's
@@ -20,6 +20,14 @@ import type { Bytes } from '../../types';
  * The Gaussian weighting eliminates the ridge artefacts you get with uniform
  * (constant=1) blending where two tiles meet — a clinically meaningful win at
  * organ boundaries, with effectively zero compute cost vs. the inference time.
+ *
+ * Single models blend raw LOGITS (slidingWindowInference). Ensembles
+ * (slidingWindowEnsembleInference) run every member — and every mirror
+ * variant when TTA is on — on each tile, average their softmax probabilities
+ * (or logits, per the manifest's aggregation), and blend that average through
+ * the very same rolling window, so the window memory bound is unchanged; the
+ * ensemble only adds per-tile scratch (C × patch for the average, one patch
+ * for the flipped input).
  */
 
 export type BlendMode = 'gaussian' | 'constant';
@@ -37,13 +45,237 @@ export interface SlidingWindowResult {
   mask: Bytes;
   dims: [number, number, number];
   numClasses: number;
+  /** Floats held by the rolling accumulation window (class sums + weights) — the memory bound. */
+  windowFloats: number;
 }
+
+/** One tile's model output, [C, PZ, PY, PX] (x fastest). */
+interface TilePrediction {
+  data: Float32Array;
+  C: number;
+  /** Called once the tile has been accumulated. */
+  dispose?: () => void;
+}
+
+type TilePredictor = (patch: Float32Array) => Promise<TilePrediction>;
 
 export async function slidingWindowInference(
   session: InferenceSession,
   volume: Float32Array,
   dims: [number, number, number],
   opts: SlidingWindowOptions
+): Promise<SlidingWindowResult> {
+  const [PX, PY, PZ] = opts.patch;
+  const inputName = opts.inputName ?? session.inputNames[0]!;
+  // Lazy-load the runtime so the worker bundle stays slim.
+  const ort = await import('onnxruntime-web');
+
+  return blendTiles(volume, dims, opts, async (patchBuf) => {
+    const input: Tensor = new ort.Tensor('float32', patchBuf, [1, 1, PZ, PY, PX]);
+    const output = await session.run({ [inputName]: input });
+    const outName = session.outputNames[0]!;
+    const outTensor = output[outName]!;
+    const dimsOut = outTensor.dims;
+
+    // Expect [N=1, C, Z, Y, X].
+    if (dimsOut.length !== 5 || dimsOut[0] !== 1) {
+      throw new Error(`Unexpected model output dims [${dimsOut.join(',')}] — expected [1, C, Z, Y, X].`);
+    }
+    return {
+      data: outTensor.data as Float32Array,
+      C: dimsOut[1]!,
+      // Free per-tile tensors promptly (GPU buffers on WebGPU; lets JS engines
+      // with lazy GC — JavaScriptCore in the desktop WebView — reclaim early).
+      dispose: () => {
+        input.dispose?.();
+        outTensor.dispose?.();
+      },
+    };
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Ensembles                                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Where ensemble member sessions come from. `acquire(i)` is called once per
+ * member per tile and `release(i)` right after that member ran on the tile:
+ *   - preloadedMembers: every session created up front (fast; memory = all
+ *     members' weights + one activation set at a time). Used by the headless
+ *     runner and by the worker when the members fit.
+ *   - sequentialMembers: one session alive at a time, created and released
+ *     per member per tile (memory = one member; pays session creation on
+ *     every tile — a fallback for large ensembles in memory-tight WebViews).
+ */
+export interface EnsembleMemberSource {
+  readonly count: number;
+  acquire(i: number): Promise<InferenceSession>;
+  release?(i: number, session: InferenceSession): Promise<void>;
+}
+
+export function preloadedMembers(sessions: readonly InferenceSession[]): EnsembleMemberSource {
+  if (sessions.length === 0) throw new Error('Ensemble needs at least one member session.');
+  return { count: sessions.length, acquire: async (i) => sessions[i]! };
+}
+
+export function sequentialMembers(
+  count: number,
+  create: (i: number) => Promise<InferenceSession>
+): EnsembleMemberSource {
+  if (count < 1) throw new Error('Ensemble needs at least one member.');
+  return {
+    count,
+    acquire: create,
+    release: async (_i, session) => {
+      await session.release?.().catch(() => {});
+    },
+  };
+}
+
+export interface EnsembleOptions extends SlidingWindowOptions {
+  aggregation: EnsembleAggregation;
+  /** 'mirror': run all 8 flips of each tile (identity + every subset of the x/y/z axes), flip back, average. */
+  tta?: 'mirror' | null;
+}
+
+/** Flip variants as bit masks: bit 0 = x, bit 1 = y, bit 2 = z. */
+export const MIRROR_VARIANTS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7];
+
+export async function slidingWindowEnsembleInference(
+  members: EnsembleMemberSource,
+  volume: Float32Array,
+  dims: [number, number, number],
+  opts: EnsembleOptions
+): Promise<SlidingWindowResult> {
+  const [PX, PY, PZ] = opts.patch;
+  const n = PX * PY * PZ;
+  const variants = opts.tta === 'mirror' ? MIRROR_VARIANTS : [0];
+  const flipBuf = opts.tta === 'mirror' ? new Float32Array(n) : null;
+  const softmax = opts.aggregation === 'softmax-mean';
+  const scale = 1 / (members.count * variants.length);
+  const ort = await import('onnxruntime-web');
+
+  let acc: Float32Array | null = null;
+  let C = 0;
+  let cls: Float32Array | null = null; // per-voxel class scratch for the softmax
+
+  const addMember = (out: Float32Array, flip: number) => {
+    const a = acc!;
+    const tmp = cls!;
+    const fx = flip & 1;
+    const fy = flip & 2;
+    const fz = flip & 4;
+    for (let pz = 0; pz < PZ; pz++) {
+      const sz = fz ? PZ - 1 - pz : pz;
+      for (let py = 0; py < PY; py++) {
+        const sy = fy ? PY - 1 - py : py;
+        const rowDst = (pz * PY + py) * PX;
+        const rowSrc = (sz * PY + sy) * PX;
+        for (let px = 0; px < PX; px++) {
+          // Output of a flipped input is flipped: voxel (px,py,pz) sits at its mirror position.
+          const j = rowSrc + (fx ? PX - 1 - px : px);
+          const i = rowDst + px;
+          if (softmax) {
+            let max = -Infinity;
+            for (let c = 0; c < C; c++) {
+              const v = out[c * n + j]!;
+              tmp[c] = v;
+              if (v > max) max = v;
+            }
+            let sum = 0;
+            for (let c = 0; c < C; c++) {
+              const e = Math.exp(tmp[c]! - max);
+              tmp[c] = e;
+              sum += e;
+            }
+            const inv = 1 / sum;
+            for (let c = 0; c < C; c++) a[c * n + i] = a[c * n + i]! + tmp[c]! * inv;
+          } else {
+            for (let c = 0; c < C; c++) a[c * n + i] = a[c * n + i]! + out[c * n + j]!;
+          }
+        }
+      }
+    }
+  };
+
+  return blendTiles(volume, dims, opts, async (patchBuf) => {
+    acc?.fill(0);
+    for (let m = 0; m < members.count; m++) {
+      const session = await members.acquire(m);
+      try {
+        const inputName = session.inputNames[0]!;
+        const outName = session.outputNames[0]!;
+        for (const flip of variants) {
+          const src = flip === 0 ? patchBuf : flipPatch(patchBuf, flipBuf!, PX, PY, PZ, flip);
+          const input: Tensor = new ort.Tensor('float32', src, [1, 1, PZ, PY, PX]);
+          let output: Awaited<ReturnType<InferenceSession['run']>> | null = null;
+          try {
+            output = await session.run({ [inputName]: input });
+            const outTensor = output[outName]!;
+            const d = outTensor.dims;
+            if (d.length !== 5 || d[0] !== 1 || d[2] !== PZ || d[3] !== PY || d[4] !== PX) {
+              throw new Error(
+                `Ensemble member ${m}: unexpected output dims [${d.join(',')}] — expected [1, C, ${PZ}, ${PY}, ${PX}].`
+              );
+            }
+            if (acc === null) {
+              C = d[1]!;
+              acc = new Float32Array(C * n);
+              cls = new Float32Array(C);
+            } else if (d[1] !== C) {
+              throw new Error(`Ensemble member ${m} has ${d[1]} classes, expected ${C}.`);
+            }
+            addMember(outTensor.data as Float32Array, flip);
+          } finally {
+            input.dispose?.();
+            if (output) for (const t of Object.values(output)) t.dispose?.();
+          }
+        }
+      } finally {
+        await members.release?.(m, session);
+      }
+    }
+    const a = acc!;
+    for (let i = 0; i < a.length; i++) a[i] = a[i]! * scale;
+    return { data: a, C };
+  });
+}
+
+/** dst = src mirrored over the axes set in `flip` (bit 0 = x, 1 = y, 2 = z); layout [PZ, PY, PX]. */
+export function flipPatch(
+  src: Float32Array,
+  dst: Float32Array,
+  PX: number,
+  PY: number,
+  PZ: number,
+  flip: number
+): Float32Array {
+  const fx = flip & 1;
+  const fy = flip & 2;
+  const fz = flip & 4;
+  for (let pz = 0; pz < PZ; pz++) {
+    const sz = fz ? PZ - 1 - pz : pz;
+    for (let py = 0; py < PY; py++) {
+      const sy = fy ? PY - 1 - py : py;
+      const rowDst = (pz * PY + py) * PX;
+      const rowSrc = (sz * PY + sy) * PX;
+      if (!fx) dst.set(src.subarray(rowSrc, rowSrc + PX), rowDst);
+      else for (let px = 0; px < PX; px++) dst[rowDst + px] = src[rowSrc + PX - 1 - px]!;
+    }
+  }
+  return dst;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tiling + rolling-window Gaussian blend (shared)                     */
+/* ------------------------------------------------------------------ */
+
+async function blendTiles(
+  volume: Float32Array,
+  dims: [number, number, number],
+  opts: SlidingWindowOptions,
+  predict: TilePredictor
 ): Promise<SlidingWindowResult> {
   const [X, Y, Z] = dims;
   const [PX, PY, PZ] = opts.patch;
@@ -54,8 +286,6 @@ export async function slidingWindowInference(
     Math.max(1, Math.floor(PZ * (1 - overlap))),
   ];
   const blend: BlendMode = opts.blend ?? 'gaussian';
-
-  const inputName = opts.inputName ?? session.inputNames[0]!;
 
   const starts = (extent: number, patch: number, step: number): number[] => {
     if (extent <= patch) return [0];
@@ -120,9 +350,6 @@ export async function slidingWindowInference(
   // Pre-compute the per-patch weighting kernel.
   const kernel = blend === 'gaussian' ? gaussian3D(PX, PY, PZ) : constant3D(PX, PY, PZ);
 
-  // Lazy-load the runtime so the worker bundle stays slim.
-  const ort = await import('onnxruntime-web');
-
   for (const z0 of zs) {
     if (z0 > base) {
       finalize(z0);
@@ -141,20 +368,9 @@ export async function slidingWindowInference(
           }
         }
 
-        const input: Tensor = new ort.Tensor('float32', patchBuf, [1, 1, PZ, PY, PX]);
-        const output = await session.run({ [inputName]: input });
-        const outName = session.outputNames[0]!;
-        const outTensor = output[outName]!;
-        const data = outTensor.data as Float32Array;
-        const dimsOut = outTensor.dims;
-
-        // Expect [N=1, C, Z, Y, X].
-        if (dimsOut.length !== 5 || dimsOut[0] !== 1) {
-          throw new Error(
-            `Unexpected model output dims [${dimsOut.join(',')}] — expected [1, C, Z, Y, X].`
-          );
-        }
-        const C = dimsOut[1]!;
+        const pred = await predict(patchBuf);
+        const data = pred.data;
+        const C = pred.C;
         if (sumLogits === null) {
           if (numClasses !== 0 && C !== numClasses) {
             throw new Error(`Inconsistent class count across patches: was ${numClasses}, now ${C}.`);
@@ -167,7 +383,7 @@ export async function slidingWindowInference(
           );
         }
 
-        // Accumulate weighted logits into the window (slice sz → sz - base).
+        // Accumulate weighted logits (or ensemble-averaged probabilities) into the window (slice sz → sz - base).
         const sl = sumLogits;
         const patchSlabXY = PX * PY;
         for (let c = 0; c < C; c++) {
@@ -199,10 +415,7 @@ export async function slidingWindowInference(
           }
         }
 
-        // Free per-tile tensors promptly (GPU buffers on WebGPU; lets JS engines
-        // with lazy GC — JavaScriptCore in the desktop WebView — reclaim early).
-        input.dispose?.();
-        outTensor.dispose?.();
+        pred.dispose?.();
 
         tileIdx++;
         opts.onProgress?.(tileIdx / totalTiles);
@@ -213,7 +426,7 @@ export async function slidingWindowInference(
   if (!sumLogits) throw new Error('Inference produced no output.');
   finalize(Math.min(Z, base + D));
 
-  return { mask, dims, numClasses };
+  return { mask, dims, numClasses, windowFloats: numClasses * winVox + winVox };
 }
 
 /**

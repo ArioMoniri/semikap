@@ -18,6 +18,16 @@
  * records_<ops>.ndjson). Saved masks are always the raw model output, so
  * scripts/bench/rescore.ts can derive any other variant without re-inference.
  *
+ * Ensemble manifests (a <id>.json with an `ensemble` block and no <id>.onnx, e.g.
+ * nnunet_liver_lits_ens5.json) are run too: every member <member>.onnx is read from
+ * the same --models dir and sha256-verified, all member sessions are created up front
+ * (the runner has the memory; CPU arenas off so 5 sessions don't each pin a
+ * high-water heap), and each tile runs every member (× 8 mirror variants when TTA
+ * is on — `--ensemble-tta off` disables it). The record's model is
+ * { name: '<manifest name> (+mirror TTA)', sha256: sha256(ensembleDigestInput) }, i.e.
+ * sha256 over the member sha256s joined by '\n' (+ '\ntta=mirror' with TTA) —
+ * see src/lib/inference/manifest.ts ensembleDigestInput.
+ *
  * cases.csv columns used: source, case_id; files <data>/<source>/<case_id>/{ct,gt_liver,gt_tumor}.nii.gz
  */
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync, appendFileSync } from 'node:fs';
@@ -28,7 +38,12 @@ import { cpus, totalmem, platform, release } from 'node:os';
 import * as ort from 'onnxruntime-web'; // aliased to onnxruntime-node by vite.config.ts
 import { parseManifest } from '../../src/lib/inference/manifest';
 import { preparePreprocessing } from '../../src/lib/inference/preprocess';
-import { slidingWindowInference } from '../../src/lib/inference/sliding-window';
+import {
+  slidingWindowInference,
+  slidingWindowEnsembleInference,
+  preloadedMembers,
+} from '../../src/lib/inference/sliding-window';
+import { ensembleDigestInput, ensembleMemberFile, ensembleRunName } from '../../src/lib/inference/manifest';
 import { resampleNearest } from '../../src/lib/inference/postprocess';
 import { axisCodes, planReorientation, invertReorientation, isIdentityPlan } from '../../src/lib/inference/orient';
 import { niftiDataToVolume } from '../../src/lib/datasets/nifti-volume';
@@ -131,6 +146,18 @@ const models = readdirSync(modelsDir)
   .filter((f) => f.endsWith('.onnx'))
   .map((f) => basename(f, '.onnx'))
   .filter((id) => existsSync(join(modelsDir, `${id}.json`)) && (!only || only.includes(id)));
+// Ensemble manifests: <id>.json with an `ensemble` block and no <id>.onnx of their own.
+for (const f of readdirSync(modelsDir)) {
+  const id = basename(f, '.json');
+  if (!f.endsWith('.json') || existsSync(join(modelsDir, `${id}.onnx`)) || (only && !only.includes(id))) continue;
+  try {
+    const raw = JSON.parse(readFileSync(join(modelsDir, f), 'utf8')) as { ensemble?: unknown };
+    if (raw && typeof raw === 'object' && raw.ensemble) models.push(id);
+  } catch {
+    /* not a manifest */
+  }
+}
+const ensembleTta = arg('ensemble-tta', 'manifest') !== 'off';
 
 const ndjson = join(outDir, postprocess.length ? `records_${postprocess.join('_')}.ndjson` : 'records.ndjson');
 const log = (s: string) => {
@@ -139,16 +166,64 @@ const log = (s: string) => {
 };
 log(`models=${models.join(',')} cases=${cases.length} threads=${threads} postprocess=${postprocess.join('+') || 'none'}`);
 
-for (const id of models) {
-  const bytes = new Uint8Array(readFileSync(join(modelsDir, `${id}.onnx`)));
+/** Load a single model or an ensemble (members from the same dir) into a tile runner. */
+async function loadModel(id: string) {
   const manifest: ModelManifest = parseManifest(JSON.parse(readFileSync(join(modelsDir, `${id}.json`), 'utf8')));
-  const modelSha = sha(bytes);
+  const ens = manifest.ensemble;
+  if (!ens) {
+    const bytes = new Uint8Array(readFileSync(join(modelsDir, `${id}.onnx`)));
+    const session = await ort.InferenceSession.create(bytes, {
+      executionProviders: ['cpu'],
+      intraOpNumThreads: threads,
+      graphOptimizationLevel: 'all',
+    });
+    return {
+      manifest,
+      modelName: manifest.name,
+      modelSha: sha(bytes),
+      infer: (data: Float32Array, dims: [number, number, number], patch: [number, number, number], overlap: number) =>
+        slidingWindowInference(session as never, data, dims, { patch, overlap }),
+      release: async () => {
+        await session.release?.();
+      },
+    };
+  }
+  const tta = ensembleTta && ens.tta === 'mirror';
+  const sessions: ort.InferenceSession[] = [];
+  for (const m of ens.members) {
+    const bytes = new Uint8Array(readFileSync(join(modelsDir, ensembleMemberFile(m))));
+    if (sha(bytes) !== m.sha256) throw new Error(`${id}: member ${m.id} sha256 does not match the manifest`);
+    sessions.push(
+      await ort.InferenceSession.create(bytes, {
+        executionProviders: ['cpu'],
+        intraOpNumThreads: threads,
+        graphOptimizationLevel: 'all',
+        enableCpuMemArena: false,
+        enableMemPattern: false,
+      })
+    );
+  }
+  return {
+    manifest,
+    modelName: ensembleRunName(manifest, tta),
+    modelSha: createHash('sha256').update(ensembleDigestInput(ens, tta), 'utf8').digest('hex'),
+    infer: (data: Float32Array, dims: [number, number, number], patch: [number, number, number], overlap: number) =>
+      slidingWindowEnsembleInference(preloadedMembers(sessions as never), data, dims, {
+        patch,
+        overlap,
+        aggregation: ens.aggregation,
+        tta: tta ? 'mirror' : null,
+      }),
+    release: async () => {
+      for (const s of sessions) await s.release?.();
+    },
+  };
+}
+
+for (const id of models) {
   const tl = performance.now();
-  const session = await ort.InferenceSession.create(bytes, {
-    executionProviders: ['cpu'],
-    intraOpNumThreads: threads,
-    graphOptimizationLevel: 'all',
-  });
+  const loaded = await loadModel(id);
+  const { manifest, modelSha, modelName } = loaded;
   const loadMs = performance.now() - tl;
   for (const c of cases) {
     const dir = join(dataDir, c.source!, c.case_id!);
@@ -173,10 +248,7 @@ for (const id of models) {
       const pre = preparePreprocessing(vol.voxels, vol.dims, vol.spacing, manifest, plan && !isIdentityPlan(plan) ? plan : null);
       if (manifest.inference.type !== 'sliding_window') throw new Error('runner supports sliding_window models');
       const ti = performance.now();
-      const sw = await slidingWindowInference(session as never, pre.data, pre.dims, {
-        patch: manifest.inference.patch,
-        overlap: manifest.inference.overlap,
-      });
+      const sw = await loaded.infer(pre.data, pre.dims, manifest.inference.patch, manifest.inference.overlap);
       const inferMs = performance.now() - ti;
       const oriented = resampleNearest(sw.mask, sw.dims, pre.orientedDims);
       const pred = plan ? invertReorientation(oriented, pre.orientedDims, plan).data : oriented;
@@ -201,7 +273,7 @@ for (const id of models) {
         profileId: 'default',
         datasetName: canonicalDatasetId(c.source!),
         task: 'segmentation',
-        model: { name: manifest.name, version: manifest.version, sha256: modelSha },
+        model: { name: modelName, version: manifest.version, sha256: modelSha },
         case: {
           caseId: c.case_id!,
           imageName: `${c.source}/${c.case_id}/ct.nii.gz`,
@@ -234,6 +306,6 @@ for (const id of models) {
       log(`FAIL ${id} ${c.case_id}: ${(e as Error).message}`);
     }
   }
-  await session.release?.();
+  await loaded.release();
 }
 log('DONE');
