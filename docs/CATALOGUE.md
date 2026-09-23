@@ -15,8 +15,8 @@ downloaded to your device and never uploaded.
 | Datasets | Access | Ground truth | Role |
 |---|---|---|---|
 | **HCC-TACE-Seg** (TCIA, CC BY 4.0, doi:10.7937/TCIA.5FNA-0924) | **one click, straight from TCIA** through the NCI Imaging Data Commons public bucket | expert DICOM-SEG: liver, mass, portal vein, aorta | external test set for all models |
-| MSD Task03 Liver (LiTS, CC BY-SA 4.0) | download (29 GB tar) or `scripts/bench/data/fetch_msd_cases.py` (pinned byte ranges) | liver, tumour | in-distribution for nnU-Net, external for LMS3D |
-| BTCV (Zenodo 1169361, CC BY 4.0) | download | 13 organs | in-distribution for LMS3D |
+| MSD Task03 Liver (LiTS, CC BY-SA 4.0) | download (29 GB tar) or `scripts/bench/data/fetch_msd_cases.py` (pinned byte ranges) | liver, tumour | training data of nnU-Net (resubstitution, flagged † in reports), external for LMS3D |
+| BTCV (Synapse syn3193805, Landman 2015; Synapse terms) | download | 13 organs (liver = 6) | in-distribution for LMS3D |
 
 The PyTorch checkpoints can't run in a browser. `.github/workflows/zenodo-models.yml` downloads
 them from Zenodo, exports them to ONNX, checks PyTorch-vs-ONNX parity, writes TAMIAS manifests,
@@ -89,3 +89,14 @@ via `tauri-driver`).
   build (SegFormer on HCC_002: 28.6 s) or with the headless runner.
 - Raw model outputs are scored as-is (no largest-connected-component post-processing), so
   distant false positives show up in HD95.
+
+## Statistics and sensitivity analyses
+
+- Reports flag with † any model scored on its own training data. The flag comes from `trainedOn` in `src/lib/catalog/catalog.ts`.
+- Surface-metric failures are scored as the worst observed value and counted, never dropped. This covers any case where only one of the two masks is empty.
+- With ≤ 10 cases, Holm-corrected pairwise Wilcoxon cannot reach significance, and the report says so. Use the Nemenyi CD pairs and the paired bootstrap CIs instead.
+- `scripts/bench/rescore.ts` re-scores the saved masks without re-running inference, in two ways:
+  - after keeping only the prediction's largest 3-D connected component;
+  - against a reference whose enclosed holes (vessels) are filled per slice.
+  
+  Feed either output to `analyze.ts` or to the app's *Import records*.

@@ -50,6 +50,8 @@ export interface CatalogModel {
   codeUrl: string;
   /** Catalogue dataset ids this model was trained on (in-distribution). */
   trainedOn: string[];
+  /** Provenance caveat printed in the benchmark report's Methods. */
+  methodsNote?: string;
   onnxUrl: string;
   manifestUrl: string;
   /** GitHub-release URLs kept as a fallback when a CORS mirror is preferred. */
@@ -108,6 +110,8 @@ export interface CatalogDataset {
    * IDC cases are already canonical after the DICOM-SEG mapping.
    */
   gtLabels: { liver: number[]; tumour: number[] };
+  /** Reference-standard / acquisition caveats printed in the benchmark report's Methods. */
+  methodsNote?: string;
   access: DatasetAccess;
   description: string;
 }
@@ -181,6 +185,10 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
       codeUrl: 'https://github.com/Removirt/LightningMedSeg3D',
       // The Zenodo checkpoints are the BTCV 13-organ models (liver = label 6, no tumour class).
       trainedOn: ['btcv'],
+      methodsNote:
+        'LightningMedSeg3D (Zenodo 21037952): the record lists BTCV and MSD Task03 weights in its metadata but ships ' +
+        'only the BTCV 13-organ checkpoints (identified by sha256), so all nine nets are BTCV models (liver = 6, no ' +
+        'tumour class) and are scored on whole liver only.',
       ...assetUrls(`lms3d_${arch}`),
       labels: BTCV_LABELS,
       status: 'unpublished',
@@ -188,7 +196,7 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
   ),
   {
     id: 'nnunet_liver_lits',
-    name: 'nnU-Net v2 liver + lesions (LiTS 2017)',
+    name: 'nnU-Net v2 liver + lesions (Dataset006_Liver)',
     family: 'nnunet',
     arch: 'nnunet_3d_fullres',
     kind: 'cnn',
@@ -199,10 +207,16 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
     license: 'CC-BY-4.0 (weights) · Apache-2.0 (code)',
     citation:
       'Murugesan GK, Van Oss J, McCrumb D. Pretrained model for 3D semantic image segmentation of ' +
-      'the liver and liver lesions from CT scan (nnU-Net v2, LiTS 2017). Zenodo, 2024. ' +
-      'doi:10.5281/zenodo.11582728',
+      'the liver and liver lesions from CT scan (nnU-Net v2 Dataset006_Liver; training data stated as ' +
+      'LiTS 2017). Zenodo, 2024. doi:10.5281/zenodo.11582728. Single fold (fold 0) exported, no ensemble; ' +
+      'its 10 output classes (abdominal organs, liver, tumour) imply organ labels beyond LiTS.',
     codeUrl: 'https://github.com/MIC-DKFZ/nnUNet',
     trainedOn: ['msd-task03-liver'],
+    methodsNote:
+      'nnU-Net v2 Dataset006_Liver (Zenodo 11582728, BAMF Health): training data stated as LiTS 2017, of which MSD ' +
+      'Task03 imagesTr is a subset (MSD scores for this model are resubstitution); fold 0 only, no ensemble, no ' +
+      'nnU-Net post-processing. Its 10-class output (organs, liver 8, tumour 9, an unnamed class 7 left unscored) ' +
+      'implies additional organ labels; overlap of its training data with HCC-TACE-Seg cannot be fully excluded.',
     ...assetUrls('nnunet_liver_lits'),
     labels: NNUNET_LIVER_LABELS,
     status: 'unpublished',
@@ -336,31 +350,49 @@ export const CATALOG_DATASETS: readonly CatalogDataset[] = [
     },
     description:
       'Multiphase contrast CT of 105 HCC patients before TACE (MD Anderson) with curated liver, ' +
-      'tumour and vessel DICOM-SEG. External test set for every catalogue model — none were ' +
-      'trained on it. Pulled directly from TCIA via the NCI Imaging Data Commons public bucket.',
+      'tumour and vessel DICOM-SEG. External test set: not in the stated training data of any ' +
+      'catalogue model. Pulled directly from TCIA via the NCI Imaging Data Commons public bucket.',
+    methodsNote:
+      'HCC-TACE-Seg: CT series hold 1–3 contrast phases at identical slice positions and the DICOM-SEG ' +
+      'references instances from more than one; the acquisition that fully contains the SEG and is most ' +
+      'portal-venous (max portal-vein minus aorta HU in the SEG vessel segments) is used, assuming negligible ' +
+      'inter-phase motion. Reference whole liver = SEG "Liver" ∪ "Mass"; tumour = "Mass"; vessel segments ' +
+      'are excluded, so intrahepatic vessels can appear as holes in the reference liver (see the hole-filled ' +
+      'sensitivity analysis). Licence CC BY 4.0.',
   },
   {
     id: 'btcv',
-    name: 'BTCV multi-organ abdominal CT',
+    name: 'BTCV Multi-Atlas Labeling Beyond the Cranial Vault (abdomen)',
     modality: 'CT',
-    subjects: 90,
-    license: 'CC-BY-4.0',
-    doi: '10.5281/zenodo.1169361',
-    pageUrl: 'https://zenodo.org/records/1169361',
+    subjects: 50,
+    license: 'Synapse data-use terms (registration)',
+    doi: '10.7303/syn3193805',
+    pageUrl: 'https://www.synapse.org/Synapse:syn3193805',
     citation:
-      'Gibson E, Giganti F, Hu Y, et al. Multi-organ Abdominal CT Reference Standard Segmentations (1.0). ' +
-      'Zenodo, 2018. doi:10.5281/zenodo.1169361',
-    groundTruth: ['liver', 'spleen', 'kidney', 'pancreas', 'stomach', 'gallbladder', 'esophagus', 'duodenum'],
-    // BTCV label map: 1 spleen, 2 right kidney, … 6 liver; no tumour class.
-    gtLabels: { liver: [6], tumour: [] },
+      'Landman B, Xu Z, Iglesias JE, Styner M, Langerak TR, Klein A. MICCAI Multi-Atlas Labeling Beyond the ' +
+      'Cranial Vault — Workshop and Challenge (BTCV), 2015. doi:10.7303/syn3193805',
+    groundTruth: [
+      'spleen',
+      'kidneys',
+      'gallbladder',
+      'esophagus',
+      'liver',
+      'stomach',
+      'aorta',
+      'inferior vena cava',
+      'portal/splenic veins',
+      'pancreas',
+      'adrenal glands',
+    ],
     access: {
       kind: 'download',
-      url: 'https://zenodo.org/records/1169361',
-      note: 'Training distribution of the LightningMedSeg3D checkpoints (in-distribution reference for them).',
+      url: 'https://www.synapse.org/Synapse:syn3193805',
+      note: 'Training distribution of the LightningMedSeg3D checkpoints (in-distribution reference for them). Synapse account required; load the NIfTI image + label files locally.',
     },
+    gtLabels: { liver: [6], tumour: [] },
     description:
-      'Multi-organ reference segmentations (TCIA Pancreas-CT + BTCV). In-distribution for the nine ' +
-      'LightningMedSeg3D checkpoints; external for nnU-Net.',
+      '30 training + 20 test portal-venous abdominal CTs with 13 organ labels (liver = 6, no tumour label). ' +
+      'In-distribution for the nine LightningMedSeg3D checkpoints; external for nnU-Net.',
   },
   {
     id: 'msd-task03-liver',
@@ -379,11 +411,15 @@ export const CATALOG_DATASETS: readonly CatalogDataset[] = [
       kind: 'download',
       url: 'https://msd-for-monai.s3-us-west-2.amazonaws.com/Task03_Liver.tar',
       sizeBytes: 28_925_891_584,
-      note: 'Training distribution of the nnU-Net model (LiTS); external for the BTCV-trained LightningMedSeg3D nets. 29 GB tar — extract a few cases locally and load the NIfTI files.',
+      note: 'Training data of the nnU-Net model (LiTS; scores are resubstitution); external for the BTCV-trained LightningMedSeg3D nets. 29 GB tar — extract a few cases locally and load the NIfTI files.',
     },
     description:
-      'Portal-venous CT with liver + tumour labels (LiTS). In-distribution for the nnU-Net model, ' +
-      'external for the BTCV-trained LightningMedSeg3D nets.',
+      'Portal-venous CT with liver + tumour labels (LiTS). The labelled cases (imagesTr) are LiTS ' +
+      'training cases, i.e. training data of the nnU-Net model (resubstitution, optimistic); external for ' +
+      'the BTCV-trained LightningMedSeg3D nets.',
+    methodsNote:
+      'MSD Task03 Liver: labelled cases come from imagesTr (LiTS training set; CC BY-SA 4.0, share-alike applies ' +
+      'to derived masks). Reference whole liver = label 1 ∪ 2, tumour = label 2. Slice thickness 0.7–5 mm.',
   },
 ];
 
@@ -509,4 +545,22 @@ export function mergeModelIndex(models: readonly CatalogModel[], index: ModelInd
       error: e.error ?? null,
     };
   });
+}
+
+/**
+ * Catalogue entry behind a benchmark record's model: the record's catalogue id
+ * when present (in-app runs), else the model family recognisable from the
+ * published manifest name (headless / CI records; family-level provenance).
+ */
+export function catalogModelForRecord(model: { name: string; catalogId?: string }): CatalogModel | undefined {
+  const byId = model.catalogId ? CATALOG_MODELS.find((m) => m.id === model.catalogId) : undefined;
+  if (byId) return byId;
+  if (/^LightningMedSeg3D\b/i.test(model.name)) return CATALOG_MODELS.find((m) => m.family === 'lightningmedseg3d');
+  if (/^nnU-Net v2 Liver/i.test(model.name)) return CATALOG_MODELS.find((m) => m.family === 'nnunet');
+  return undefined;
+}
+
+/** Catalogue datasets a benchmark record's model was trained on ([] if unknown). */
+export function trainedOnForRecordModel(model: { name: string; catalogId?: string }): string[] {
+  return catalogModelForRecord(model)?.trainedOn ?? [];
 }

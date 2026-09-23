@@ -98,7 +98,7 @@ describe('static dataset catalogue', () => {
     const msd = CATALOG_DATASETS.find((d) => d.id === 'msd-task03-liver')!;
     expect(modelsForDataset(msd).map((m) => m.id)).toEqual(['nnunet_liver_lits']);
     const btcv = CATALOG_DATASETS.find((d) => d.id === 'btcv')!;
-    expect(btcv.doi).toBe('10.5281/zenodo.1169361');
+    expect(btcv.doi).toBe('10.7303/syn3193805'); // Synapse BTCV (Landman 2015), not Gibson's Zenodo set
     expect(modelsForDataset(btcv)).toHaveLength(9);
   });
 });

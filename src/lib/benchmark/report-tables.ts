@@ -14,6 +14,7 @@ import {
   pairwiseWilcoxonHolm,
 } from '../stats/multi-model';
 import { wilcoxonSignedRank } from '../stats/paired-tests';
+import { CATALOG_DATASETS, catalogModelForRecord } from '../catalog/catalog';
 
 /** Smallest two-sided p the (normal-approximation) signed-rank test can reach with n pairs. */
 export function minWilcoxonP(n: number): number {
@@ -99,6 +100,10 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
   files['per_case.csv'] = csv(perCase);
 
   const datasets = [...new Set(records.map((r) => canonicalDatasetId(r.datasetName)))].sort();
+  // Models evaluated on their own training data are flagged (†): optimistic, not an external test.
+  const trainedOnByKey = new Map(records.map((r) => [modelKey(r), catalogModelForRecord(r.model)?.trainedOn ?? []]));
+  const inTraining = (key: string, ds: string) => (trainedOnByKey.get(key) ?? []).includes(ds);
+  let anyDagger = false;
   const md: string[] = [
     '# TAMIAS catalogue benchmark — statistical report',
     '',
@@ -122,6 +127,7 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
       'median_paired_diff_vs_top',
       'ci95_lo',
       'ci95_hi',
+      'trained_on_this_dataset',
     ],
   ];
   const friedman: (string | number)[][] = [
@@ -197,12 +203,14 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
             eff.get(r.name)!.med,
             eff.get(r.name)!.ci[0],
             eff.get(r.name)!.ci[1],
+            String(inTraining(r.name, ds)),
           ]);
         files[`pairwise_${ds}_${LABELS[label]}_${metric}.csv`] = csv([
           ['model_a', 'model_b', 'mean_diff_a_minus_b', 'p_raw', 'p_holm', 'significant_0.05'],
           ...pw.map((p) => [p.a, p.b, p.meanDiff, p.pRaw, p.pHolm, String(p.significant)]),
         ]);
-        const short = (n: string) => n.replace(/@.*/, '');
+        const short = (n: string) => n.replace(/@.*/, '') + (inTraining(n, ds) ? ' †' : '');
+        if (m.models.some((n) => inTraining(n, ds))) anyDagger = true;
         const powerNote =
           minP > holmFirst
             ? ` With n = ${m.cases.length} the smallest attainable Wilcoxon p is ${minP.toFixed(4)} > the first Holm threshold ${holmFirst.toFixed(4)}, so no pairwise comparison can reach significance at this sample size — read the rank/CD analysis and the paired effect sizes instead.`
@@ -228,6 +236,7 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
           datasets: datasets.slice(0, 2),
         }).filter((r) => r.median.some(Number.isFinite));
         if (cross.length) {
+          if (cross.some((r) => datasets.slice(0, 2).some((d) => inTraining(r.model, d)))) anyDagger = true;
           files[`cross_dataset_${LABELS[label]}_${metric}.csv`] = csv([
             [
               'model',
@@ -257,7 +266,7 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
             '|---|---|---|---|---|---|',
             ...cross.map(
               (r) =>
-                `| ${r.model.replace(/@.*/, '')} | ${fmt(r.median[0]!)} (${r.n[0]}) | ${fmt(r.median[1]!)} (${r.n[1]}) | ${fmt(r.median[0]! - r.median[1]!)} | ${fp(r.pValue)} | ${fmt(r.effectSize, 2)} |`
+                `| ${r.model.replace(/@.*/, '')}${datasets.slice(0, 2).some((d) => inTraining(r.model, d)) ? ' †' : ''} | ${fmt(r.median[0]!)} (${r.n[0]}) | ${fmt(r.median[1]!)} (${r.n[1]}) | ${fmt(r.median[0]! - r.median[1]!)} | ${fp(r.pValue)} | ${fmt(r.effectSize, 2)} |`
             ),
             ''
           );
@@ -278,6 +287,15 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
     'Statistics: Friedman test on per-case scores (complete cases; latest record per model/case), mean ranks with Nemenyi critical difference (Demšar 2006; pairs whose mean-rank difference exceeds the CD are listed); pairwise Wilcoxon signed-rank (normal approximation with continuity correction) with Holm correction — the smallest attainable p for the given n is reported, and with ≤ 10 cases and many models Holm-corrected pairwise significance is unattainable by construction; paired median difference versus the top-ranked model with a percentile bootstrap 95% CI (2000 resamples, fixed seed). Across datasets: two-sided Mann-Whitney U with rank-biserial r per model; datasets differ in patients, scanners, slice thickness, contrast phase, tumour burden and annotation protocol, so this contrast is descriptive (confounded), not a causal domain-shift estimate.',
     ''
   );
+  if (anyDagger)
+    md.push(
+      '† Model evaluated on (a subset of) its own training data — resubstitution, optimistic; rank it separately from external models.',
+      ''
+    );
+  const dsNotes = datasets.map((d) => CATALOG_DATASETS.find((c) => c.id === d)?.methodsNote).filter(Boolean);
+  const modelNotes = [...new Set(records.map((r) => catalogModelForRecord(r.model)?.methodsNote).filter(Boolean))];
+  if (dsNotes.length || modelNotes.length)
+    md.push('### Datasets and models', '', ...[...dsNotes, ...modelNotes].map((n) => `- ${n}`), '');
   files['REPORT.md'] = md.join('\n');
   return files;
 }

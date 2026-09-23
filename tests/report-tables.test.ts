@@ -52,3 +52,19 @@ describe('report-tables verifier fixes', () => {
     expect(files['nemenyi_pairs.csv']).toBeDefined();
   });
 });
+
+describe('report provenance flags', () => {
+  it('flags a model scored on its own training data with † and prints dataset/model notes', () => {
+    const mk = (model: string, c: string, d: number) => ({ ...rec(model, 'msd-task03-liver', c, d) });
+    const rs = ['a', 'b', 'c'].flatMap((c, i) => [
+      mk('nnU-Net v2 Liver+Lesion (BAMF, LiTS)', c, 0.95 + i / 100),
+      mk('LightningMedSeg3D UNet (BTCV, 14-class)', c, 0.9 + i / 100),
+    ]);
+    const files = buildReportFiles(rs);
+    expect(files['REPORT.md']).toContain('nnU-Net v2 Liver+Lesion (BAMF, LiTS) †');
+    expect(files['REPORT.md']).not.toContain('UNet (BTCV, 14-class) †');
+    expect(files['REPORT.md']).toContain('resubstitution');
+    expect(files['REPORT.md']).toContain('### Datasets and models');
+    expect(files['summary.csv']).toContain(',true');
+  });
+});
