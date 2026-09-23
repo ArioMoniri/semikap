@@ -1,0 +1,34 @@
+name: Tag release
+
+# Creates the release tag named in .github/release-tag at the pushed commit.
+# (Sessions that can only push branches use this; the desktop build is then
+# started with `workflow_dispatch` of tauri-release.yml on the new tag, since
+# tags pushed with GITHUB_TOKEN do not trigger workflows themselves.)
+on:
+  push:
+    paths: ['.github/release-tag']
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create tag
+        run: |
+          set -e
+          TAG=$(tr -d '[:space:]' < .github/release-tag)
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::bad tag '$TAG'"; exit 1; }
+          VERSION=$(jq -r .version package.json)
+          [ "v$VERSION" = "$TAG" ] || { echo "::error::$TAG does not match package.json $VERSION"; exit 1; }
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists — nothing to do"; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "TAMIAS $TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+          echo "created $TAG at $GITHUB_SHA"
