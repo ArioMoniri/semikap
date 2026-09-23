@@ -11,7 +11,15 @@
       "identifier": "shell:allow-open",
       "allow": [
         { "url": "https://github.com/ArioMoniri/semikap" },
-        { "url": "https://github.com/ArioMoniri/semikap/**" }
+        { "url": "https://github.com/ArioMoniri/semikap/**" },
+        { "url": "https://huggingface.co/Aralario/tamias-zenodo-liver-models/**" },
+        { "url": "https://zenodo.org/**" },
+        { "url": "https://www.cancerimagingarchive.net/**" },
+        { "url": "http://medicaldecathlon.com/**" },
+        { "url": "https://medicaldecathlon.com/**" },
+        { "url": "https://msd-for-monai.s3-us-west-2.amazonaws.com/**" },
+        { "url": "https://www.synapse.org/**" },
+        { "url": "https://portal.imaging.datacommons.cancer.gov/**" }
       ]
     },
     "opener:allow-reveal-item-in-dir"

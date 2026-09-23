@@ -153,4 +153,28 @@ describe('filterByAcquisition', () => {
   it('throws when nothing matches', () => {
     expect(() => filterByAcquisition(files, 9, read)).toThrow(/acquisition 9/);
   });
+
+  it('stops every worker after the first failed download', async () => {
+    const urls = Array.from({ length: 50 }, (_, i) => `https://idc-open-data.s3.amazonaws.com/s/${i}.dcm`);
+    const fetchAsset = vi.fn(async (u: string) => {
+      await new Promise((r) => setTimeout(r, 1));
+      if (u.endsWith('/2.dcm')) throw new Error('503');
+      return new Uint8Array(1);
+    });
+    await expect(fetchIdcSeriesFiles('s', { list: async () => urls, fetchAsset, concurrency: 4 })).rejects.toThrow('503');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetchAsset.mock.calls.length).toBeLessThan(10);
+  });
+
+  it('stops handing out downloads once the signal aborts', async () => {
+    const urls = Array.from({ length: 50 }, (_, i) => `https://idc-open-data.s3.amazonaws.com/s/${i}.dcm`);
+    const ac = new AbortController();
+    const fetchAsset = vi.fn(async () => {
+      ac.abort();
+      return new Uint8Array(1);
+    });
+    const err = await fetchIdcSeriesFiles('s', { list: async () => urls, fetchAsset, concurrency: 2, signal: ac.signal }).catch((e) => e);
+    expect((err as Error).name).toBe('AbortError');
+    expect(fetchAsset.mock.calls.length).toBeLessThanOrEqual(2);
+  });
 });

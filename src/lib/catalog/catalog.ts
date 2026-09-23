@@ -102,6 +102,12 @@ export interface CatalogDataset {
   citation: string;
   /** Ground-truth structures available. */
   groundTruth: string[];
+  /**
+   * Label values of the dataset's ground truth that map to the canonical
+   * catalogue label space (1 liver, 2 tumour). Everything else is background.
+   * IDC cases are already canonical after the DICOM-SEG mapping.
+   */
+  gtLabels: { liver: number[]; tumour: number[] };
   access: DatasetAccess;
   description: string;
 }
@@ -217,6 +223,7 @@ export const CATALOG_DATASETS: readonly CatalogDataset[] = [
       'advanced imaging segmentation [Data set]. The Cancer Imaging Archive, 2021. ' +
       'doi:10.7937/TCIA.5FNA-0924',
     groundTruth: ['liver', 'tumor'],
+    gtLabels: { liver: [1], tumour: [2] },
     access: {
       kind: 'idc-s3',
       collectionId: 'hcc_tace_seg',
@@ -344,6 +351,8 @@ export const CATALOG_DATASETS: readonly CatalogDataset[] = [
       'Gibson E, Giganti F, Hu Y, et al. Multi-organ Abdominal CT Reference Standard Segmentations (1.0). ' +
       'Zenodo, 2018. doi:10.5281/zenodo.1169361',
     groundTruth: ['liver', 'spleen', 'kidney', 'pancreas', 'stomach', 'gallbladder', 'esophagus', 'duodenum'],
+    // BTCV label map: 1 spleen, 2 right kidney, … 6 liver; no tumour class.
+    gtLabels: { liver: [6], tumour: [] },
     access: {
       kind: 'download',
       url: 'https://zenodo.org/records/1169361',
@@ -365,6 +374,7 @@ export const CATALOG_DATASETS: readonly CatalogDataset[] = [
       'Antonelli M, Reinke A, Bakas S, et al. The Medical Segmentation Decathlon. Nat Commun 13, 4128 ' +
       '(2022). Bilic P, et al. The Liver Tumor Segmentation Benchmark (LiTS). Med Image Anal 84 (2023).',
     groundTruth: ['liver', 'tumor'],
+    gtLabels: { liver: [1], tumour: [2] },
     access: {
       kind: 'download',
       url: 'https://msd-for-monai.s3-us-west-2.amazonaws.com/Task03_Liver.tar',

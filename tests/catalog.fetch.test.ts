@@ -82,4 +82,21 @@ describe('fetchCatalogAsset', () => {
     ).rejects.toThrow(/not allowed/);
     expect(f2).not.toHaveBeenCalled();
   });
+
+  it('honours AbortSignal on the Tauri path: before the call and while waiting', async () => {
+    const pre = new AbortController();
+    pre.abort();
+    const inv1 = vi.fn(async () => Array.from(payload));
+    const e1 = await fetchCatalogAsset(REL, { tauriInvoke: inv1, signal: pre.signal }).catch((e) => e);
+    expect((e1 as Error).name).toBe('AbortError');
+    expect(inv1).not.toHaveBeenCalled();
+
+    const ac = new AbortController();
+    const inv2 = vi.fn(() => new Promise<unknown>(() => {})); // native download never returns
+    const p = fetchCatalogAsset(REL, { tauriInvoke: inv2, signal: ac.signal });
+    ac.abort();
+    const e2 = await p.catch((e) => e);
+    expect((e2 as Error).name).toBe('AbortError');
+    expect(inv2).toHaveBeenCalledOnce();
+  });
 });

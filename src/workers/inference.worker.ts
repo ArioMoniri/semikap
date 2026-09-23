@@ -61,55 +61,67 @@ const api: InferenceApi = {
     let modelMask: Bytes;
     let modelDims: [number, number, number];
 
-    if (inputs.manifest.inference.type === 'whole') {
-      const ort = await import('onnxruntime-web');
-      const inputName = session.inputNames[0]!;
-      const tensor: Tensor = new ort.Tensor(
-        'float32',
-        pre.data,
-        [1, 1, pre.dims[2], pre.dims[1], pre.dims[0]]
-      );
-      onProgress({ stage: 'inference', fraction: 0.5 });
-      const output = await session.run({ [inputName]: tensor });
-      const outName = session.outputNames[0]!;
-      const outTensor = output[outName]!;
-      const data = outTensor.data as Float32Array;
-      const odims = outTensor.dims;
-      if (odims.length !== 5 || odims[0] !== 1) {
-        throw new Error(`Unexpected model output dims [${odims.join(',')}]`);
-      }
-      const C = odims[1]!;
-      const Z = odims[2]!;
-      const Y = odims[3]!;
-      const X = odims[4]!;
-      const mask = new Uint8Array(new ArrayBuffer(X * Y * Z)) as Bytes;
-      for (let z = 0; z < Z; z++) {
-        for (let y = 0; y < Y; y++) {
-          for (let x = 0; x < X; x++) {
-            let best = 0;
-            let bestVal = -Infinity;
-            const idx = z * X * Y + y * X + x;
-            for (let c = 0; c < C; c++) {
-              const v = data[c * X * Y * Z + idx]!;
-              if (v > bestVal) {
-                bestVal = v;
-                best = c;
+    // One session per run: release it (and every tensor) before returning so
+    // back-to-back runs (catalogue batch: N models × M cases) don't accumulate
+    // WASM / GPU memory in this worker.
+    try {
+      if (inputs.manifest.inference.type === 'whole') {
+        const ort = await import('onnxruntime-web');
+        const inputName = session.inputNames[0]!;
+        const tensor: Tensor = new ort.Tensor(
+          'float32',
+          pre.data,
+          [1, 1, pre.dims[2], pre.dims[1], pre.dims[0]]
+        );
+        onProgress({ stage: 'inference', fraction: 0.5 });
+        const output = await session.run({ [inputName]: tensor });
+        tensor.dispose?.();
+        const outName = session.outputNames[0]!;
+        const outTensor = output[outName]!;
+        try {
+          const data = outTensor.data as Float32Array;
+          const odims = outTensor.dims;
+          if (odims.length !== 5 || odims[0] !== 1) {
+            throw new Error(`Unexpected model output dims [${odims.join(',')}]`);
+          }
+          const C = odims[1]!;
+          const Z = odims[2]!;
+          const Y = odims[3]!;
+          const X = odims[4]!;
+          const mask = new Uint8Array(new ArrayBuffer(X * Y * Z)) as Bytes;
+          for (let z = 0; z < Z; z++) {
+            for (let y = 0; y < Y; y++) {
+              for (let x = 0; x < X; x++) {
+                let best = 0;
+                let bestVal = -Infinity;
+                const idx = z * X * Y + y * X + x;
+                for (let c = 0; c < C; c++) {
+                  const v = data[c * X * Y * Z + idx]!;
+                  if (v > bestVal) {
+                    bestVal = v;
+                    best = c;
+                  }
+                }
+                mask[idx] = best;
               }
             }
-            mask[idx] = best;
           }
+          modelMask = mask;
+          modelDims = [X, Y, Z];
+        } finally {
+          for (const t of Object.values(output)) t.dispose?.();
         }
+      } else {
+        const sw = await slidingWindowInference(session, pre.data, pre.dims, {
+          patch: inputs.manifest.inference.patch,
+          overlap: inputs.manifest.inference.overlap,
+          onProgress: (f) => onProgress({ stage: 'inference', fraction: f }),
+        });
+        modelMask = sw.mask;
+        modelDims = sw.dims;
       }
-      modelMask = mask;
-      modelDims = [X, Y, Z];
-    } else {
-      const sw = await slidingWindowInference(session, pre.data, pre.dims, {
-        patch: inputs.manifest.inference.patch,
-        overlap: inputs.manifest.inference.overlap,
-        onProgress: (f) => onProgress({ stage: 'inference', fraction: f }),
-      });
-      modelMask = sw.mask;
-      modelDims = sw.dims;
+    } finally {
+      await session.release?.().catch(() => {});
     }
 
     onProgress({ stage: 'postprocessing', fraction: 0.5 });
