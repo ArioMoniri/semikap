@@ -181,6 +181,24 @@ function assetUrls(id: string): { onnxUrl: string; manifestUrl: string } {
   return { onnxUrl: `${MODEL_RELEASE_BASE}/${id}.onnx`, manifestUrl: `${MODEL_RELEASE_BASE}/${id}.json` };
 }
 
+/**
+ * sha256 + size of the published fp32 ONNX exports (release zenodo-models-v1), pinned so
+ * downloads are verified and records can be matched to catalogue models even when the
+ * release index is unreachable (e.g. CORS in the browser build).
+ */
+const PUBLISHED_ONNX: Record<string, { sha256: string; bytes: number }> = {
+  lms3d_attention_unet: { sha256: '4f511be83e5312790c947b73b9f0550b2c081f3713d4c2e4d39fa8edf118ac21', bytes: 162743878 },
+  lms3d_medformer: { sha256: '7587ebf9249b1a2bc4e22df663914ab7cab9f393912ce7f738cc2038396d0ab5', bytes: 155209527 },
+  lms3d_resunet: { sha256: 'a84bbe8ba2ce5861e615a04b64edbf9a3aa5278080be9d5b61e62574cbfa4ab0', bytes: 162308644 },
+  lms3d_segformer: { sha256: '28197e635cf9f796e18109fcf0638ce0caa71515295633e3474bfc5280e752d9', bytes: 18091889 },
+  lms3d_swin_unetr: { sha256: 'f0a017977dfa920a372b02119e316882b39013abc2466219950c5ca12bca1933', bytes: 143378796 },
+  lms3d_unet: { sha256: 'd6e9842419ad1d02e62ca0998a7820b44514794f4eda144507fc141c6e8240fb', bytes: 65096212 },
+  lms3d_unetpp: { sha256: 'bb8556f757e0d734ac45f2ccf6f1ceea52e8f3d8b14a4c0ff650269980569d36', bytes: 17870378 },
+  lms3d_unetr: { sha256: '0b50545c96fb6d5438594c774e78be740854c04bdfe859158e8011f2fcaf8122', bytes: 371334154 },
+  lms3d_vnet: { sha256: '0da7b5f8f2f4cc64dffa0cec6ea6e8343db5615d5a3d34395dc739d65686ecc3', bytes: 182622539 },
+  nnunet_liver_lits: { sha256: '803176c487041d9186f757e9f3b660d428a158a44a1d2207fe5c182643efe5e7', bytes: 124809221 },
+};
+
 export const CATALOG_MODELS: readonly CatalogModel[] = [
   ...LMS3D_ARCHS.map(
     ({ arch, name, kind }): CatalogModel => ({
@@ -203,6 +221,7 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
         'only the BTCV 13-organ checkpoints (identified by sha256), so all nine nets are BTCV models (liver = 6, no ' +
         'tumour class) and are scored on whole liver only.',
       ...assetUrls(`lms3d_${arch}`),
+      ...PUBLISHED_ONNX[`lms3d_${arch}`],
       labels: BTCV_LABELS,
       status: 'unpublished',
     })
@@ -231,6 +250,7 @@ export const CATALOG_MODELS: readonly CatalogModel[] = [
       'nnU-Net post-processing. Its 10-class output (organs, liver 8, tumour 9, an unnamed class 7 left unscored) ' +
       'implies additional organ labels; overlap of its training data with HCC-TACE-Seg cannot be fully excluded.',
     ...assetUrls('nnunet_liver_lits'),
+    ...PUBLISHED_ONNX.nnunet_liver_lits,
     labels: NNUNET_LIVER_LABELS,
     status: 'unpublished',
   },

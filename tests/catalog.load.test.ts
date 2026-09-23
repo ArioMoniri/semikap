@@ -67,7 +67,9 @@ describe('loadCatalogModel', () => {
   });
 
   it('uses a locally added copy (catalogue id → cached bytes + manifest) without any network call', async () => {
-    const model = { ...CATALOG_MODELS[0]!, status: 'unpublished' as const };
+    // Local copies are checked against the pinned release sha256.
+    const sha = await sha256Hex(onnx);
+    const model = { ...CATALOG_MODELS[0]!, sha256: sha, status: 'unpublished' as const };
     const fetchAsset = vi.fn();
     const rec = await loadCatalogModel(model, {
       fetchAsset,
@@ -176,5 +178,20 @@ describe('filterByAcquisition', () => {
     const err = await fetchIdcSeriesFiles('s', { list: async () => urls, fetchAsset, concurrency: 2, signal: ac.signal }).catch((e) => e);
     expect((err as Error).name).toBe('AbortError');
     expect(fetchAsset.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('pinned release hashes', () => {
+  it('rejects a locally added file that is not the published export', async () => {
+    const model = CATALOG_MODELS.find((m) => m.id === 'lms3d_unet')!;
+    expect(model.sha256).toMatch(/^[0-9a-f]{64}$/);
+    await expect(
+      loadCatalogModel(model, {
+        fetchAsset: vi.fn(),
+        cache: vi.fn(),
+        findCached: async () => null,
+        findLocal: async () => ({ bytes: new Uint8Array([1, 2, 3]), manifest: {} as never }),
+      })
+    ).rejects.toThrow(/does not match the release sha256/);
   });
 });

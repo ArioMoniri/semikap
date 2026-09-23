@@ -145,6 +145,37 @@ const TUMOUR_RGB = [250, 204, 21]; // tumour outline, distinct from the orange l
  * liver as an orange outline and tumour (label 2) as a yellow outline,
  * `outline` px thick.
  */
+/**
+ * Chebyshev erosion of `inside` by radius r (pixels outside the image count as
+ * outside): separable running-min over rows then columns, O(w·h·r).
+ */
+function erode(inside: Uint8Array, w: number, h: number, r: number): Uint8Array {
+  const tmp = new Uint8Array(w * h);
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      let v = 1;
+      for (let d = -r; d <= r && v; d++) {
+        const xx = x + d;
+        v = xx < 0 || xx >= w ? 0 : inside[row + xx]!;
+      }
+      tmp[row + x] = v;
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    for (let y = 0; y < h; y++) {
+      let v = 1;
+      for (let d = -r; d <= r && v; d++) {
+        const yy = y + d;
+        v = yy < 0 || yy >= h ? 0 : tmp[yy * w + x]!;
+      }
+      out[y * w + x] = v;
+    }
+  }
+  return out;
+}
+
 export function composeTile(
   ct: Float32Array,
   gt: Uint8Array,
@@ -156,40 +187,34 @@ export function composeTile(
 ): Uint8ClampedArray<ArrayBuffer> {
   const out = new Uint8ClampedArray(new ArrayBuffer(width * height * 4));
   const lo = window.level - window.width / 2;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = y * width + x;
-      let v = ((ct[i]! - lo) / window.width) * 255;
-      v = v < 0 ? 0 : v > 255 ? 255 : v;
-      let r = v;
-      let g = v;
-      let b = v;
-      if (pred && pred[i]) {
-        r = 0.55 * r + 0.45 * PRED_RGB[0]!;
-        g = 0.55 * g + 0.45 * PRED_RGB[1]!;
-        b = 0.55 * b + 0.45 * PRED_RGB[2]!;
-      }
-      if (gt[i]) {
-        // Edge = a pixel within `outline` px (Chebyshev) of a pixel outside the region or the border.
-        // Whole-liver outline in orange; the tumour (label 2) outline on top in yellow.
-        const isEdge = (inside: (v: number) => boolean) => {
-          for (let dy = -outline; dy <= outline; dy++) {
-            for (let dx = -outline; dx <= outline; dx++) {
-              const xx = x + dx;
-              const yy = y + dy;
-              if (xx < 0 || yy < 0 || xx >= width || yy >= height || !inside(gt[yy * width + xx]!)) return true;
-            }
-          }
-          return false;
-        };
-        if (gt[i] === 2 && isEdge((v) => v === 2)) [r, g, b] = TUMOUR_RGB as [number, number, number];
-        else if (isEdge((v) => v !== 0)) [r, g, b] = GT_RGB as [number, number, number];
-      }
-      out[i * 4] = r;
-      out[i * 4 + 1] = g;
-      out[i * 4 + 2] = b;
-      out[i * 4 + 3] = 255;
+  // Edge = inside the region but not inside its erosion by `outline` (Chebyshev).
+  // Whole-liver outline in orange; the tumour (label 2) outline on top in yellow.
+  const n = width * height;
+  const liver = new Uint8Array(n);
+  const tumour = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    liver[i] = gt[i] ? 1 : 0;
+    tumour[i] = gt[i] === 2 ? 1 : 0;
+  }
+  const liverCore = erode(liver, width, height, outline);
+  const tumourCore = erode(tumour, width, height, outline);
+  for (let i = 0; i < n; i++) {
+    let v = ((ct[i]! - lo) / window.width) * 255;
+    v = v < 0 ? 0 : v > 255 ? 255 : v;
+    let r = v;
+    let g = v;
+    let b = v;
+    if (pred && pred[i]) {
+      r = 0.55 * r + 0.45 * PRED_RGB[0]!;
+      g = 0.55 * g + 0.45 * PRED_RGB[1]!;
+      b = 0.55 * b + 0.45 * PRED_RGB[2]!;
     }
+    if (tumour[i] && !tumourCore[i]) [r, g, b] = TUMOUR_RGB as [number, number, number];
+    else if (liver[i] && !liverCore[i]) [r, g, b] = GT_RGB as [number, number, number];
+    out[i * 4] = r;
+    out[i * 4 + 1] = g;
+    out[i * 4 + 2] = b;
+    out[i * 4 + 3] = 255;
   }
   return out;
 }

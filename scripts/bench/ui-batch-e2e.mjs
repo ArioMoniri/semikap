@@ -21,6 +21,8 @@ const kit = arg('kit', 'hcc-quick');
 const records = arg('records');
 const masksDir = arg('masks-dir');
 const maskCase = arg('mask-case', 'HCC_002');
+// --skip-batch: load the mask case directly (Load CT + GT) instead of running the batch.
+const skipBatch = process.argv.includes('--skip-batch');
 mkdirSync(out, { recursive: true });
 
 const browser = await chromium.launch({
@@ -30,15 +32,26 @@ const browser = await chromium.launch({
     : [],
 });
 const page = await browser.newPage({ viewport: { width: 1680, height: 1100 }, deviceScaleFactor: 2 });
+page.on('crash', () => console.error('[page] CRASHED'));
 page.on('console', (m) => m.type() === 'error' && !/Content Security|Fetch API|TUNNEL|index\.json/.test(m.text()) && console.error('[page]', m.text().slice(0, 200)));
 await page.addInitScript(() => {
   delete window.showOpenFilePicker;
 });
 await page.goto(url, { waitUntil: 'networkidle' });
 const shot = async (name, locator) => {
-  await (locator ?? page).screenshot({ path: join(out, `${name}.png`) });
+  const path = join(out, `${name}.png`);
+  if (!locator) await page.screenshot({ path });
+  else
+    await locator.screenshot({ path, timeout: 5000, animations: 'disabled' }).catch(async () => {
+      // Element never "stable" (live viewer re-layout): clip its bounding box from the page instead.
+      const b = await locator.boundingBox();
+      if (!b) throw new Error(`no box for ${name}`);
+      await page.screenshot({ path, clip: { x: Math.max(0, b.x), y: Math.max(0, b.y), width: b.width, height: b.height }, fullPage: true });
+    });
   console.log('saved', name);
 };
+// Scroll without waiting for layout stability (the resized viewer keeps re-laying out).
+const scrollTo = (loc) => loc.evaluate((el) => el.scrollIntoView({ block: 'start' })).catch(() => {});
 const openSection = async (title) => {
   const btn = page.getByRole('button', { name: new RegExp(`^${title}`) }).first();
   await btn.scrollIntoViewIfNeeded();
@@ -72,12 +85,18 @@ await batch.scrollIntoViewIfNeeded();
 await shot('b02_catalogue_batch_preconfigured', batch);
 
 // 3) Run the batch
+if (skipBatch) {
+  await cat.getByLabel('Case').selectOption(maskCase);
+  await cat.getByRole('button', { name: 'Load CT + GT' }).click();
+  await cat.locator(`text=/Loaded ${maskCase}/`).waitFor({ timeout: 600_000 });
+} else {
 await page.getByTestId('batch-run').click();
 await page.getByTestId('batch-status').locator('text=/^(Done|Cancelled|Batch failed)/').waitFor({ timeout: 4 * 3_600_000 });
 console.log('batch:', await page.getByTestId('batch-status').innerText());
 await batch.scrollIntoViewIfNeeded();
 await shot('b03_batch_results', batch);
 await shot('b04_viewer_after_batch');
+}
 
 // 4) Optional: import the full CI records so the report covers all models/datasets
 await openSection('Benchmark');
@@ -96,22 +115,26 @@ if (masksDir) {
     .map((f) => join(masksDir, f));
   await cat.getByTestId('mask-import-input').setInputFiles(mf);
   await cat.locator('text=/Added \\d+ mask\\(s\\)/').waitFor({ timeout: 300_000 });
+  console.log('masks:', await cat.locator('text=/Added \\d+ mask\\(s\\)/').innerText());
+  console.log('compare panels in DOM:', await page.getByTestId('compare-panel').count());
 }
 
 // 6) Full report (statistics + mask comparison) in a tall viewport
 await page.setViewportSize({ width: 1680, height: 2800 });
-await panel.getByTestId('compare-open-report').click();
+const openReport = panel.getByTestId('compare-open-report');
+await scrollTo(openReport);
+await openReport.evaluate((b) => b.click()); // DOM click: the sticky sidebar can report the button as not "stable"
 const report = page.getByTestId('compare-report');
 await report.waitFor();
 await page.waitForTimeout(1000);
 const blocks = report.locator('[data-testid^="compare-dataset-"], [data-testid="compare-cross-dataset"]');
 for (let i = 0; i < (await blocks.count()); i++) {
   const id = await blocks.nth(i).getAttribute('data-testid');
-  await blocks.nth(i).scrollIntoViewIfNeeded();
+  await scrollTo(blocks.nth(i));
   await shot(`b06_report_${id}`, blocks.nth(i));
 }
 const grid = report.getByTestId('mask-compare');
-await grid.scrollIntoViewIfNeeded();
+await scrollTo(grid);
 const sel = grid.getByLabel('Mask comparison case');
 if (await sel.count()) {
   for (const v of await sel.locator('option').evaluateAll((os) => os.map((o) => o.value))) {
@@ -122,7 +145,7 @@ if (await sel.count()) {
 }
 // 7) Export tables
 const dl = page.waitForEvent('download');
-await report.getByTestId('compare-export-tables').click();
+await report.getByTestId('compare-export-tables').evaluate((b) => b.click());
 const d = await dl;
 await d.saveAs(join(out, 'tamias_benchmark_tables.zip'));
 console.log('exported', d.suggestedFilename());

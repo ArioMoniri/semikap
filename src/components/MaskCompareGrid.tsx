@@ -134,7 +134,7 @@ export function MaskCompareGrid({ size = 170 }: { size?: number }) {
         ct: ct.data,
         reference: gt.data,
         dims: gt.dims,
-        predictions: [{ model: model.name, mask: pr.data, liverLabels }],
+        predictions: [{ model: model.name, mask: pr.data, liverLabels, dice: recordDice(model) }],
       });
       const { preds, ...base } = built;
       putKeySlice(base, preds[0]);
