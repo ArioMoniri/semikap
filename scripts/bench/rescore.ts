@@ -6,6 +6,7 @@
  *
  * Writes NDJSON files with the same records but re-computed metrics (NSD, lesion detection and mL volumes
  * included); post-processed variants carry `postprocess` so the report keeps them as separate datasets:
+ *   records_raw.ndjson       unchanged prediction, re-scored with the current metric set
  *   records_lcc.ndjson       prediction reduced to its largest 3-D connected component (whole liver)
  *   records_fov.ndjson       predictions zeroed outside the scanner field of view (input CT HU ≤ −1500)
  *   records_fov_lcc.ndjson   FOV mask, then largest component
@@ -57,8 +58,8 @@ for (const f of readdirSync(modelsDir).filter((f) => f.endsWith('.json') && !f.s
   manifests.set(id, { labels: m.output.labels, sha: m.sha256 ?? sha(readFileSync(onnx)) });
 }
 
-const VARIANTS: Record<string, PostprocessOp[]> = { lcc: ['lcc'], fov: ['fov'], fov_lcc: ['fov', 'lcc'] };
-const variants: Record<string, BenchmarkRecord[]> = { lcc: [], fov: [], fov_lcc: [] };
+const VARIANTS: Record<string, PostprocessOp[]> = { raw: [], lcc: ['lcc'], fov: ['fov'], fov_lcc: ['fov', 'lcc'] };
+const variants: Record<string, BenchmarkRecord[]> = { raw: [], lcc: [], fov: [], fov_lcc: [] };
 const filled: BenchmarkRecord[] = [];
 for (const f of readdirSync(masksDir).sort()) {
   const p = parseMaskFileName(f);
@@ -86,7 +87,8 @@ for (const f of readdirSync(masksDir).sort()) {
   const score = (r: Uint8Array, p: Uint8Array) => scoreLiverTumourCase(r, p, ct.dims, ct.spacing, groups);
   for (const [name, ops] of Object.entries(VARIANTS)) {
     const s = score(ref, applyPostprocess(pred, ct.voxels, ct.dims, groups[0]!.predMembers, ops));
-    variants[name]!.push({ ...rec, id: `${rec.id}-${name}`, postprocess: [...ops], segmentation: s.segmentation, lesions: s.lesions, tumourInclusion: s.tumourInclusion });
+    const post = ops.length ? { id: `${rec.id}-${name}`, postprocess: [...ops] } : {};
+    variants[name]!.push({ ...rec, ...post, segmentation: s.segmentation, lesions: s.lesions, tumourInclusion: s.tumourInclusion });
   }
 
   // (b) Reference whole liver with enclosed holes filled per slice (tumour unchanged).
