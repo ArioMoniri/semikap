@@ -62,6 +62,11 @@ export async function createSession(
       return await ort.InferenceSession.create(bytes, {
         executionProviders: [provider],
         graphOptimizationLevel: 'all',
+        // WASM: the CPU arena + memory-pattern planner grow the wasm heap to
+        // its high-water mark and never return it. With 3D models that pushed
+        // the Linux desktop WebView (WebKitGTK) past its 8 GB memory-pressure
+        // kill threshold. Plain allocation keeps the footprint bounded.
+        ...(provider === 'wasm' ? { enableCpuMemArena: false, enableMemPattern: false } : {}),
       });
     } catch (err) {
       console.warn(`[TAMIAS] EP "${provider}" unavailable:`, err);

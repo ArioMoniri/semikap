@@ -150,6 +150,11 @@ export async function slidingWindowInference(
           }
         }
 
+        // Free per-tile tensors promptly (GPU buffers on WebGPU; lets JS engines
+        // with lazy GC — JavaScriptCore in the desktop WebView — reclaim early).
+        input.dispose?.();
+        outTensor.dispose?.();
+
         tileIdx++;
         opts.onProgress?.(tileIdx / totalTiles);
       }
