@@ -17,7 +17,7 @@ import { findLocalModel } from '../lib/catalog/local-models';
 import { fetchCatalogAsset } from '../lib/catalog/fetch';
 import { cacheModel, loadCachedModel } from '../lib/fs/opfs';
 import { canonicalGroupMasks, groupsForModelLabels } from '../lib/metrics/label-groups';
-import { scoreLesions, scoreSegmentation } from '../lib/metrics/score';
+import { scoreLesions, scoreSegmentation, scoreTumourInclusion } from '../lib/metrics/score';
 import { applyPostprocess, parsePostprocess, POSTPROCESS_CHOICES } from '../lib/metrics/postprocess';
 import type { LesionDetection } from '../lib/metrics/lesions';
 import { datasetKey } from '../lib/benchmark/compare';
@@ -124,6 +124,7 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
     const ppKey = datasetKey({ datasetName: dataset.id, postprocess: post });
     const recorded = skipRecorded ? records.filter((r) => datasetKey(r) === ppKey) : [];
     const lesionsByPrediction = new WeakMap<object, LesionDetection>();
+    const inclusionByPrediction = new WeakMap<object, number>();
     try {
       const cases: BatchCase[] = chosenCases.map((caseId) => ({ datasetId: dataset.id, caseId }));
       const summary = await runCatalogBatch<LoadedCase, { catalog: CatalogModel; rec: ModelRecord }>(
@@ -199,6 +200,8 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
             const predGrid = { dims: pred.dims, spacing: pred.spacing };
             const lesions = scoreLesions({ refMask: ref.mask, refGrid, predMask: pred.mask, predGrid, predLabels: m.rec.manifest.output.labels });
             if (lesions) lesionsByPrediction.set(pred, lesions);
+            const inclusion = scoreTumourInclusion({ refMask: ref.mask, refGrid, predMask: pred.mask, predGrid, predLabels: m.rec.manifest.output.labels });
+            if (inclusion !== undefined) inclusionByPrediction.set(pred, inclusion);
             const groups = canonicalGroupMasks(ref.mask, pred.mask, m.rec.manifest.output.labels);
             return groups.map((g) => {
               const r = scoreSegmentation({
@@ -236,6 +239,7 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
               segmentation: r.metrics,
               ...(post.length ? { postprocess: [...post] } : {}),
               ...(lesionsByPrediction.has(r.prediction) ? { lesions: lesionsByPrediction.get(r.prediction) } : {}),
+              ...(inclusionByPrediction.has(r.prediction) ? { tumourInclusion: inclusionByPrediction.get(r.prediction) } : {}),
               env: captureEnv(backend, __APP_VERSION__),
               createdAt: new Date().toISOString(),
               appVersion: __APP_VERSION__,

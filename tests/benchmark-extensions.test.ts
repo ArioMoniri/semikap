@@ -91,7 +91,13 @@ describe('lesion detection', () => {
     const pred = new Uint8Array([0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1]);
     // voxel = 1 mm³ → min volume 0.002 mL = 2 voxels
     const r = lesionDetection(ref, pred, dims, [1, 1, 1], 0.002);
-    expect(r).toEqual({ minVolumeMl: 0.002, refLesions: 2, tp: 1, fn: 1, fpComponents: 1 });
+    expect(r).toMatchObject({ minVolumeMl: 0.002, refLesions: 2, tp: 1, fn: 1, fpComponents: 1 });
+    // every reference component, largest first (ties keep scan order), tiny C included
+    expect(r.refComponents).toEqual([
+      { volumeMl: 0.002, detected: true },
+      { volumeMl: 0.002, detected: false },
+      { volumeMl: 0.001, detected: true },
+    ]);
   });
   it('scoreLiverTumourCase returns segmentation + lesions only for tumour models', () => {
     const dims: D = [4, 1, 1];
@@ -111,7 +117,7 @@ describe('lesion detection', () => {
     const refMask = new Uint8Array([1, 2, 0, 2]);
     const predMask = new Uint8Array([8, 9, 0, 0]);
     const inp = { refMask, refGrid: grid, predMask, predGrid: grid };
-    expect(scoreLesions({ ...inp, predLabels: { 8: 'liver', 9: 'liver tumor' } })).toEqual({ minVolumeMl: 0.5, refLesions: 2, tp: 1, fn: 1, fpComponents: 0 });
+    expect(scoreLesions({ ...inp, predLabels: { 8: 'liver', 9: 'liver tumor' } })).toMatchObject({ minVolumeMl: 0.5, refLesions: 2, tp: 1, fn: 1, fpComponents: 0 });
     expect(scoreLesions({ ...inp, predLabels: { 8: 'liver' } })).toBeUndefined();
   });
 });

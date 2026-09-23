@@ -86,7 +86,7 @@ for (const f of readdirSync(masksDir).sort()) {
   const score = (r: Uint8Array, p: Uint8Array) => scoreLiverTumourCase(r, p, ct.dims, ct.spacing, groups);
   for (const [name, ops] of Object.entries(VARIANTS)) {
     const s = score(ref, applyPostprocess(pred, ct.voxels, ct.dims, groups[0]!.predMembers, ops));
-    variants[name]!.push({ ...rec, id: `${rec.id}-${name}`, postprocess: [...ops], segmentation: s.segmentation, lesions: s.lesions });
+    variants[name]!.push({ ...rec, id: `${rec.id}-${name}`, postprocess: [...ops], segmentation: s.segmentation, lesions: s.lesions, tumourInclusion: s.tumourInclusion });
   }
 
   // (b) Reference whole liver with enclosed holes filled per slice (tumour unchanged).
@@ -94,7 +94,7 @@ for (const f of readdirSync(masksDir).sort()) {
   const refFilled = new Uint8Array(ref.length);
   for (let i = 0; i < ref.length; i++) refFilled[i] = ref[i] === 2 ? 2 : fill[i] ? 1 : 0;
   const sf = score(refFilled, pred);
-  filled.push({ ...rec, id: `${rec.id}-gtfilled`, segmentation: sf.segmentation, lesions: sf.lesions });
+  filled.push({ ...rec, id: `${rec.id}-gtfilled`, segmentation: sf.segmentation, lesions: sf.lesions, tumourInclusion: sf.tumourInclusion });
   const d = (xs: BenchmarkRecord[]) => xs.at(-1)!.segmentation![0]!;
   console.log(
     `${p.modelId}\t${p.caseId}\tdice ${rec.segmentation![0]!.dice.toFixed(3)} → lcc ${d(variants.lcc!).dice.toFixed(3)} / fov ${d(variants.fov!).dice.toFixed(3)} / gtFilled ${d(filled).dice.toFixed(3)}\t` +

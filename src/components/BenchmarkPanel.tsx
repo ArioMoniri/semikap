@@ -23,7 +23,7 @@ import { listRegistry, registerModel, removeModel, type RegistryEntry } from '..
 import { validateOnnx } from '../lib/registry/onnx-validate';
 import { parseManifest } from '../lib/inference/manifest';
 import { cacheModel, sha256Hex } from '../lib/fs/opfs';
-import { scoreLesions, scoreSegmentation, type ScoreInputs } from '../lib/metrics/score';
+import { scoreLesions, scoreSegmentation, scoreTumourInclusion, type ScoreInputs } from '../lib/metrics/score';
 import { applyPostprocess, parsePostprocess, POSTPROCESS_CHOICES } from '../lib/metrics/postprocess';
 import type { LesionDetection } from '../lib/metrics/lesions';
 import type { MultiLabelResult } from '../lib/metrics/segmentation';
@@ -304,6 +304,7 @@ export function BenchmarkPanel() {
       let labels: number[];
       let post: ReturnType<typeof parsePostprocess> = [];
       let lesions: LesionDetection | undefined;
+      let inclusion: number | undefined;
       if (reference.catalog?.labelSpace === 'liver-tumour' && model) {
         // Recorded post-processing (FOV mask needs the loaded CT on the result grid), then
         // map the model's own labels (e.g. BTCV liver=6, nnU-Net liver=8 / tumour=9)
@@ -313,13 +314,15 @@ export function BenchmarkPanel() {
         const predMask = post.length
           ? applyPostprocess(result.mask, volume?.voxels ?? null, result.dims, groupsForModelLabels(labelsOut)[0]!.predMembers, post)
           : result.mask;
-        lesions = scoreLesions({
+        const tumourInputs = {
           refMask: reference.mask,
           refGrid: { dims: reference.dims, spacing: reference.spacing },
           predMask,
           predGrid: { dims: result.dims, spacing: result.spacing },
           predLabels: labelsOut,
-        });
+        };
+        lesions = scoreLesions(tumourInputs);
+        inclusion = scoreTumourInclusion(tumourInputs);
         const groups = canonicalGroupMasks(reference.mask, predMask, labelsOut);
         const perLabel: MultiLabelResult['perLabel'] = [];
         for (const g of groups) {
@@ -375,6 +378,7 @@ export function BenchmarkPanel() {
         segmentation: metrics.perLabel,
         ...(post.length ? { postprocess: [...post] } : {}),
         ...(lesions ? { lesions } : {}),
+        ...(inclusion !== undefined ? { tumourInclusion: inclusion } : {}),
         env: captureEnv(backend, __APP_VERSION__),
         createdAt: new Date().toISOString(),
         appVersion: __APP_VERSION__,

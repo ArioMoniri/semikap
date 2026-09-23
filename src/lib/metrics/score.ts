@@ -7,7 +7,7 @@
 
 import { alignToPrediction, type Grid } from './align';
 import { multiLabelMetrics, type MultiLabelResult, type SegMetricsOptions } from './segmentation';
-import { groupMask, groupsForModelLabels } from './label-groups';
+import { groupMask, groupsForModelLabels, tumourInclusion } from './label-groups';
 import { lesionDetection, type LesionDetection } from './lesions';
 
 export interface ScoreInputs {
@@ -51,4 +51,21 @@ export function scoreLesions(input: {
   const pred = groupMask(input.predMask, t.predMembers);
   const a = alignToPrediction(groupMask(input.refMask, t.refMembers), input.refGrid, pred, input.predGrid);
   return lesionDetection(a.ref, pred, a.dims, a.spacing, input.minVolumeMl);
+}
+
+/**
+ * Fraction of reference tumour voxels the model labels as whole liver (liver ∪ tumour labels),
+ * reference aligned onto the prediction grid. Undefined when the reference has no tumour.
+ */
+export function scoreTumourInclusion(input: {
+  refMask: Uint8Array;
+  refGrid: Grid;
+  predMask: Uint8Array;
+  predGrid: Grid;
+  predLabels: Record<number, string>;
+}): number | undefined {
+  const liver = groupsForModelLabels(input.predLabels)[0]!;
+  const refTumour = groupMask(input.refMask, [2]);
+  const a = alignToPrediction(refTumour, input.refGrid, input.predMask, input.predGrid);
+  return tumourInclusion(a.ref, input.predMask, liver.predMembers, [1]);
 }

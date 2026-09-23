@@ -264,7 +264,7 @@ for (const id of models) {
       const groups = groupsForModelLabels(manifest.output.labels);
       const tm = performance.now();
       const scored = applyPostprocess(pred, vol.voxels, vol.dims, groups[0]!.predMembers, postprocess);
-      const { segmentation: seg, lesions } = scoreLiverTumourCase(ref, scored, vol.dims, vol.spacing, groups, { minLesionMl });
+      const { segmentation: seg, lesions, tumourInclusion } = scoreLiverTumourCase(ref, scored, vol.dims, vol.spacing, groups, { minLesionMl });
       const metricMs = performance.now() - tm;
 
       const rec: BenchmarkRecord = {
@@ -285,6 +285,7 @@ for (const id of models) {
         segmentation: seg,
         ...(postprocess.length ? { postprocess: [...postprocess] } : {}),
         ...(lesions ? { lesions } : {}),
+        ...(tumourInclusion !== undefined ? { tumourInclusion } : {}),
         env: {
           provider: 'cpu',
           wasmThreads: threads,

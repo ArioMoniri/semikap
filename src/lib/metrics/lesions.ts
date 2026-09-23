@@ -17,6 +17,11 @@ export interface LesionDetection {
   fn: number;
   /** Predicted components ≥ minVolumeMl with no reference-tumour overlap. */
   fpComponents: number;
+  /**
+   * Every reference tumour component (including those below minVolumeMl, which are not scored):
+   * volume in mL and whether any voxel was predicted tumour. Optional — older records lack it.
+   */
+  refComponents?: { volumeMl: number; detected: boolean }[];
 }
 
 /** 26-connected component labels (0 = background, 1..count) and voxel counts per id. */
@@ -88,12 +93,15 @@ export function lesionDetection(
   }
   let refLesions = 0;
   let tp = 0;
+  const refComponents: { volumeMl: number; detected: boolean }[] = [];
   for (let k = 1; k <= r.count; k++) {
+    refComponents.push({ volumeMl: +(r.sizes[k]! * voxelMl).toPrecision(5), detected: !!hit[k] });
     if (!big(r.sizes[k]!)) continue;
     refLesions++;
     if (hit[k]) tp++;
   }
   let fpComponents = 0;
   for (let k = 1; k <= p.count; k++) if (big(p.sizes[k]!) && !touches[k]) fpComponents++;
-  return { minVolumeMl, refLesions, tp, fn: refLesions - tp, fpComponents };
+  refComponents.sort((a, b) => b.volumeMl - a.volumeMl);
+  return { minVolumeMl, refLesions, tp, fn: refLesions - tp, fpComponents, refComponents };
 }
