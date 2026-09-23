@@ -18,7 +18,8 @@ const out = arg('out', 'shots-desktop');
 const caseId = arg('case', 'HCC_002');
 const modelId = arg('model', 'lms3d_segformer');
 const records = arg('records');
-// Skip in-app inference (Linux WebKitGTK: the web process hits its 8 GB kill threshold — see docs/CATALOGUE.md).
+// Skip in-app inference (e.g. to exercise only download/load/scoring). Inference runs on the
+// native ONNX Runtime backend when the app can load it (release builds: always).
 const skipInference = process.argv.includes('--skip-inference');
 const WD = arg('driver', 'http://127.0.0.1:4444');
 mkdirSync(out, { recursive: true });
@@ -158,6 +159,23 @@ try {
       'inference'
     );
     log('inference', doneMsg, `${((Date.now() - t0) / 1000).toFixed(0)}s wall`);
+    // Native ONNX Runtime backend counters (src/lib/inference/native-backend.ts).
+    const nat = await wd('POST', S('/execute/async'), {
+      script: `const done = arguments[arguments.length - 1];
+        const s = window.__tamiasNativeOrt;
+        if (!s) return done(null);
+        window.__TAURI_INTERNALS__.invoke('ort_available').then(
+          (i) => done({ ...s, ortRunMs: i.run_ms, threads: i.threads }), () => done(s));`,
+      args: [],
+    }).catch(() => null);
+    if (nat?.runs) {
+      log(
+        'native',
+        `${nat.runs} tiles on ${nat.threads} threads · ORT compute ${(nat.ortRunMs / 1000).toFixed(1)}s ·`,
+        `ort_run IPC+compute ${(nat.runMs / 1000).toFixed(1)}s · session ${(nat.createMs / 1000).toFixed(1)}s ·`,
+        `${(nat.bytesIn / 1e6).toFixed(0)} MB in / ${(nat.bytesOut / 1e6).toFixed(0)} MB out`
+      );
+    }
     await new Promise((r) => setTimeout(r, 4000));
     await shot('d04_inference_overlay');
 

@@ -35,7 +35,21 @@ serde_json = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 url = "2"
+# Native ONNX Runtime backend (src/native_ort.rs): 3-D sliding-window tiles
+# run in the Rust process instead of the WebView's WASM heap. Pinned to rc.10
+# (ONNX Runtime 1.22): the last release whose prebuilt static binaries cover
+# every desktop target we ship, x86_64-apple-darwin included. Linking is
+# chosen by the `ort-static` / `ort-dynamic` features below.
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std"] }
 
 [features]
-default = ["custom-protocol"]
+default = ["custom-protocol", "ort-dynamic"]
 custom-protocol = ["tauri/custom-protocol"]
+# Dev / source builds: dlopen ONNX Runtime 1.22+ at runtime ($ORT_DYLIB_PATH,
+# next to the executable, or the system library path). No download at build
+# time; if no library is found the app falls back to in-WebView inference.
+ort-dynamic = ["ort/load-dynamic"]
+# Release builds (tauri-release.yml: --no-default-features --features
+# custom-protocol,ort-static): statically link pyke's prebuilt ONNX Runtime,
+# downloaded by ort-sys at build time. Nothing extra to bundle or sign.
+ort-static = ["ort/download-binaries"]

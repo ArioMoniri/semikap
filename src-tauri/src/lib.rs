@@ -3,7 +3,8 @@
 // The Tauri shell embeds the same Vite-built TAMIAS frontend as the PWA. The
 // only difference is that the user gets a real OS application window with no
 // browser chrome and no need to install/start a server. Inference still runs
-// 100% locally inside the embedded WebView (WebGPU on macOS, Windows, Linux).
+// 100% locally — in the embedded WebView, or for 3-D models in this process
+// through the native ONNX Runtime backend (native_ort.rs).
 //
 // The auto-updater is wired in via the official Tauri updater plugin. It
 // polls a manifest URL (configured in tauri.conf.json's `plugins.updater`),
@@ -12,6 +13,7 @@
 // updates.
 
 mod catalog;
+mod native_ort;
 mod totalseg;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -27,6 +29,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             about,
             catalog::catalog_fetch,
+            native_ort::ort_available,
+            native_ort::ort_create,
+            native_ort::ort_run,
+            native_ort::ort_release,
             totalseg::totalseg_detect,
             totalseg::totalseg_run,
             totalseg::totalseg_read_mask,

@@ -87,6 +87,12 @@ the right statistics — per dataset and across datasets.
 - Sliding-window inference keeps only one patch depth of class sums (rolling z-window,
   bit-identical output), so large CTs at fine model spacing no longer run out of memory.
 - ONNX sessions and tensors are released after every run (batch memory growth).
+- **3D inference in the Linux desktop app no longer gets killed.** The desktop app now runs
+  3D models with native ONNX Runtime in its Rust process, one sliding-window tile per
+  binary IPC call. Before, WebKitGTK's web process grew past ~9 GB and was killed. SegFormer
+  on HCC_002 now finishes in 64–91 s (Dice 0.948) and UNETR (371 MB) in 196–206 s (Dice 0.945).
+  Both match the headless runner, and the webview stays under 4 GB. The browser keeps
+  WebGPU/WASM.
 - Surface metrics undefined by an empty prediction are scored as failures (worst value)
   instead of silently dropping the case; re-runs no longer double-count in cross-dataset tests.
 - BTCV ground truth is remapped (liver = 6) before scoring; BTCV citation corrected to the

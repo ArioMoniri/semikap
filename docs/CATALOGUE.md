@@ -116,11 +116,17 @@ via `tauri-driver`).
   - HCC_001: SEG/CT slice mismatch;
   - HCC_008, HCC_010, HCC_011: phases on different z-grids;
   - HCC_012: arterial phase only.
-- **Known issue: 3D inference in the Linux desktop app.** On Linux the desktop webview
-  (WebKitGTK) runs single-threaded WASM. During 3D inference its web process passes WebKit's
-  8 GB memory limit and gets killed. Everything else works there: catalogue, native model
-  download, TCIA case + GT, scoring of imported results. For now, run models in the browser
-  build (SegFormer on HCC_002: 28.6 s) or with the headless runner.
+- **Desktop inference runs on native ONNX Runtime.** In the desktop app the radiology
+  inference worker hands each sliding-window tile to ONNX Runtime in the app's Rust process
+  (multi-threaded CPU; `src-tauri/src/native_ort.rs`). Blending and argmax stay in the shared
+  TypeScript code, so results match the browser and headless runs. The run status shows
+  `via native`. This replaced single-threaded WASM in the Linux webview (WebKitGTK), whose web
+  process passed WebKit's memory limit (~9 GB, even for SegFormer) and was killed. HCC_002 on
+  4 vCPUs (Xvfb, software rendering): SegFormer 64–91 s, Dice 0.948; UNETR (371 MB) 196–206 s, Dice
+  0.945. Both equal the headless runner. The webview stays under 4 GB. About 0.6 s per tile
+  goes to moving the 14-class logits (50 MB) over Tauri IPC. Release builds link ONNX Runtime
+  statically. Source builds load it at runtime from `ORT_DYLIB_PATH` (ONNX Runtime ≥ 1.22).
+  Without it they fall back to in-webview WASM, which still has the old memory limit on Linux.
 - Raw model outputs are scored as-is (no largest-connected-component post-processing), so
   distant false positives show up in HD95.
 

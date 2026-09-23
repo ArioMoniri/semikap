@@ -72,7 +72,8 @@ const api: InferenceApi = {
     onProgress({ stage: 'inference', fraction: 0, message: 'Loading model…' });
     const { session, provider, attempted } = await createSession(
       inputs.modelBytes,
-      inputs.manifest.preferredEP ?? 'auto'
+      inputs.manifest.preferredEP ?? 'auto',
+      { native: true }
     );
 
     let modelMask: Bytes;
