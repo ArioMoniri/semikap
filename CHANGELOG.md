@@ -35,8 +35,29 @@ the right statistics — per dataset and across datasets.
 - `zscore_volume` normalisation (nnU-Net ZScoreNormalization).
 - Label-group scoring: each model's own label space mapped to whole liver (liver ∪
   tumour) and tumour.
+- **In-app batch benchmark** (Catalogue → Batch; Examples → Benchmark kits): every selected
+  model on every selected case (TCIA/IDC or local NIfTI), auto-scored, feeding the statistics.
+  Stop/resume, "skip recorded" pairs, and state that survives collapsing the panel.
+- **Mask comparison grid**: every model's prediction on the same key slice, radiological
+  view, ground-truth whole liver (orange) and tumour (yellow) outlines; runs or imported
+  `<model>__<case>.nii.gz` masks.
+- **Export tables (.zip)** from the report: per-case, summary, Friedman, Nemenyi pairs,
+  pairwise, cross-dataset CSVs and REPORT.md with an auto-generated Methods section.
+- Report statistics: Nemenyi critical-difference pairs, paired median differences vs the
+  top model with bootstrap 95% CIs, the smallest attainable Wilcoxon p (power note), failure
+  counts, and a † flag for models scored on their own training data.
+- Sensitivity re-scoring (`scripts/bench/rescore.ts`): largest connected component and
+  hole-filled reference, without re-running inference.
 
 ### Fixed
+
+- Sliding-window inference keeps only one patch depth of class sums (rolling z-window,
+  bit-identical output), so large CTs at fine model spacing no longer run out of memory.
+- ONNX sessions and tensors are released after every run (batch memory growth).
+- Surface metrics undefined by an empty prediction are scored as failures (worst value)
+  instead of silently dropping the case; re-runs no longer double-count in cross-dataset tests.
+- BTCV ground truth is remapped (liver = 6) before scoring; BTCV citation corrected to the
+  Synapse challenge set (Landman 2015).
 
 - **`manifest.orientation` was ignored** — volumes were fed in file voxel order. Inference
   now reorients to the model's training orientation (nibabel-exact axis codes) and maps
