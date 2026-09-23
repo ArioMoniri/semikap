@@ -51,8 +51,8 @@ export interface MappedLabelGroup {
   predMembers: number[];
 }
 
-const TUMOUR_RE = /^(tumou?r|lesion|liver[ _-]?tumou?r|hcc|mass|cancer)s?$/i;
-const LIVER_RE = /^liver$/i;
+const TUMOUR_RE = /^((liver|hepatic)[ _-]?)?(tumou?r|lesion|mass|cancer)s?$|^hcc$/i;
+const LIVER_RE = /^liver([ _-]?parenchyma)?$/i;
 
 /**
  * Canonical liver/tumour groups for a model from its manifest label names.

@@ -55,6 +55,15 @@ describe('model-specific label mapping', () => {
     expect(res[0]!.dice).toBeCloseTo(1, 9);
   });
 
+  it('recognises liver_lesion / hepatic tumour / liver_parenchyma naming variants', () => {
+    const g = groupsForModelLabels({ 0: 'background', 1: 'liver_parenchyma', 2: 'liver_lesion' });
+    expect(g[0]!.predMembers).toEqual([1, 2]);
+    expect(g[1]!.predMembers).toEqual([2]);
+    expect(groupsForModelLabels({ 1: 'Liver', 2: 'hepatic tumour' })[1]!.predMembers).toEqual([2]);
+    // Unknown "tum*" names stay excluded (nnU-Net's 'tumsomething' lies largely outside the liver).
+    expect(groupsForModelLabels({ 7: 'tumsomething', 8: 'liver' })).toHaveLength(1);
+  });
+
   it('throws when a model has no liver label', () => {
     expect(() => groupsForModelLabels({ 0: 'background', 1: 'spleen' })).toThrow(/liver/);
   });

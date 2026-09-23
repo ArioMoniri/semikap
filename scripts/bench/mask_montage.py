@@ -21,8 +21,8 @@ import numpy as np  # noqa: E402
 
 PRED = "#2a78d6"  # categorical slot 1 (prediction)
 GT = "#eb6834"  # categorical slot 2 (ground truth outline)
-LIVER = re.compile(r"^liver$", re.I)
-TUMOUR = re.compile(r"^(tumou?r|lesion|liver[ _-]?tumou?r|hcc|mass|cancer)s?$", re.I)
+LIVER = re.compile(r"^liver([ _-]?parenchyma)?$", re.I)  # mirrors src/lib/metrics/label-groups.ts
+TUMOUR = re.compile(r"^((liver|hepatic)[ _-]?)?(tumou?r|lesion|mass|cancer)s?$|^hcc$", re.I)
 
 
 def liver_labels(manifest):
