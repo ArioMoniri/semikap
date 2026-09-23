@@ -32,13 +32,14 @@ jobs:
             if [ "$EXISTING" = "$GITHUB_SHA" ] || ! grep -qx retag .github/release-tag; then
               echo "$TAG already exists at $EXISTING — nothing to do (add a 'retag' line to move it)"; exit 0
             fi
-            # Move the tag only while its release is still a draft (never rewrite a published release).
+            # Move the tag only while its release is unfinished: a draft, or missing latest.json
+            # (the release workflow attaches latest.json last). Never rewrite a finished release.
             gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" > /tmp/rels.json
-            if jq -e --arg t "$TAG" 'any(.[]; .tag_name==$t and (.draft|not))' /tmp/rels.json >/dev/null; then
-              echo "::error::$TAG already has a published release — not moving it"; exit 1
-            fi
-            jq -r --arg t "$TAG" '.[] | select(.tag_name==$t and .draft) | .id' /tmp/rels.json | while read -r id; do
-              echo "deleting draft release $id for $TAG"; gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+            for id in $(jq -r --arg t "$TAG" '.[] | select(.tag_name==$t) | .id' /tmp/rels.json); do
+              if gh api "repos/$GITHUB_REPOSITORY/releases/$id/assets?per_page=100" --jq '.[].name' | grep -qx latest.json; then
+                echo "::error::$TAG release $id is finished (has latest.json) — not moving it"; exit 1
+              fi
+              echo "deleting unfinished release $id for $TAG"; gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
             done
             git push origin ":refs/tags/$TAG"
             echo "moved $TAG from $EXISTING"

@@ -183,7 +183,6 @@ jobs:
             | 🐧 **Linux** AppImage | [`Tamias_amd64.AppImage`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Tamias_amd64.AppImage) |
             | 🐧 **Linux** Debian/Ubuntu | [`Tamias_amd64.deb`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Tamias_amd64.deb) |
             | 🐧 **Linux** Fedora/RHEL | [`Tamias_x86_64.rpm`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Tamias_x86_64.rpm) |
-            | 🧪 **Smoke-test kit** | [`tamias-examples.zip`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/tamias-examples.zip) (CT NIfTI + tiny ONNX + manifest, ~470 KB) |
 
             ### 🔐 What's signed
 
@@ -197,7 +196,7 @@ jobs:
 
             ### 🧠 What you'll need to actually run inference
 
-            Load published models from the in-app **Catalogue** (full-weight ONNX exports of Zenodo records, parity-checked against PyTorch) or bring your own ONNX. **Examples → Bundle** also offers benchmark kits (Zenodo models × TCIA / MSD data) and a tiny smoke-test kit. See [`examples/README.md`](https://github.com/${{ github.repository }}/blob/main/examples/README.md) for sources of real medical models (MONAI Model Zoo, TotalSegmentator, MedSAM, …).
+            Load published models from the in-app **Catalogue** (full-weight ONNX exports of Zenodo records, parity-checked against PyTorch) or bring your own ONNX. **Examples → Bundle** offers benchmark kits (Zenodo models × TCIA / MSD data). See [`examples/README.md`](https://github.com/${{ github.repository }}/blob/main/examples/README.md) for sources of real medical models (MONAI Model Zoo, TotalSegmentator, MedSAM, …).
 
             ### 📚 Learn more
 
@@ -365,12 +364,14 @@ jobs:
           rm -f /tmp/sigs/*
 
           # Fetch every .sig present on the release. Order doesn't matter.
+          # By asset id (not `gh release download <tag>`, which can miss assets
+          # uploaded moments earlier and cannot see draft releases).
           gh api "repos/$REPO/releases/$RELEASE_ID/assets?per_page=100" \
-            --jq '.[] | select(.name|endswith(".sig")) | .name' > /tmp/sig_names.txt
+            --jq '.[] | select(.name|endswith(".sig")) | "\(.id) \(.name)"' > /tmp/sig_names.txt
           echo ".sig files on release:"
           sed 's|^|  |' /tmp/sig_names.txt
-          while IFS= read -r sig; do
-            gh release download "$TAG" --repo "$REPO" -p "$sig" -D /tmp/sigs --clobber
+          while read -r id sig; do
+            gh api "repos/$REPO/releases/assets/$id" -H "Accept: application/octet-stream" > "/tmp/sigs/$sig"
           done < /tmp/sig_names.txt
 
           # Pull the release body so latest.json's `notes` field stays in sync.
@@ -439,21 +440,6 @@ jobs:
 
           gh release upload "$TAG" /tmp/latest.json --repo "$REPO" --clobber
 
-      - name: Attach example test kit to the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -e
-          # Pack the smoke-test kit into a single zip + upload individual files
-          # so the in-app downloader has a stable URL.
-          mkdir -p /tmp/kit
-          cp examples/CT_AVM.nii.gz examples/threshold_seg.onnx examples/threshold_seg.json /tmp/kit/
-          (cd /tmp/kit && zip -j tamias-examples.zip CT_AVM.nii.gz threshold_seg.onnx threshold_seg.json)
-          for f in tamias-examples.zip CT_AVM.nii.gz threshold_seg.onnx threshold_seg.json; do
-            gh release upload "$TAG" "/tmp/kit/$f" --repo "${{ github.repository }}" --clobber
-            echo "  uploaded $f"
-          done
 
   # Publish the finished release (it stays a draft until every asset and
   # latest.json are attached), mark it latest, and delete stale drafts left by
