@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Sparkles, Download, Trash2, Loader2, FileImage, Brain, FileJson, Play } from 'lucide-react';
 import {
+  DEFAULT_EXAMPLE_SELECTION,
   EXAMPLE_BUNDLES,
   deleteAllExamples,
   deleteExample,
-  downloadExampleKit,
+  downloadExampleBundle,
   listBundleFiles,
   readExample,
   type ExampleFile,
@@ -27,14 +28,10 @@ interface Props {
 }
 
 /**
- * v0.10.1 — bundle-aware Examples panel. The user picks which example
- * workflow to download via a dropdown, then sees that bundle's files,
- * cache status, and a one-click "Load into app" button.
- *
- * Files cached in OPFS are SHARED across bundles by filename, so two
- * bundles that include the same image won't re-download it. The
- * cache-status check is per-bundle though, so the "Cached / Download"
- * indicator reflects the active bundle's completeness.
+ * Examples panel: benchmark kits (Zenodo models × TCIA / MSD data) plus
+ * real public sample scans. The picker defaults to the first benchmark
+ * kit; sample scans are image-only and cached in OPFS, then "Load into
+ * app" puts them in the primary volume slot.
  */
 
 function iconFor(name: string): JSX.Element {
@@ -44,7 +41,7 @@ function iconFor(name: string): JSX.Element {
 }
 
 export function ExamplesPanel({ viewerRef }: Props) {
-  const [bundleId, setBundleId] = useState<string>(EXAMPLE_BUNDLES[0]!.id);
+  const [bundleId, setBundleId] = useState<string>(DEFAULT_EXAMPLE_SELECTION);
   const [files, setFiles] = useState<ExampleFile[]>([]);
   const [busy, setBusy] = useState<'download' | 'apply' | 'clear' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +75,7 @@ export function ExamplesPanel({ viewerRef }: Props) {
   const handleDownload = useCallback(async () => {
     setBusy('download');
     setError(null);
-    const result = await downloadExampleKit(undefined, bundle.id);
+    const result = await downloadExampleBundle(bundle.id);
     await refresh();
     if (result.errors.length) setError(result.errors.join('; '));
     setBusy(null);
@@ -89,11 +86,7 @@ export function ExamplesPanel({ viewerRef }: Props) {
     setBusy('apply');
     setError(null);
     try {
-      // 1) Load the image, IF this bundle ships one. v0.10.20 — bundles
-      //    with `imageName === null` are model-only kits (the new
-      //    `liver-vessel-band-model` bundle) that the user wants to
-      //    apply to whatever volume is already loaded. Skip the image
-      //    step and let setModel below run against the existing volume.
+      // 1) Load the image, if this bundle ships one.
       if (bundle.imageName) {
         const imgBytes = await readExample(bundle.imageName);
         if (!imgBytes) {
@@ -108,8 +101,8 @@ export function ExamplesPanel({ viewerRef }: Props) {
         });
       }
       // 2) Load the model, if this bundle ships one. Image-only bundles
-      //    (e.g. brain-mr-mni) skip this step — the user pairs them with
-      //    a separately-loaded model (SAM / TotalSegmentator).
+      //    skip this step — the user pairs them with a catalogue model,
+      //    SAM or TotalSegmentator.
       if (bundle.modelName && bundle.manifestName) {
         const onnxBytes = await readExample(bundle.modelName);
         const manifestBytes = await readExample(bundle.manifestName);
@@ -157,10 +150,10 @@ export function ExamplesPanel({ viewerRef }: Props) {
       <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-tamias-accent" /> Example test kit
+            <Sparkles className="h-4 w-4 text-tamias-accent" /> Examples
           </CardTitle>
           <CardDescription>
-            Pick a bundle, download, then load into the app.
+            Benchmark kits (real models × real data) and public sample scans.
           </CardDescription>
         </div>
         <div className="flex flex-col items-end gap-1.5">
@@ -211,28 +204,25 @@ export function ExamplesPanel({ viewerRef }: Props) {
         </div>
       </CardHeader>
       <CardContent className="space-y-2 text-xs">
-        {/* v0.10.1 — bundle picker. Persists per-page session via React
-            state; deliberately NOT in zustand because the user typically
-            picks once per session and the choice doesn't affect any
-            other component's render. */}
+        {/* Picker: per-session React state (no other component reads it). */}
         <label className="block space-y-0.5">
-          <span className="text-slate-500">Bundle</span>
+          <span className="text-slate-500">Kit or sample scan</span>
           <select
             value={bundleId}
             onChange={(e) => setBundleId(e.currentTarget.value)}
             className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
           >
-            <optgroup label="Example bundles">
-              {EXAMPLE_BUNDLES.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </optgroup>
             <optgroup label="Benchmark kits — Zenodo models × TCIA / MSD data">
               {BENCHMARK_KITS.map((k) => (
                 <option key={k.id} value={`kit:${k.id}`}>
                   {k.name}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Sample scans (real, anonymised; image only)">
+              {EXAMPLE_BUNDLES.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
                 </option>
               ))}
             </optgroup>
@@ -335,7 +325,7 @@ export function ExamplesPanel({ viewerRef }: Props) {
             disabled={busy !== null}
             className="gap-1.5 text-red-700 hover:bg-red-50"
           >
-            <Trash2 className="h-3.5 w-3.5" /> Remove all examples (every bundle)
+            <Trash2 className="h-3.5 w-3.5" /> Remove all cached sample scans
           </Button>
         )}
         {error && (
@@ -344,7 +334,8 @@ export function ExamplesPanel({ viewerRef }: Props) {
           </pre>
         )}
         <div className="text-[11px] text-slate-500">
-          Sources: <span className="font-mono">github.com/ArioMoniri/semikap/examples</span> · <span className="font-mono">github.com/niivue/niivue-demo-images</span>
+          Sources: models <span className="font-mono">zenodo.org</span> · data TCIA / MSD · sample scans{' '}
+          <span className="font-mono">github.com/niivue/niivue-demo-images</span> (CC-BY-SA)
         </div>
       </CardContent>
     </Card>

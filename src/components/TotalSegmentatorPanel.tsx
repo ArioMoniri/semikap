@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Comlink from 'comlink';
-import { Layers, Download, FolderOpen, X as XIcon, Play, FileCheck2, Sparkles, Loader2 } from 'lucide-react';
-import type { WorkerRequest, WorkerResponse } from '../workers/totalseg.pyodide.worker';
+import { Layers, Download, FolderOpen, X as XIcon, Play, Sparkles, Loader2 } from 'lucide-react';
 import type { InferenceApi, InferenceProgressEvent } from '../workers/inference.worker';
 import { useAppStore } from '../lib/state/store';
 import type { Bytes } from '../types';
@@ -10,7 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Progress } from './ui/Progress';
-import { ExternalLink } from './ExternalLink';
 import { useSmoothedProgress, useThrottledBusy } from '../lib/ui/useThrottledBusy';
 import {
   PRESET_TOTALSEG_MODELS,
@@ -25,6 +23,7 @@ import {
 } from '../lib/totalseg/types';
 import { pickFile, readDroppedFiles } from '../lib/fs/filesystem';
 import { appendAudit } from '../lib/fs/audit';
+import { sha256Hex } from '../lib/fs/opfs';
 import type { ViewerHandle } from './Viewer';
 import { cn } from '../lib/ui/cn';
 
@@ -38,17 +37,13 @@ interface Props {
 /**
  * v0.7.4 — TotalSegmentator (whole-body anatomical segmentation) panel.
  *
- * Status: **preview**. The official upstream
- * (https://github.com/wasserth/TotalSegmentator) ships only Python /
- * nnUNet weights, so v0.7.4 ships a BYO-URL onboarding flow + a stub
- * runtime. As soon as a community ONNX export lands the preset list
- * grows in `src/lib/totalseg/loader.ts` and inference wires through
- * the same browser-only path SAM uses.
+ * Loads a TotalSegmentator ONNX export (preset download, BYO URL, or a
+ * local manifest + .onnx) and runs it in-browser through the same ORT
+ * inference worker radiology models use. The desktop build can also
+ * drive a locally installed Python `totalsegmentator` (NativePyRunner).
  *
  * UX: same three-state pattern as SamPanel (no model → loading →
- * ready). The "Run" button stays disabled in v0.7.4 with a tooltip
- * pointing at docs/TOTALSEGMENTATOR.md so the user understands they're
- * looking at a scaffold, not a finished tool.
+ * ready).
  */
 export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
   const pushError = useAppStore((s) => s.pushError);
@@ -264,9 +259,44 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
   }, [byoForm, closeByo, pushError]);
 
   /**
-   * Pick a manifest .json from disk + an .onnx blob in turn. Same
-   * pattern as the radiology ModelPicker but scoped to the TotalSeg
-   * manifest schema (see src/lib/totalseg/types.ts).
+   * A manifest picked or dropped from disk is only usable once its ONNX
+   * weights are in memory. Use the local .onnx when the user supplied one
+   * (SHA-256-checked against the manifest when it declares a hash);
+   * otherwise fetch `model.url` through the same cached loader the presets
+   * use. A manifest with neither is rejected, never shown as "loaded".
+   */
+  const attachWeights = useCallback(
+    async (manifest: TotalSegManifest, onnx: Bytes | null) => {
+      if (onnx) {
+        const expected = manifest.model.sha256?.toLowerCase();
+        if (expected) {
+          const actual = (await sha256Hex(onnx)).toLowerCase();
+          if (actual !== expected) {
+            throw new Error(`model sha256 mismatch: manifest ${expected}, file ${actual}`);
+          }
+        }
+        setModelBytes(onnx);
+        setModelLoaded(manifest);
+        void appendAudit({
+          kind: 'export',
+          message: `TotalSegmentator model loaded from disk: ${manifest.name}`,
+        });
+        return;
+      }
+      if (manifest.model.url) {
+        await handlePresetDownload({ id: `local:${manifest.name}`, manifest, approxBytes: 0 });
+        return;
+      }
+      throw new Error('manifest has no model.url — also pick (or drop) the matching .onnx file.');
+    },
+    [handlePresetDownload]
+  );
+
+  /**
+   * Pick a manifest .json from disk, then its .onnx (skippable when the
+   * manifest carries a downloadable model.url). Same pattern as the
+   * radiology ModelPicker but scoped to the TotalSeg manifest schema
+   * (see src/lib/totalseg/types.ts).
    */
   const handlePickLocal = useCallback(async () => {
     try {
@@ -274,41 +304,34 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
       if (!manifestFile) return;
       const text = new TextDecoder().decode(manifestFile.bytes);
       const manifest = parseTotalSegManifest(JSON.parse(text));
-      // The model bytes themselves aren't loaded here in v0.7.4 — the
-      // runtime stub picks them up at Run-time. This keeps the panel
-      // testable end-to-end without a working ORT pipeline.
-      setModelLoaded(manifest);
-      void appendAudit({
-        kind: 'export',
-        message: `TotalSegmentator manifest loaded from disk: ${manifest.name}`,
-      });
+      const onnxFile = await pickFile({ 'application/octet-stream': ['.onnx'] });
+      await attachWeights(manifest, onnxFile ? (onnxFile.bytes as Bytes) : null);
     } catch (e) {
-      pushError(`TotalSegmentator manifest load failed: ${(e as Error).message}`);
+      pushError(`TotalSegmentator model load failed: ${(e as Error).message}`);
     }
-  }, [pushError]);
+  }, [attachWeights, pushError]);
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
       setDragOver(false);
       const dropped = await readDroppedFiles(e.nativeEvent);
       const json = dropped.find((f) => f.name.toLowerCase().endsWith('.json'));
+      const onnx = dropped.find((f) => f.name.toLowerCase().endsWith('.onnx'));
       if (!json) {
         pushError(
-          'TotalSegmentator drop: include a manifest .json (model .onnx is fetched on demand).'
+          'TotalSegmentator drop: include a manifest .json (plus the .onnx unless the manifest has a model.url).'
         );
         return;
       }
       try {
         const text = new TextDecoder().decode(json.bytes);
         const manifest = parseTotalSegManifest(JSON.parse(text));
-        setModelLoaded(manifest);
+        await attachWeights(manifest, onnx ? (onnx.bytes as Bytes) : null);
       } catch (err) {
-        pushError(
-          `TotalSegmentator manifest invalid: ${(err as Error).message}`
-        );
+        pushError(`TotalSegmentator model load failed: ${(err as Error).message}`);
       }
     },
-    [pushError]
+    [attachWeights, pushError]
   );
 
   const handleForget = useCallback(() => {
@@ -512,7 +535,7 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
                 <FolderOpen className="h-3.5 w-3.5" /> Pick local manifest .json
               </Button>
               {/* v0.10.13 — render each preset's REAL manifest.name
-                  (not the hardcoded "TotalSegmentator" stub) + use a
+                  (not a hardcoded "TotalSegmentator" label) + use a
                   size-or-BYO badge that distinguishes downloadable
                   presets from URL-prompts. Pre-v0.10.13 every preset
                   rendered identically as "TotalSegmentator · BYO" and
@@ -660,10 +683,8 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
 
                 Disabled when there's no volume loaded (the worker
                 needs voxels) and when there's no cached model bytes
-                (the BYO panel that loaded a manifest-only entry from
-                disk has `modelLoaded` set but `modelBytes === null` —
-                in that case the user needs to re-download via the
-                preset button or the BYO URL form). The button stays
+                (every load path — preset, BYO URL, local manifest +
+                .onnx — sets both together). The button stays
                 rendered for nnUNet-family presets only; other
                 families (BYO `'custom'`) get a softer
                 "experimental — uses CT defaults" disclaimer because
@@ -735,23 +756,9 @@ export function TotalSegmentatorPanel({ viewerRef: _viewerRef }: Props) {
                   )}
               </div>
             )}
-            {/* v0.7.7 — primary path is the NATIVE python runner, which
-                spawns the user's local `totalsegmentator` install via
-                a Tauri command. This is the workflow the user already
-                uses on Mac/Linux, just automated through TAMIAS. The
-                Pyodide attempt stays as a collapsed fallback for
-                completeness; it will not work today but is wired so
-                the Pyodide ecosystem closing the gap unlocks it
-                without a re-release. */}
+            {/* Desktop: drive the user's local Python `totalsegmentator`
+                install through a Tauri command. */}
             <NativePyRunner viewerRef={_viewerRef} />
-            <details className="rounded border border-slate-200 dark:border-slate-800">
-              <summary className="cursor-pointer px-2 py-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
-                Pyodide fallback (browser-only, experimental)
-              </summary>
-              <div className="border-t border-slate-200 p-2 dark:border-slate-800">
-                <PyodideRunner />
-              </div>
-            </details>
           </div>
         )}
 
@@ -855,259 +862,12 @@ function BusyView({
 }
 
 /**
- * v0.7.6 — in-browser TotalSegmentator runner via Pyodide.
- *
- * **Honest framing for users:** the official TotalSegmentator pipeline
- * needs PyTorch + nnUNetv2 + SimpleITK + CUDA. In a web browser via
- * Pyodide:
- *   - numpy / nibabel / scipy: Pyodide built-ins (work).
- *   - PyTorch: experimental WASM build, ~80 MB, CPU-only.
- *   - SimpleITK: no WASM build at the time of v0.7.6 — `micropip
- *     .install("SimpleITK")` fails.
- *   - nnUNetv2: not in Pyodide registry; pulls torch + custom ops.
- *
- * Net effect: `micropip.install("totalsegmentator")` is **expected to
- * fail** at the SimpleITK step on every browser today. The runner
- * still pulls Pyodide + the available pieces so the user can see the
- * real progress and the verbatim install errors. When a future
- * Pyodide release closes the gap, the same UI starts working — the
- * underlying worker is already wired end-to-end.
- *
- * Stages: idle → license → init (load Pyodide ~10 MB) → install (try
- * to install totalsegmentator + transitive deps) → ready / failed.
- * The license gate (Apache-2.0 code + CC-BY-NC-style weights) is
- * required because the user explicitly asked for it ("just put in
- * license") — no inference starts without an explicit accept.
- */
-function PyodideRunner() {
-  const [stage, setStage] = useState<
-    'idle' | 'license' | 'booting' | 'installing' | 'ready' | 'failed'
-  >('idle');
-  const [progress, setProgress] = useState<{ stage: string; message?: string }>({
-    stage: 'idle',
-  });
-  const [installed, setInstalled] = useState<string[]>([]);
-  const [failed, setFailed] = useState<Array<{ pkg: string; error: string }>>([]);
-  const [reason, setReason] = useState<string | null>(null);
-  const workerRef = useRef<Worker | null>(null);
-
-  const ensureWorker = useCallback((): Worker => {
-    if (workerRef.current) return workerRef.current;
-    // Vite resolves the worker URL at build-time; we use the
-    // `import.meta.url` form so ?worker is unnecessary.
-    const w = new Worker(
-      new URL('../workers/totalseg.pyodide.worker.ts', import.meta.url),
-      { type: 'module' }
-    );
-    w.onmessage = (e: MessageEvent<WorkerResponse>) => {
-      const m = e.data;
-      if (m.kind === 'progress') {
-        const next: { stage: string; message?: string } = { stage: m.stage };
-        if (m.message !== undefined) next.message = m.message;
-        setProgress(next);
-        return;
-      }
-      if (m.kind === 'ready') {
-        setStage('installing');
-        setProgress({ stage: 'micropip-install', message: 'Asking micropip for totalsegmentator…' });
-        const req: WorkerRequest = { kind: 'install' };
-        w.postMessage(req);
-        return;
-      }
-      if (m.kind === 'install-done') {
-        setStage('ready');
-        setInstalled(m.installed);
-        setFailed(m.failed);
-        return;
-      }
-      if (m.kind === 'install-failed') {
-        setStage('failed');
-        setReason(m.reason);
-        setInstalled(m.installed);
-        setFailed(m.failed);
-        return;
-      }
-      if (m.kind === 'run-done') {
-        setStage('ready');
-        return;
-      }
-      if (m.kind === 'run-failed') {
-        setStage('failed');
-        setReason(m.reason);
-        return;
-      }
-    };
-    workerRef.current = w;
-    return w;
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      workerRef.current?.terminate();
-      workerRef.current = null;
-    };
-  }, []);
-
-  const startBoot = useCallback(() => {
-    setStage('booting');
-    setReason(null);
-    setInstalled([]);
-    setFailed([]);
-    setProgress({ stage: 'pyodide-fetch', message: 'Fetching Pyodide bootstrap…' });
-    const w = ensureWorker();
-    const req: WorkerRequest = { kind: 'init' };
-    w.postMessage(req);
-  }, [ensureWorker]);
-
-  if (stage === 'idle') {
-    return (
-      <div className="space-y-2 rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-        <div className="font-medium">Run via Pyodide (experimental)</div>
-        <div>
-          Loads Python in WebAssembly + tries to install{' '}
-          <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/40">
-            totalsegmentator
-          </code>{' '}
-          via micropip. <strong>Expected to fail today</strong> on the
-          SimpleITK / torch dependency wall — but you'll see the exact
-          point of failure, and when Pyodide closes the gap this UI
-          starts working unchanged.
-        </div>
-        <Button
-          size="sm"
-          variant="ink"
-          onClick={() => setStage('license')}
-          className="w-full gap-1.5"
-        >
-          <Play className="h-3.5 w-3.5" /> Try Pyodide pipeline
-        </Button>
-      </div>
-    );
-  }
-
-  if (stage === 'license') {
-    return (
-      <div className="space-y-2 rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-        <div className="font-medium">Licence acceptance required</div>
-        <ul className="list-disc space-y-0.5 pl-4">
-          <li>
-            TotalSegmentator code:{' '}
-            <ExternalLink
-              href="https://github.com/wasserth/TotalSegmentator/blob/master/LICENSE"
-              className="underline"
-            >
-              Apache-2.0
-            </ExternalLink>
-          </li>
-          <li>
-            Model weights:{' '}
-            <ExternalLink
-              href="https://zenodo.org/record/10047292"
-              className="underline"
-            >
-              CC-BY-NC-4.0 (research / non-commercial)
-            </ExternalLink>
-          </li>
-          <li>
-            Pyodide (Python in WASM): Mozilla Public License 2.0
-          </li>
-        </ul>
-        <div className="text-[10px] opacity-80">
-          By continuing you accept the upstream licences. All inference
-          stays on this device — no bytes leave your browser.
-        </div>
-        <div className="flex gap-1.5">
-          <Button
-            size="sm"
-            variant="ink"
-            onClick={startBoot}
-            className="flex-1 gap-1.5"
-          >
-            <FileCheck2 className="h-3.5 w-3.5" /> Accept &amp; continue
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setStage('idle')}
-            className="flex-1 gap-1.5"
-          >
-            <XIcon className="h-3.5 w-3.5" /> Cancel
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2 rounded border border-blue-200 bg-blue-50 p-2 text-[11px] text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
-      <div className="flex items-center justify-between">
-        <div className="font-medium">
-          {stage === 'booting' && 'Booting Pyodide…'}
-          {stage === 'installing' && 'Installing TotalSegmentator…'}
-          {stage === 'ready' && 'Pyodide ready'}
-          {stage === 'failed' && 'Pyodide pipeline failed'}
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            workerRef.current?.terminate();
-            workerRef.current = null;
-            setStage('idle');
-            setReason(null);
-            setInstalled([]);
-            setFailed([]);
-          }}
-          aria-label="Cancel Pyodide pipeline"
-          className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:hover:bg-slate-700 dark:hover:text-slate-100"
-          title="Cancel"
-        >
-          <XIcon className="h-3 w-3" />
-        </button>
-      </div>
-      <div className="text-[10px] tabular-nums opacity-80">
-        Stage: {progress.stage}
-      </div>
-      {progress.message && (
-        <div className="font-mono text-[10px] leading-snug opacity-90">
-          {progress.message}
-        </div>
-      )}
-      {installed.length > 0 && (
-        <div className="text-[10px]">
-          <span className="font-medium">Installed:</span> {installed.join(', ')}
-        </div>
-      )}
-      {failed.length > 0 && (
-        <details className="text-[10px]">
-          <summary className="cursor-pointer font-medium">
-            Failed ({failed.length}) — click to expand
-          </summary>
-          <ul className="mt-1 space-y-1">
-            {failed.map((f, i) => (
-              <li key={i} className="rounded bg-red-50 p-1 dark:bg-red-950/40">
-                <div className="font-mono font-medium">{f.pkg}</div>
-                <div className="font-mono opacity-80">{f.error}</div>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {reason && (
-        <div className="rounded border border-red-200 bg-red-50 p-1 text-[10px] text-red-900 dark:border-red-900/40 dark:bg-red-950 dark:text-red-200">
-          {reason}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
  * v0.7.7 — Native Python runner via Tauri.
  *
  * Spawns the user's locally installed `totalsegmentator` via a Tauri
  * command (Rust side: `src-tauri/src/totalseg.rs`). On the browser
  * PWA the Tauri APIs aren't present, so we render an "install desktop
- * app" stub instead.
+ * app" notice instead.
  *
  * Stages: detecting → ready / missing → running → done / failed.
  * Progress is streamed via the `totalseg-progress` Tauri event from

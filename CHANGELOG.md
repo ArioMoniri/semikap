@@ -56,8 +56,28 @@ the right statistics — per dataset and across datasets.
 - Sensitivity re-scoring (`scripts/bench/rescore.ts`): largest connected component and
   hole-filled reference, without re-running inference.
 
+### Changed
+
+- The main viewer now defaults to **radiological convention** (patient right on image
+  left); the Layout-panel toggle and Flip-H hotkey still switch it, and the choice persists.
+- Examples card defaults to the benchmark kits; its other entries are real public sample
+  scans (niivue-demo-images CT_AVM, CT_Abdo, MNI152), image-only.
+- Removed the hand-built demo models and their kits (`threshold_seg`, AVM / liver-vessel
+  band-pass and threshold ONNX), their generator scripts, and the in-repo `CT_AVM.nii.gz`
+  copy; `examples/` now documents where real data and models come from.
+- Removed the Pathology "Examples" kit (procedurally generated H&E patch + toy tissue-mask
+  ONNX) and its generator; `tissue_mask.json` stays as a reference manifest template.
+- Removed the Pyodide TotalSegmentator runner, which could never install its dependencies
+  in WASM; `pypi.org` / `files.pythonhosted.org` dropped from the CSP.
+- TotalSegmentator "Pick local manifest" / drop now also takes the `.onnx` (SHA-256-checked)
+  or downloads `model.url`, so a local manifest is actually runnable.
+- The results-import CSV template is header-only (no example numbers that could be
+  imported as results).
+
 ### Fixed
 
+- User preferences and recent files were never restored after a reload (their
+  localStorage keys were read before initialisation and fell back to defaults).
 - Sliding-window inference keeps only one patch depth of class sums (rolling z-window,
   bit-identical output), so large CTs at fine model spacing no longer run out of memory.
 - ONNX sessions and tensors are released after every run (batch memory growth).

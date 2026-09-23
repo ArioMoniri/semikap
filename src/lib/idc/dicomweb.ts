@@ -290,7 +290,7 @@ async function downloadInstance(
   // when the Accept header itself is correct. Header-only is the
   // standard DICOMweb form and the only one the proxy accepts.
   // User report: "IDC download failed for instance ...: 400". Live
-  // smoke-test confirmed: same UID returns 200 with `?accept=`
+  // check confirmed: same UID returns 200 with `?accept=`
   // removed, 400 with it present.
   //
   // 'transfer-syntax=*' tells the server we accept the bytes in their

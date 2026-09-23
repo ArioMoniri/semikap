@@ -12,6 +12,7 @@ import type { ViewerHandle } from './Viewer';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card';
 import { Button } from './ui/Button';
 import { cn } from '../lib/ui/cn';
+import { useAppStore } from '../lib/state/store';
 
 type SliceMode = 'multi' | 'axial' | 'coronal' | 'sagittal' | 'render';
 type MultiLayout = 'auto' | 'row' | 'column' | 'grid';
@@ -24,7 +25,8 @@ interface Props {
  * Viewer presentation controls. Mirrors NiiVue's slice/render mode + the
  * multi-plane tile arrangement, plus a few visual toggles. All settings
  * apply live — no reload required. Defaults match NiivueViewer's
- * constructor (multi mode, auto layout, orient cube off, 3D crosshair on).
+ * constructor (multi mode, auto layout, orient cube off, 3D crosshair on,
+ * radiological convention — the latter persisted in user prefs).
  */
 export function LayoutPanel({ viewerRef }: Props) {
   const [sliceMode, setSliceMode] = useState<SliceMode>('multi');
@@ -32,7 +34,9 @@ export function LayoutPanel({ viewerRef }: Props) {
   const [orientCube, setOrientCubeState] = useState(false);
   const [colorbar, setColorbarState] = useState(false);
   const [crosshair3D, setCrosshair3DState] = useState(true);
-  const [radiological, setRadiologicalState] = useState(false);
+  // Persisted preference (default radiological); the Viewer handle writes
+  // it back, so the Flip-H hotkey keeps this toggle in sync.
+  const radiological = useAppStore((s) => s.prefs.radiologicalConvention);
 
   const apply = useCallback(<T,>(setter: (v: T) => void, fn: ((v: T) => void) | undefined) =>
     (v: T) => {
@@ -107,7 +111,7 @@ export function LayoutPanel({ viewerRef }: Props) {
             <Toggle
               label="Radiological"
               on={radiological}
-              onClick={() => apply(setRadiologicalState, viewerRef.current?.setRadiologicalConvention)(!radiological)}
+              onClick={() => viewerRef.current?.setRadiologicalConvention(!radiological)}
             />
           </div>
         </div>

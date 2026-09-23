@@ -3,7 +3,7 @@
  *
  * A user who scored two (or more) models offline exports a CSV/TSV — one row per
  * (case, model) with a `dice` column (and optionally `iou` / `hd95` / `assd`) —
- * and drops it here. Each row becomes a synthetic benchmark record, so the
+ * and drops it here. Each row becomes an imported benchmark record, so the
  * existing comparison table and the statistical-comparison panel light up with
  * NO inference on this device. Nothing is uploaded.
  */
@@ -16,7 +16,8 @@ import { segRowsToRecords } from '../lib/benchmark/import-records';
 import { appendRecord } from '../lib/benchmark/store';
 import { Button } from './ui/Button';
 
-const TEMPLATE = 'caseId,model,dice,iou,hd95,assd\ncase001,ModelA,0.91,0.83,3.4,0.9\ncase001,ModelB,0.74,0.60,7.1,2.2\ncase002,ModelA,0.88,0.79,4.1,1.1\ncase002,ModelB,0.69,0.53,9.0,3.0\n';
+// Header-only template: every row the user imports must be their own measured result.
+const TEMPLATE = 'caseId,model,dice,iou,hd95,assd\n';
 
 function download(name: string, text: string, type: string): void {
   const blob = new Blob([text], { type });

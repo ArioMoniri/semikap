@@ -23,11 +23,10 @@ the per-modality state isolated.
 | Segmentation / classification / heatmap / detection outputs | ✅ Phase B |
 | Result PNG + sidecar JSON export            | ✅ Phase B     |
 | Audit log entries for inference runs        | ✅ Phase B     |
-| Pathology examples folder                   | ✅ Phase C     |
+| Public WSI sources + reference manifest     | ✅ Phase C     |
 | Aperio SVS / Hamamatsu NDPI direct read     | ✅ Phase A     |
 | Brush + eraser overlay corrections          | ✅ Phase B     |
 | Per-colour brush PNG export                 | ✅ Phase B     |
-| Bundled synthetic H&E sample (CC0)          | ✅ Phase C     |
 | Z-stack / focal-stack scrolling             | ⏳ deferred    |
 | Stain normalization (Macenko / Reinhard)    | ⏳ deferred    |
 | Multi-slide composite analysis              | ⏳ deferred    |

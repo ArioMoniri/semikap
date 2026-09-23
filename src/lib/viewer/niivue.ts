@@ -12,6 +12,12 @@ import { writeNifti1Uint8 } from '../export/nifti';
  * (evaluating 'ext.toUpperCase')" crash on synthesised mask overlays whose
  * name we set to a plain `'mask'`.
  */
+/**
+ * Default left/right display convention: radiological (patient right on
+ * image left). Radiology review flagged the former neurological default.
+ */
+export const DEFAULT_RADIOLOGICAL_CONVENTION = true;
+
 const VOLUME_EXT_RE = /\.(nii|nii\.gz|nrrd|mha|mgz|dcm)$/i;
 function ensureNiiName(name: string): string {
   return VOLUME_EXT_RE.test(name) ? name : `${name}.nii`;
@@ -132,6 +138,10 @@ export class NiivueViewer {
       colorbarHeight: 0.012,
       // Tight margin so the bar hugs the canvas edge.
       colorbarMargin: 0.01,
+      // Radiological convention by default (patient right on image left),
+      // as radiologists read CT/MR. The Layout panel / Flip-H hotkey
+      // toggle it; the Viewer re-applies the persisted preference.
+      isRadiologicalConvention: DEFAULT_RADIOLOGICAL_CONVENTION,
     });
     void this.nv.attachToCanvas(canvas);
 
@@ -144,7 +154,7 @@ export class NiivueViewer {
     // Seat a fixed 6-colour brush palette into NiiVue's draw lookup table at
     // label indices 1..6. Without this the user's brush colour was always
     // whatever the model manifest happened to declare for label 1, which
-    // for our example threshold model is just one green entry — so the
+    // for a single-label model is just one entry — so the
     // colour-picker UI had nothing to switch between. With a fixed palette
     // the user can pick any of the six colours regardless of manifest.
     this.installBrushPalette();
@@ -411,7 +421,7 @@ export class NiivueViewer {
     // many MR + most non-axial CTs) the two diverge enough that the 3D
     // overlay drifts from the source vessels. Copying ALL FOUR from primary
     // forces the overlay into the exact same RAS frame, which makes the
-    // alignment volume-agnostic — works on the bundled threshold demo, on
+    // alignment volume-agnostic — works on the Zenodo catalogue models, on
     // arbitrary nnU-Net / TotalSegmentator outputs, on user-supplied models.
     type RasFields = {
       matRAS?: Float32Array | number[];
@@ -605,10 +615,18 @@ export class NiivueViewer {
    * it cleanly needs a per-tile transform in the wrapper which is a
    * v0.9.x follow-up.
    */
-  toggleRadiologicalConvention(): void {
-    const cur = (this.nv as unknown as { opts?: { isRadiologicalConvention?: boolean } }).opts
-      ?.isRadiologicalConvention ?? false;
-    this.nv.setRadiologicalConvention(!cur);
+  toggleRadiologicalConvention(): boolean {
+    const next = !this.isRadiologicalConvention();
+    this.setRadiologicalConvention(next);
+    return next;
+  }
+
+  /** Current left/right convention (true = radiological). */
+  isRadiologicalConvention(): boolean {
+    return (
+      (this.nv as unknown as { opts?: { isRadiologicalConvention?: boolean } }).opts
+        ?.isRadiologicalConvention ?? DEFAULT_RADIOLOGICAL_CONVENTION
+    );
   }
 
   /**

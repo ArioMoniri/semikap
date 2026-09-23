@@ -51,7 +51,7 @@ export function LoadedImagesList({
 
   /**
    * Build the row list. v0.7.4 shows the primary + a "secondary
-   * present" stub (we don't currently retain the secondary's bytes in
+   * present" chip (we don't currently retain the secondary's bytes in
    * the store; the chip exists so the user can see at-a-glance that a
    * secondary is mounted). Future revisions track the secondary in the
    * store the same way the primary is.

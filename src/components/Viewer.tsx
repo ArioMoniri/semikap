@@ -180,6 +180,8 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
   useEffect(() => {
     if (!canvasRef.current) return;
     viewerRef.current = new NiivueViewer(canvasRef.current);
+    // Apply the persisted left/right convention (defaults to radiological).
+    viewerRef.current.setRadiologicalConvention(useAppStore.getState().prefs.radiologicalConvention);
     const onResize = () => viewerRef.current?.resize();
     window.addEventListener('resize', onResize);
 
@@ -565,7 +567,9 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
         return viewerRef.current?.isInverted() ?? false;
       },
       toggleRadiologicalConvention() {
-        viewerRef.current?.toggleRadiologicalConvention();
+        const v = viewerRef.current;
+        if (!v) return;
+        useAppStore.getState().setPrefs({ radiologicalConvention: v.toggleRadiologicalConvention() });
       },
       rotate3D(deltaAzimuth, deltaElevation = 0) {
         viewerRef.current?.rotate3D(deltaAzimuth, deltaElevation);
@@ -600,6 +604,7 @@ export const Viewer = forwardRef<ViewerHandle>(function Viewer(_, ref) {
       },
       setRadiologicalConvention(on) {
         viewerRef.current?.setRadiologicalConvention(on);
+        useAppStore.getState().setPrefs({ radiologicalConvention: on });
       },
       setDragMode(mode) {
         viewerRef.current?.setDragMode(mode);

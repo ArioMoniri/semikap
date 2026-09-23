@@ -13,11 +13,11 @@ and trade-offs; pick the one that matches your install.
 |---|---|---|
 | **Native Python sidecar** (Tauri-only) | ✅ shipping (v0.7.7) | macOS / Linux / Windows users with `pip install totalsegmentator` already installed. Works on any backend PyTorch supports — CUDA, MPS (Apple Silicon), or CPU. |
 | **BYO ONNX URL** | ✅ shipping (v0.7.4) | Anyone who has access to a community-converted ONNX export. The TAMIAS browser ORT runtime runs it in WebGPU / WASM. |
-| **Pyodide (browser)** | ⚠️ experimental, expected to fail today (v0.7.6) | Demonstration of the path forward when Pyodide ecosystem closes the SimpleITK / nnUNet gap. Wired end-to-end but blocked at install. |
 
 The panel UI surfaces the **native** path first when running in the
-Tauri desktop build, with the Pyodide attempt collapsed into a
-`<details>` for inspection. When running as the browser PWA, the
+Tauri desktop build. (The former Pyodide path was removed in v0.16.0:
+it could not install SimpleITK / nnU-Net in WASM and never produced a
+mask.) When running as the browser PWA, the
 native path is replaced with a "install desktop app" hint and the
 BYO-URL flow becomes primary.
 
@@ -74,7 +74,7 @@ line change).
 |---|---|
 | `total` | 117-class whole-body. Default. |
 | `lung_vessels` | Pulmonary vasculature subdivision. |
-| `body` | Single-class body envelope. Quick smoke test. |
+| `body` | Single-class body envelope. Fastest task; a quick end-to-end check. |
 | `cerebral_bleed` | Hyperdense ICH segmentation. |
 | `hip_implant` | Metal-hip artefact masking. |
 | `coronary_arteries` | Cardiac CT. |
@@ -128,23 +128,10 @@ worker — same WebGPU / WASM stack as SAM.
 
 The manifest schema is documented in
 `src/lib/totalseg/types.ts`; you can also load a local `.json` via
-**Pick local manifest**.
-
-## Pyodide path (experimental)
-
-Collapsed into a `<details>` block in the panel because today it
-**fails predictably** at the SimpleITK install step. Open it to:
-
-1. Boot Pyodide from `cdn.jsdelivr.net` (~10 MB).
-2. Install whatever transitive deps are available
-   (`nibabel`, `numpy`).
-3. Try `micropip.install("totalsegmentator")` — fails because
-   `SimpleITK` has no WASM build.
-4. Show the verbatim install errors per package.
-
-The runner is wired end-to-end so the day Pyodide closes the gap
-the same UI starts working. Until then, treat it as documentation
-of the dependency wall — and use the native path.
+**Pick local manifest** — you are then asked for the matching `.onnx`
+(SHA-256-checked when the manifest declares one), or, if you skip it,
+the manifest's `model.url` is downloaded. Dropping `.json` + `.onnx`
+together works the same way.
 
 ## Roadmap
 

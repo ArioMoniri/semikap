@@ -66,7 +66,7 @@ export const PRESET_TOTALSEG_MODELS: TotalSegPreset[] = [
         // workflow + background. Full 118-class table lives in the
         // upstream manifest.json — the runner reads it live from the
         // /resolve/main/manifest.json URL when needed for label IDs
-        // beyond this stub. Avoiding bundling all 118 here keeps the
+        // beyond this subset. Avoiding bundling all 118 here keeps the
         // app shell small and the labels authoritative (sourced from
         // upstream rather than re-typed here with drift risk).
         { id: 0, name: 'background' },

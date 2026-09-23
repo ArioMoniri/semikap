@@ -518,6 +518,13 @@ export interface UserPrefs {
    */
   axisColoredCrosshair: boolean;
   /**
+   * Left/right display convention of the main viewer. true = radiological
+   * (patient right on image left, the reading-room default); false =
+   * neurological. Toggled from the Layout panel or the Flip-H hotkey and
+   * persisted here. Default true.
+   */
+  radiologicalConvention: boolean;
+  /**
    * v0.8.6 — per-pane crosshair lock. When true, clicking on the
    * axial pane only changes Z; coronal click only Y; sagittal click
    * only X. The other two axes stay frozen at their pre-click
@@ -624,6 +631,15 @@ export interface UndoEntry {
   revert: () => void;
   ts: number;
 }
+
+// localStorage keys. Declared BEFORE `useAppStore` because the store
+// creator calls loadPrefs() / loadRecentFiles() synchronously; declared
+// after it they were still in the temporal dead zone, the read threw, and
+// every reload silently fell back to defaults (prefs + recent files lost).
+const PREFS_KEY = 'tamias.userPrefs.v1';
+/** v0.8.6 — recent-files history persistence key. Bumped to v2
+ *  whenever the RecentFile shape changes. */
+const RECENT_KEY = 'tamias.recentFiles.v1';
 
 export const useAppStore = create<AppState>((set) => ({
   backend: null,
@@ -856,10 +872,7 @@ export const useAppStore = create<AppState>((set) => ({
 // auto-update self-restart, but each pref is optional so missing keys
 // degrade to safe defaults.
 
-const PREFS_KEY = 'tamias.userPrefs.v1';
-/** v0.8.6 — recent-files history persistence key. Bumped to v2
- *  whenever the RecentFile shape changes. */
-const RECENT_KEY = 'tamias.recentFiles.v1';
+// (PREFS_KEY / RECENT_KEY are declared above `useAppStore`.)
 
 function loadRecentFiles(): RecentFile[] {
   if (typeof window === 'undefined') return [];
@@ -995,6 +1008,7 @@ function defaultPrefs(): UserPrefs {
     pinchInverted: false,
     distanceUnit: 'mm',
     axisColoredCrosshair: true,
+    radiologicalConvention: true,
     perPaneCrosshairLock: false,
     pxPerMm: 3.78,
     showSliceChips: true,

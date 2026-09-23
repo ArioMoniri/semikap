@@ -10,7 +10,6 @@ import {
   PathologyModelPicker,
   type PathologyModelRecord,
 } from './PathologyModelPicker';
-import { PathologyExamplesPanel } from './PathologyExamplesPanel';
 import { PathologyTools } from './PathologyTools';
 import { PathologyInferencePanel } from './PathologyInferencePanel';
 import { PathologyExportPanel } from './PathologyExportPanel';
@@ -138,8 +137,7 @@ export function PathologyShell({ sidebarWidth, sidebarCollapsed, onToggleSidebar
 
   /*
    * v0.8.9 — wrap setModel to also log the model to the recent-files
-   * history. Wired to both PathologyModelPicker.onLoaded and the
-   * PathologyExamplesPanel.onModel pathways.
+   * history. Wired to PathologyModelPicker.onLoaded.
    */
   const handleModelLoaded = useCallback(
     (m: PathologyModelRecord | null) => {
@@ -178,18 +176,6 @@ export function PathologyShell({ sidebarWidth, sidebarCollapsed, onToggleSidebar
         <CollapsibleSection title="Slide" defaultOpen trailing={slide ? 'loaded' : 'pick'}>
           <PathologySlidePicker onPicked={handleSlide} current={slide} />
           {slide && <LoadedSlidesList slide={slide} />}
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title="Examples"
-          defaultOpen={!slide}
-          trailing={slide ? '' : 'try one'}
-        >
-          <PathologyExamplesPanel
-            onSlide={handleSlide}
-            onModel={handleModelLoaded}
-            onError={setError}
-          />
         </CollapsibleSection>
 
         <CollapsibleSection title="Model" defaultOpen trailing={model ? 'ready' : 'pick'}>
