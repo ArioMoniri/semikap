@@ -117,8 +117,13 @@ try {
   await openSection('Inference');
   await click(await find("//button[normalize-space(.)='Run']"));
   const t0 = Date.now();
+  let lastSnap = 0;
   const doneMsg = await waitFor(async () => {
     const b = await js('return document.body.innerText');
+    if (Date.now() - lastSnap > 120_000) {
+      lastSnap = Date.now();
+      log('progress', (b.match(/(inference|preprocessing|postprocessing)[^\n]*/) || ['?'])[0]);
+    }
     return b.match(/done · via [^\n]+|Inference failed: [^\n]+/)?.[0] ?? null;
   }, 3_600_000, 'inference');
   log('inference', doneMsg, `${((Date.now() - t0) / 1000).toFixed(0)}s wall`);
