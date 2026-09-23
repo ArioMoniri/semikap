@@ -15,6 +15,7 @@ import { mannWhitneyU } from '../stats/multi-model';
 const DATASET_ALIASES: Record<string, string> = {
   hcc_tace_seg: 'hcc-tace-seg',
   msd_task03_liver: 'msd-task03-liver',
+  colorectal_liver_metastases: 'crlm',
 };
 export function canonicalDatasetId(name: string): string {
   return DATASET_ALIASES[name] ?? name;

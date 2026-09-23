@@ -1,10 +1,21 @@
 name: Catalogue benchmark
 
-# Runs every catalogue model (Zenodo → ONNX release) on the catalogue datasets
-# with TAMIAS's own inference + scoring pipeline (scripts/bench/run-benchmark.ts)
-# and publishes tamias.benchmark.v1 records + predicted masks as release assets.
+# Runs the catalogue models (Zenodo → ONNX release) on the catalogue datasets with
+# TAMIAS's own inference + scoring pipeline (scripts/bench/run-benchmark.ts) and
+# publishes tamias.benchmark.v1 records + predicted masks as release assets.
+#
+#   data (per dataset: fetch + QC + flow log) → plan (shards from scripts/bench/matrix.json
+#   over the QC-passed cases) → bench (model group × case shard) → publish (merge + dedupe)
+#
+# One run = 10 models × all QC-passed HCC-TACE-Seg, 10 models × 50 CRLM, 9 LightningMedSeg3D
+# × 30 MSD Task03. Cases already in the results release are skipped (same model sha256 + case).
 on:
   workflow_dispatch:
+    inputs:
+      rerun_published:
+        description: Recompute cases already in the results release
+        type: boolean
+        default: false
   push:
     branches: [claude/gifted-einstein-o3jzg1]
     paths:
@@ -23,44 +34,72 @@ env:
   RESULTS_RELEASE: benchmark-results-v1
 
 jobs:
-  plan:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.m.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: m
-        name: Job matrix from scripts/bench/matrix.json
-        run: |
-          echo "matrix=$(jq -c '{include: .include}' scripts/bench/matrix.json)" >> "$GITHUB_OUTPUT"
-
   data:
+    name: data (${{ matrix.dataset }})
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false  # a failed dataset drops out of the plan; the others still run
+      matrix:
+        dataset: [hcc_tace_seg, crlm, msd_task03_liver]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
       - name: Install data tooling
         run: pip install idc-index s5cmd pydicom SimpleITK nibabel numpy pandas
-      - name: HCC-TACE-Seg (TCIA via IDC public bucket)
-        run: python scripts/bench/data/fetch_hcc_tace_seg.py --n 10 --out data/hcc_tace_seg --work raw/hcc
-      - name: MSD Task03 Liver (pinned byte ranges)
-        run: python scripts/bench/data/fetch_msd_cases.py --out data/msd_task03_liver
-      - name: Case list + checksums
+      - name: Fetch + QC (${{ matrix.dataset }})
         run: |
-          cp scripts/bench/data/cases.csv data/cases.csv
-          (cd data && find . -name '*.nii.gz' | sort | xargs sha256sum) > data/SHA256SUMS
-          du -sh data
+          cmd=$(jq -r --arg d '${{ matrix.dataset }}' '.datasets[$d].fetch' scripts/bench/matrix.json)
+          echo "$cmd"
+          eval "$cmd"
+          rm -rf raw
+      - name: Case list, flow log, checksums
+        run: |
+          DS='${{ matrix.dataset }}'
+          mkdir -p meta
+          python scripts/bench/data/make_cases_csv.py --data data --sources "$DS" --out "meta/cases-$DS.csv"
+          n=$(($(wc -l < "meta/cases-$DS.csv") - 1)); echo "$DS: $n cases"; [ "$n" -gt 0 ]
+          cp data/*_flow.csv meta/ 2>/dev/null || true
+          (cd data && find "$DS" -name '*.nii.gz' | sort | xargs sha256sum) > "meta/SHA256SUMS-$DS"
+          du -sh "data/$DS"
+          { echo "### $DS: $n cases"; for f in meta/*_flow.csv; do [ -f "$f" ] && python3 -c "import csv,collections,sys; print(dict(collections.Counter((r['status'], r['reason_codes']) for r in csv.DictReader(open(sys.argv[1])))))" "$f"; done; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
-        with: { name: bench-data, path: data, retention-days: 3, compression-level: 0 }
+        with: { name: 'bench-data-${{ matrix.dataset }}', path: 'data/${{ matrix.dataset }}', retention-days: 3, compression-level: 0 }
+      - uses: actions/upload-artifact@v4
+        with: { name: 'bench-meta-${{ matrix.dataset }}', path: meta, retention-days: 7 }
+
+  plan:
+    needs: data
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { pattern: 'bench-meta-*', path: meta, merge-multiple: true }
+      - id: m
+        name: Job matrix (scripts/bench/matrix.json × QC-passed cases)
+        run: |
+          python3 -c "
+          import csv, glob
+          rows = [r for f in sorted(glob.glob('meta/cases-*.csv')) for r in csv.DictReader(open(f))]
+          w = csv.DictWriter(open('meta/cases.csv', 'w', newline=''), fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
+          "
+          m=$(python3 scripts/bench/data/plan_matrix.py --cases meta/cases.csv)
+          echo "matrix=$m" >> "$GITHUB_OUTPUT"
+          echo "$m" | jq -r '.include[] | "\(.group // .model) \(.dataset) \(.shard // "-") \(.cases)"' >> "$GITHUB_STEP_SUMMARY"
 
   bench:
-    needs: [plan, data]
+    name: ${{ matrix.group || matrix.model }} × ${{ matrix.dataset }} ${{ matrix.shard }}
+    needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
       fail-fast: false
+      max-parallel: 20
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
@@ -70,31 +109,49 @@ jobs:
       - name: onnxruntime-node (runner backend)
         run: mkdir -p /tmp/ortnode && cd /tmp/ortnode && npm init -y >/dev/null && npm i onnxruntime-node@1.20.1
       - uses: actions/download-artifact@v4
-        with: { name: bench-data, path: data }
-      - name: Model from release
+        with: { name: 'bench-data-${{ matrix.dataset }}', path: 'data/${{ matrix.dataset }}' }
+      - uses: actions/download-artifact@v4
+        with: { name: 'bench-meta-${{ matrix.dataset }}', path: meta }
+      - name: Case list
+        run: cp 'meta/cases-${{ matrix.dataset }}.csv' data/cases.csv && echo '${{ matrix.cases }}'
+      - name: Models from release
         run: |
           mkdir -p models
-          for ext in onnx json; do
-            curl -fsSL -o models/${{ matrix.model }}.$ext https://github.com/${{ github.repository }}/releases/download/$MODEL_RELEASE/${{ matrix.model }}.$ext
+          for m in ${{ matrix.models || matrix.model }}; do
+            for ext in onnx json; do
+              curl -fsSL --retry 5 -o models/$m.$ext https://github.com/${{ github.repository }}/releases/download/$MODEL_RELEASE/$m.$ext
+            done
           done
-      - name: Select dataset cases
+          ls -la models
+      - name: Skip cases already published (same model sha256 + case)
+        if: ${{ !inputs.rerun_published }}
+        env: { GH_TOKEN: '${{ github.token }}' }
         run: |
-          python3 - <<'PY'
-          import csv
-          rows=list(csv.DictReader(open('data/cases.csv')))
-          keep=[r for r in rows if r['source']=='${{ matrix.dataset }}']
-          w=csv.DictWriter(open('data/cases.csv','w',newline=''),fieldnames=rows[0].keys()); w.writeheader(); w.writerows(keep)
-          print(len(keep),'cases')
-          PY
+          mkdir -p out prev
+          if gh release download $RESULTS_RELEASE -R ${{ github.repository }} -p records.ndjson -D prev 2>/dev/null; then
+            cp prev/records.ndjson out/records.ndjson
+            echo "seeded $(wc -l < out/records.ndjson) published records"
+          fi
       - name: Run TAMIAS benchmark
         env: { ORT_NODE: /tmp/ortnode/node_modules/onnxruntime-node }
         run: >
           npx vite-node --config scripts/bench/vite.config.ts scripts/bench/run-benchmark.ts --
           --data data --models models --out out --threads 4 ${{ matrix.cases && format('--cases {0}', matrix.cases) || '' }}
+      - name: Keep only this job's new records
+        if: always()
+        run: |
+          [ -f prev/records.ndjson ] && [ -f out/records.ndjson ] || exit 0
+          python3 -c "
+          import json
+          seen = {json.loads(l)['id'] for l in open('prev/records.ndjson') if l.strip()}
+          new = [l for l in open('out/records.ndjson') if l.strip() and json.loads(l)['id'] not in seen]
+          open('out/records.ndjson', 'w').writelines(new)
+          print(len(new), 'new records')
+          "
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "res-${{ matrix.model }}-${{ matrix.dataset }}-${{ matrix.cases || 'all' }}"
+          name: "res-${{ matrix.group || matrix.model }}-${{ matrix.dataset }}-${{ matrix.shard || matrix.cases || 'all' }}"
           path: out
           retention-days: 7
 
@@ -105,6 +162,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with: { pattern: 'res-*', path: res }
+      - uses: actions/download-artifact@v4
+        with: { pattern: 'bench-meta-*', path: meta, merge-multiple: true }
       - name: Merge with the published results (dedupe by model sha256 + dataset + case)
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |
@@ -124,7 +183,20 @@ jobs:
           cat prev/run.log res/*/run.log > pub/run.log 2>/dev/null || true
           find res -path '*/masks/*.nii.gz' -exec cp {} pub/masks/ \;
           (cd pub && zip -qr masks.zip masks && rm -rf masks)
+          # QC flow logs + case list of this run's data (overwrite the previous ones)
+          cp meta/*_flow.csv pub/ 2>/dev/null || true
+          python3 -c "
+          import csv, glob
+          rows = [r for f in sorted(glob.glob('meta/cases-*.csv')) for r in csv.DictReader(open(f))]
+          if rows:
+              w = csv.DictWriter(open('pub/cases.csv', 'w', newline=''), fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
+          "
           wc -l pub/records.ndjson; ls -la pub
+          python3 -c "
+          import json, collections
+          c = collections.Counter(json.loads(l)['datasetName'] for l in open('pub/records.ndjson'))
+          print(dict(c))
+          "
       - name: Publish ${{ env.RESULTS_RELEASE }}
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |

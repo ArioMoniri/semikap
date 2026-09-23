@@ -1,10 +1,32 @@
 {
-  "note": "Jobs for .github/workflows/benchmark.yml. 'cases' (optional) limits a job to those case ids \u2014 used to shard slow models (nnU-Net on MSD takes ~53 min per case on a 4-core runner). Results are merged into the benchmark-results-v1 release (dedupe by model sha256 + dataset + case). Current run: nnU-Net liver_22 only (previous shard ran out of memory; fixed by the rolling-window sliding inference).",
-  "include": [
-    {
-      "model": "nnunet_liver_lits",
-      "dataset": "msd_task03_liver",
-      "cases": "liver_22"
+  "note": "Plan for .github/workflows/benchmark.yml, expanded by scripts/bench/data/plan_matrix.py after the data jobs, so the shards follow the cases that actually passed QC. Each run = model group x dataset, cut into jobs of casesPerJob cases (cases.csv order) so a job stays < 3 h on a 4-vCPU runner: nnU-Net ~30 min/case; the nine LightningMedSeg3D nets ~30 min/case together; MSD/LiTS volumes are larger (up to 917 slices), hence 3 per job. Cases already in the benchmark-results-v1 release (same model sha256 + case) are skipped by the runner and publish dedupes, so the 10 HCC-TACE-Seg / 10 MSD cases published earlier are not recomputed. nnU-Net x MSD is resubstitution and is not run (its 10 original MSD cases are already published). 'include' (explicit jobs with model or models, dataset, cases) replaces the plan when non-empty.",
+  "datasets": {
+    "hcc_tace_seg": { "fetch": "python scripts/bench/data/fetch_hcc_tace_seg.py --n all --jobs 3 --out data/hcc_tace_seg --work raw/hcc --flow data/hcc_flow.csv" },
+    "crlm": { "fetch": "python scripts/bench/data/fetch_crlm.py --n 50 --jobs 3 --out data/crlm --work raw/crlm --flow data/crlm_flow.csv" },
+    "msd_task03_liver": { "fetch": "python scripts/bench/data/fetch_msd_cases.py --out data/msd_task03_liver --subset all --jobs 4" }
+  },
+  "groups": {
+    "nnunet": { "models": ["nnunet_liver_lits"] },
+    "lms3d": {
+      "models": [
+        "lms3d_unet",
+        "lms3d_vnet",
+        "lms3d_resunet",
+        "lms3d_attention_unet",
+        "lms3d_unetpp",
+        "lms3d_unetr",
+        "lms3d_swin_unetr",
+        "lms3d_medformer",
+        "lms3d_segformer"
+      ]
     }
-  ]
+  },
+  "runs": [
+    { "group": "nnunet", "dataset": "hcc_tace_seg", "casesPerJob": 4 },
+    { "group": "nnunet", "dataset": "crlm", "casesPerJob": 4 },
+    { "group": "lms3d", "dataset": "hcc_tace_seg", "casesPerJob": 6 },
+    { "group": "lms3d", "dataset": "crlm", "casesPerJob": 6 },
+    { "group": "lms3d", "dataset": "msd_task03_liver", "casesPerJob": 3 }
+  ],
+  "include": []
 }

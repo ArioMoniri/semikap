@@ -1,0 +1,198 @@
+dataset,patient_id,status,reason_codes,detail,ct_series_uid,seg_series_uid,ct_crdc_series_uuid,seg_crdc_series_uuid,acquisition_number,phase,liver_ml,tumor_ml
+colorectal_liver_metastases,CRLM-CT-1001,included,,161 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.533669585389327696272831671548,1.3.6.1.4.1.14519.5.2.1.9203.8273.370971589400256299984427146600,7e1b9aa1-be25-41ee-b40f-8ffa8e39bb03,394ba867-3584-45df-8b9e-90bff18f436a,2,portal_venous,1750.8,1.1
+colorectal_liver_metastases,CRLM-CT-1002,included,,178 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.455038217313067138673184936282,1.3.6.1.4.1.14519.5.2.1.9203.8273.302964673037904770968458531097,cfe8bfbd-fc51-45ba-a62a-b556ebf3d270,b9c641cc-e9e2-49d3-a5ab-55f1a21803d6,3,portal_venous,818.1,0.5
+colorectal_liver_metastases,CRLM-CT-1003,included,,51 sl × 5.0 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.998520027522620198855715156108,1.3.6.1.4.1.14519.5.2.1.9203.8273.233692783386264068613732019177,1f63d54b-38a1-4c8b-9975-0012aba80e57,c69f8902-bcfa-4c27-84ab-34d3572832b0,4,portal_venous,2201.8,2.3
+colorectal_liver_metastases,CRLM-CT-1004,included,,CT CH/AB/PEL · 41 sl × 5.0 mm · 2 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.254242588659825836950462054011,1.3.6.1.4.1.14519.5.2.1.9203.8273.703131922535045894161106211647,a192c6ca-69b0-4195-bfa5-4fe9962b2da6,66d4fafb-bb3f-4b25-92b4-08a35d9ca4e9,2,portal_venous,1288.9,1.5
+colorectal_liver_metastases,CRLM-CT-1005,included,,141 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.337637593354161532552899758706,1.3.6.1.4.1.14519.5.2.1.9203.8273.118955862549854116020933638195,78c920c6-2047-477c-a141-26d3be32c8a5,6c234f24-7326-4e1a-b059-dd19f55857ce,3,portal_venous,1261.8,46.6
+colorectal_liver_metastases,CRLM-CT-1006,included,,51 sl × 5.0 mm · 8 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.286130801613533577338339572281,1.3.6.1.4.1.14519.5.2.1.9203.8273.756355460888423922858731184978,379cdaec-5a2b-47c2-ad49-ab0a3f60c72d,50944f6f-33ee-4808-848a-dc3eea6bfe7e,3,portal_venous,1611.0,15.3
+colorectal_liver_metastases,CRLM-CT-1007,included,,CT CH/AB/PEL · 51 sl × 5.0 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.647078994044139971307880938775,1.3.6.1.4.1.14519.5.2.1.9203.8273.943061260212119869273525493329,87e8e675-51b7-452f-8872-b0a0ef0b11bd,a1c877a5-8065-42c7-a93c-bbc3dc333227,2,portal_venous,1023.4,0.5
+colorectal_liver_metastases,CRLM-CT-1008,included,,Bind(17095/4/277..465) · 148 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.147176332383727661808052737381,1.3.6.1.4.1.14519.5.2.1.9203.8273.857191344749379360552192917136,d9089940-6fea-4e3a-9470-4cf6a59d2800,c6f57f00-a9e8-418f-8fe8-5b880d89ae10,2,portal_venous,990.0,0.2
+colorectal_liver_metastases,CRLM-CT-1009,included,,141 sl × 1.5 mm · 2 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.687291219842059178499568815022,1.3.6.1.4.1.14519.5.2.1.9203.8273.143726154799411709472080461674,5658da22-3d56-4286-8412-ae3775cf7dd8,5c6e55ea-097a-4855-968f-1f24560eb7e4,2,portal_venous,1459.0,164.0
+colorectal_liver_metastases,CRLM-CT-1010,included,,47 sl × 5.0 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.270035007174709027864394981424,1.3.6.1.4.1.14519.5.2.1.9203.8273.173693292793710176384410782358,895a123d-da2b-490e-9e4b-55d300bcc892,56ba5402-6568-4862-b0fc-485ef5b2fb32,2,portal_venous,1714.0,1.6
+colorectal_liver_metastases,CRLM-CT-1011,included,,CT CH/AB/PEL · 36 sl × 5.0 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.309953836542238933910820230787,1.3.6.1.4.1.14519.5.2.1.9203.8273.752172368918633153558389544498,0fa05b0e-8729-499f-b887-3bc321deb1b7,06598137-a663-4261-8c0b-c09476527115,2,portal_venous,1146.1,4.7
+colorectal_liver_metastases,CRLM-CT-1012,included,,158 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.301632122009735814844594931449,1.3.6.1.4.1.14519.5.2.1.9203.8273.127843976779466573147531065567,2b4432c8-9b71-4b1d-bdb3-4b9bf6509e7e,ffe070d3-5303-441c-a62d-90889f21236d,3,portal_venous,1553.5,0.9
+colorectal_liver_metastases,CRLM-CT-1013,included,,131 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.100952006031871945347699469921,1.3.6.1.4.1.14519.5.2.1.9203.8273.173669580727309707174429812418,289dca37-07ef-4c14-ace5-896dacf56962,2fb4dac2-2026-4b34-a1ff-436ed4b2cd53,3,portal_venous,1302.6,7.2
+colorectal_liver_metastases,CRLM-CT-1014,included,,55 sl × 5.0 mm · 2 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.310919066612974268195709015368,1.3.6.1.4.1.14519.5.2.1.9203.8273.440803058654740867148486811122,2391a044-4adb-40e6-92a3-d2da0781c53f,5778c922-86e3-44e1-a77a-dcadc1897ea1,3,portal_venous,1552.3,3.0
+colorectal_liver_metastases,CRLM-CT-1015,included,,48 sl × 5.0 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.239803565971926420748072311730,1.3.6.1.4.1.14519.5.2.1.9203.8273.901531966952169050765398439181,5747c6ed-5d27-4efa-8d9c-532301720f0c,8870993e-96a2-4175-b281-4d85b3f0f97f,3,portal_venous,2129.9,4.7
+colorectal_liver_metastases,CRLM-CT-1016,excluded,THICK_SLICES,slice spacing 7.50 mm,,1.3.6.1.4.1.14519.5.2.1.9203.8273.284274127793551006032928431978,,f93cca62-a480-4f5b-9fa5-b852f00a76d3,,,,
+colorectal_liver_metastases,CRLM-CT-1017,included,,117 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.207339518727715932140231193509,1.3.6.1.4.1.14519.5.2.1.9203.8273.227108728841008237605612405298,80a88567-44bf-4768-89ae-7566929939c0,941bac46-a932-4066-a9d8-5267f3adbf56,3,portal_venous,1596.8,2.0
+colorectal_liver_metastases,CRLM-CT-1018,included,,83 sl × 2.5 mm · 3 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.188875005497186250413797336559,1.3.6.1.4.1.14519.5.2.1.9203.8273.123479285754797890598337890865,df37209a-3a59-4c17-aa69-55b3ae0d3b81,81cd9a1b-5676-48b9-82dc-c0106b4a480d,2,portal_venous,1424.2,13.8
+colorectal_liver_metastases,CRLM-CT-1019,included,,145 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.964317152217057892134610035026,1.3.6.1.4.1.14519.5.2.1.9203.8273.197802176659053188716414492299,2dda543a-61af-4bee-b1c3-8351c2d0281c,47fe43b3-af61-46b8-baa6-9fcc628c0f06,3,portal_venous,1650.2,1.5
+colorectal_liver_metastases,CRLM-CT-1020,excluded,THICK_SLICES,slice spacing 7.50 mm,,1.3.6.1.4.1.14519.5.2.1.9203.8273.191619836662485077457029127466,,7f4df308-f3dd-4239-bd1e-5fc5520a50c5,,,,
+colorectal_liver_metastases,CRLM-CT-1021,excluded,THICK_SLICES,slice spacing 7.50 mm,,1.3.6.1.4.1.14519.5.2.1.9203.8273.312240329280765683872520951399,,abef965c-b7a5-4efb-b27c-b1c7de52f3cb,,,,
+colorectal_liver_metastases,CRLM-CT-1022,excluded,THICK_SLICES,slice spacing 7.50 mm,,1.3.6.1.4.1.14519.5.2.1.9203.8273.136020826242457261879460704275,,02561163-07e3-49c2-bc5c-c85752ba7a0c,,,,
+colorectal_liver_metastases,CRLM-CT-1023,included,,40 sl × 5.0 mm · 2 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.418402510763139732273882958170,1.3.6.1.4.1.14519.5.2.1.9203.8273.583696965671483485004126852516,12551387-c812-444e-8429-dc4e2ab32ff9,5d7505d6-fa3c-4bd9-bab1-79c0866a6792,3,portal_venous,1677.3,8.6
+colorectal_liver_metastases,CRLM-CT-1025,included,,164 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.335331127504900561062356850777,1.3.6.1.4.1.14519.5.2.1.9203.8273.212891889449071524659475966235,50835127-ab9d-430c-8002-6d5f69c375c9,ce9fb1ee-80c4-4b90-b992-3a892139c5a4,3,portal_venous,1528.7,0.4
+colorectal_liver_metastases,CRLM-CT-1026,included,,Bind(2895/4/246..509) · 183 sl × 1.5 mm · 5 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.275179554444442893192427753220,1.3.6.1.4.1.14519.5.2.1.9203.8273.289166167875029799350800214977,1295c825-cd3d-4d9e-b4eb-3496dc07f043,a999468b-a698-42c0-bb07-d22a20e3df5f,3,portal_venous,2333.2,399.7
+colorectal_liver_metastases,CRLM-CT-1027,excluded,THICK_SLICES,slice spacing 7.50 mm,,1.3.6.1.4.1.14519.5.2.1.9203.8273.877816149738667601011486853039,,f77c97ed-49a2-42d3-bbc0-aee40490cb2e,,,,
+colorectal_liver_metastases,CRLM-CT-1028,included,,CT CAP W/CONTRAST · 45 sl × 5.0 mm · 2 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.272763484330811506189966364629,1.3.6.1.4.1.14519.5.2.1.9203.8273.198968923379665142689540530251,4e990aec-00c0-49e3-90bf-58adcc692897,f4bbe027-f5d6-4709-a8eb-b6e9a99ede67,2,portal_venous,1249.4,3.6
+colorectal_liver_metastases,CRLM-CT-1029,included,,143 sl × 1.5 mm · 3 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.282170518409954668983659542131,1.3.6.1.4.1.14519.5.2.1.9203.8273.851244890409717685022349918368,6a1c1691-4085-47f0-b156-9a05c6764d68,99ec2274-0fd9-4173-8c20-1ecba4fd76cc,3,portal_venous,1397.8,7.5
+colorectal_liver_metastases,CRLM-CT-1030,included,,Bind(18383/5/190..403) · 118 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.277340911308471898169920567877,1.3.6.1.4.1.14519.5.2.1.9203.8273.134398856232941974205966407470,15fc0810-a2e2-4b32-8c3c-217ebc92ba32,3e195ff0-9c03-45c2-9451-5adddc35ba85,3,portal_venous,1616.9,17.0
+colorectal_liver_metastases,CRLM-CT-1031,included,,CT CH/AB/PEL · 44 sl × 5.0 mm · 3 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.998338835348542251361411222040,1.3.6.1.4.1.14519.5.2.1.9203.8273.265629450175310470010202247243,47c8412a-d085-4101-80f4-f1be66856c84,c1b6c277-d73e-4197-a1a3-1b6b02e102ab,2,portal_venous,1551.8,60.1
+colorectal_liver_metastases,CRLM-CT-1032,included,,168 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.581986813711373802602074144049,1.3.6.1.4.1.14519.5.2.1.9203.8273.270725990320922786952565568716,cc5e828f-f3df-4fec-9170-c4fc0c3da08f,230590e2-edfb-4dcd-9593-1e5b595157d1,3,portal_venous,2203.1,630.5
+colorectal_liver_metastases,CRLM-CT-1033,included,,54 sl × 5.0 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.188301572587551944700194687822,1.3.6.1.4.1.14519.5.2.1.9203.8273.236221364888927043393959994144,5b340dac-e939-4e58-963b-b78691352a01,9dfa461b-66fb-48c7-a873-5f022fbf1ac0,4,portal_venous,3615.9,1100.0
+colorectal_liver_metastases,CRLM-CT-1034,included,,CT CH/AB/PEL · 41 sl × 5.0 mm · 7 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.172756199396350563913348887782,1.3.6.1.4.1.14519.5.2.1.9203.8273.863299430606407689073605341266,75c7167d-2806-4e45-b6ae-efa0c70f5573,0df06a32-36c0-4b11-a0b4-40216bb95c2c,2,portal_venous,1054.5,6.5
+colorectal_liver_metastases,CRLM-CT-1035,included,,POST CON · 48 sl × 5.0 mm · 4 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.193833111196743252174568266242,1.3.6.1.4.1.14519.5.2.1.9203.8273.921324811530230368109722049306,fe1986f9-2d33-493f-853e-09bf05202f34,073a68ba-baad-4079-be28-eb02c40ee84d,2,portal_venous,1566.8,7.7
+colorectal_liver_metastases,CRLM-CT-1036,excluded,THICK_SLICES,slice spacing 7.50 mm,,1.3.6.1.4.1.14519.5.2.1.9203.8273.900683821241195732742273383206,,20580f27-8cf2-472f-a30f-78c76bfaa4b4,,,,
+colorectal_liver_metastases,CRLM-CT-1037,included,,144 sl × 1.5 mm · 5 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.125471439770422271237569071290,1.3.6.1.4.1.14519.5.2.1.9203.8273.120877117892925961003430775776,ef5be09a-40c3-4768-8b7b-ff85b5b6f650,65a2e1e7-21c0-4866-bfdb-0759efdc55a2,3,portal_venous,1257.6,9.1
+colorectal_liver_metastases,CRLM-CT-1038,included,,CT CH/AB/PEL · 38 sl × 5.0 mm · 3 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.332172094997506313675345545370,1.3.6.1.4.1.14519.5.2.1.9203.8273.171629450462112986617480664756,c776e6d9-d64c-4138-a991-242ba30f3fa5,bf01222c-276d-4876-9b77-9cb52e065da3,2,portal_venous,943.4,1.7
+colorectal_liver_metastases,CRLM-CT-1039,included,,POST CON · 46 sl × 5.0 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.285057027785818642471856167397,1.3.6.1.4.1.14519.5.2.1.9203.8273.219195651091192636662269601791,02113911-d18c-4f74-a8a2-3a7a2135732c,a902b6e1-35a9-4d70-ade1-07b09abf1ca7,2,portal_venous,1617.6,6.5
+colorectal_liver_metastases,CRLM-CT-1040,excluded,THICK_SLICES,slice spacing 7.50 mm,,1.3.6.1.4.1.14519.5.2.1.9203.8273.133777964192332979777009255654,,5a607661-1405-4eae-a55b-a3005657138a,,,,
+colorectal_liver_metastases,CRLM-CT-1041,included,,Chest/Abdomen/Pelvis · 35 sl × 5.0 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.954095440657642475078953332364,1.3.6.1.4.1.14519.5.2.1.9203.8273.194997843904437717268925843684,afdc19f0-435c-4c4a-aa07-b8ae47e0e048,67a7068d-a0c4-4cb2-b372-6cb18274c151,2,portal_venous,951.8,6.8
+colorectal_liver_metastases,CRLM-CT-1042,included,,148 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.314246100726023064824453698708,1.3.6.1.4.1.14519.5.2.1.9203.8273.235083009823851577659753403667,30499731-7baf-4cf2-a642-10828bb418e4,9818bc4e-44d7-49cb-a911-75c3d0672e71,2,portal_venous,1833.9,2.9
+colorectal_liver_metastases,CRLM-CT-1043,included,,121 sl × 1.5 mm · 2 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.764582342349300234807400030822,1.3.6.1.4.1.14519.5.2.1.9203.8273.163975835922834777568034818274,59a2f999-6694-40f6-996e-bc2e381e543e,0f92c1a4-9a32-4f30-9bae-d3a1555d5e8b,3,portal_venous,1698.8,65.4
+colorectal_liver_metastases,CRLM-CT-1044,excluded,THICK_SLICES,slice spacing 7.50 mm,,1.3.6.1.4.1.14519.5.2.1.9203.8273.249621257443657814476407094341,,81cc1ea1-a06e-4b76-a64c-743506b2a903,,,,
+colorectal_liver_metastases,CRLM-CT-1045,included,,141 sl × 1.5 mm · 3 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.308147810576192288411205914285,1.3.6.1.4.1.14519.5.2.1.9203.8273.490945266728191448474015089678,3b5daed1-5a1b-4f7b-ba1c-4a029eb1bc9f,c0655310-651d-423b-a2a8-28362fdf2d9f,2,portal_venous,1502.7,20.1
+colorectal_liver_metastases,CRLM-CT-1046,included,,CT CH/AB/PEL · 47 sl × 5.0 mm · 2 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.876266207167921740530708709916,1.3.6.1.4.1.14519.5.2.1.9203.8273.198419865300741306933067795121,1a87f9b4-7c9b-4e3f-a444-5e6c7843695d,b9d65142-4dac-409b-b775-30c2dfc389fa,2,portal_venous,1626.6,15.8
+colorectal_liver_metastases,CRLM-CT-1047,included,,45 sl × 5.0 mm · 3 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.313792416985945660273944040360,1.3.6.1.4.1.14519.5.2.1.9203.8273.311855723064893953342617805967,aa972b59-4435-4594-b141-9ec45ba6e844,af0c6535-660d-4277-8aad-40798ff98a7c,2,portal_venous,2052.5,109.4
+colorectal_liver_metastases,CRLM-CT-1048,included,,46 sl × 5.0 mm · 2 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.295752131880409282102303653837,1.3.6.1.4.1.14519.5.2.1.9203.8273.139197822888178710253680689386,ef4317d6-c35c-4355-92a3-f43f1900f364,f8e50ae6-be62-4859-9182-f1170dcac49c,2,portal_venous,2017.7,3.8
+colorectal_liver_metastases,CRLM-CT-1049,included,,Bind(2461/5/277..520) · 128 sl × 1.5 mm · 4 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.265256104276095000640066677784,1.3.6.1.4.1.14519.5.2.1.9203.8273.291689483221201516194032867002,a7f99aee-ee6a-4a1b-b0db-8d8424ca352a,97598b1a-7cae-4d85-9dee-1906e3e681f8,3,portal_venous,1845.6,421.2
+colorectal_liver_metastases,CRLM-CT-1050,included,,139 sl × 1.5 mm · 3 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.241683445123776287407186888673,1.3.6.1.4.1.14519.5.2.1.9203.8273.239530865933937439121799908024,db8a5bbe-3af3-4696-8165-9e97d2eed00c,f0c56928-e438-453c-a319-c602fe7954f2,2,portal_venous,1396.5,32.1
+colorectal_liver_metastases,CRLM-CT-1051,included,,162 sl × 1.5 mm · 2 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.261181999170280359234642293629,1.3.6.1.4.1.14519.5.2.1.9203.8273.588029137173005554947850610199,0806289a-cd8e-4675-9b93-161a7a305fe8,22a2a594-37c9-4008-9765-dd20631eb627,2,portal_venous,1268.6,1.5
+colorectal_liver_metastases,CRLM-CT-1052,included,,58 sl × 5.0 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.316224318528459980880332165110,1.3.6.1.4.1.14519.5.2.1.9203.8273.124461738198954396242727988280,cf6a9249-eb96-43cf-9675-29a5c4b65e6b,e36f10f3-6872-4eca-82b0-6efb8e6bea54,3,portal_venous,2844.9,19.4
+colorectal_liver_metastases,CRLM-CT-1053,included,,134 sl × 1.5 mm · 3 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.116565820947214889691718052511,1.3.6.1.4.1.14519.5.2.1.9203.8273.258785159308886896659782944334,0a02b8ed-b7d0-47aa-af59-336664a6c89c,4ed62430-2d86-4fc0-a1c9-d671d98c23c5,3,portal_venous,1374.1,50.3
+colorectal_liver_metastases,CRLM-CT-1054,included,,CT CH/AB/PEL · 46 sl × 5.0 mm · 2 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.282379966485480280674271538733,1.3.6.1.4.1.14519.5.2.1.9203.8273.351498730541372901741241411951,0839cca6-e84c-4e66-87a8-7deeb6f88b96,af49ab02-44da-46ff-87d8-d812bfa79ed1,2,portal_venous,1252.3,2.8
+colorectal_liver_metastases,CRLM-CT-1055,included,,Bind(2451/4/171..390) · 121 sl × 1.5 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.249852099227145528693507302696,1.3.6.1.4.1.14519.5.2.1.9203.8273.287315216384721263749587362454,852d473a-9405-43e4-b285-063fe2742202,f700c879-4b85-464c-a043-dc1e9cc25213,3,portal_venous,1595.5,9.5
+colorectal_liver_metastases,CRLM-CT-1056,included,,144 sl × 1.5 mm · 4 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.245762170029847674795094257067,1.3.6.1.4.1.14519.5.2.1.9203.8273.191276678086276854337138816111,d7677e6c-17e5-4138-9e0a-4f8bc7f95812,f70eae8d-2f32-4c3a-8046-16eb57c2e981,3,portal_venous,1513.5,5.1
+colorectal_liver_metastases,CRLM-CT-1057,included,,151 sl × 1.5 mm · 4 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.179379764823583705640318646704,1.3.6.1.4.1.14519.5.2.1.9203.8273.118510444734589874437400141517,e4d48452-7642-429a-828a-fcaea405e7f1,0e3a1bef-ffe0-405a-9386-9aaa863a799e,3,portal_venous,1750.5,115.6
+colorectal_liver_metastases,CRLM-CT-1058,included,,CT CH/AB/PEL · 43 sl × 5.0 mm · 1 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.113655809007607955375871244834,1.3.6.1.4.1.14519.5.2.1.9203.8273.219350276936943435172465547704,cbe8c245-95ae-4e9f-951b-8f5557375082,da46c1f6-a801-454e-8fc7-5554659072af,2,portal_venous,1522.9,7.0
+colorectal_liver_metastases,CRLM-CT-1059,excluded,THICK_SLICES,slice spacing 7.50 mm,,1.3.6.1.4.1.14519.5.2.1.9203.8273.320215884204398662575108073863,,1ae4fc40-7b6d-4975-89de-7e99b671af79,,,,
+colorectal_liver_metastases,CRLM-CT-1060,included,,CT ABDOMEN/PELVIS · 52 sl × 5.0 mm · 2 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.103510359041289136780290400382,1.3.6.1.4.1.14519.5.2.1.9203.8273.338128024247819616876552749248,c050c8a0-804b-4cef-917d-3b70cff8f747,8a784951-1747-4be2-a77f-c5aa2c539cad,1,portal_venous,1250.6,8.0
+colorectal_liver_metastases,CRLM-CT-1061,qc_pass_not_selected,,Bind(5721/4/233..483) · 161 sl × 1.5 mm · 3 tumour segment(s),1.3.6.1.4.1.14519.5.2.1.9203.8273.160386976418985802603330970757,1.3.6.1.4.1.14519.5.2.1.9203.8273.167494482191981960805588376945,114727b2-6f4b-44cc-8409-0e1a6543ec64,23bbf169-ff10-4ebc-83b2-bec6b99aff85,3,portal_venous,2350.9,72.3
+colorectal_liver_metastases,CRLM-CT-1062,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1063,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1064,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1065,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1066,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1067,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1068,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1069,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1070,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1071,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1072,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1073,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1074,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1075,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1076,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1077,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1078,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1079,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1080,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1081,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1082,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1083,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1084,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1085,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1086,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1087,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1088,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1089,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1090,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1091,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1092,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1093,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1094,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1095,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1096,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1097,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1098,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1099,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1100,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1101,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1102,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1103,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1104,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1105,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1106,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1107,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1108,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1109,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1110,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1111,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1112,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1113,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1114,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1115,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1116,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1117,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1118,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1119,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1120,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1121,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1122,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1123,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1124,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1125,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1126,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1127,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1128,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1129,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1130,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1131,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1132,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1133,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1134,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1135,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1136,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1137,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1138,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1139,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1140,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1141,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1142,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1143,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1144,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1145,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1146,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1147,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1148,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1149,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1150,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1151,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1152,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1153,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1154,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1155,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1156,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1157,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1158,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1159,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1160,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1161,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1162,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1163,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1164,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1165,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1166,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1167,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1168,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1169,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1170,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1171,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1172,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1173,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1174,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1175,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1176,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1177,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1178,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1179,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1180,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1181,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1182,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1183,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1184,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1185,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1186,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1187,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1188,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1189,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1190,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1191,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1192,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1193,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1194,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1195,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1196,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1197,not_attempted,,subset already complete,,,,,,,,
+colorectal_liver_metastases,CRLM-CT-1198,not_attempted,,subset already complete,,,,,,,,

@@ -14,8 +14,9 @@ downloaded to your device and never uploaded.
 
 | Datasets | Access | Ground truth | Role |
 |---|---|---|---|
-| **HCC-TACE-Seg** (TCIA, CC BY 4.0, doi:10.7937/TCIA.5FNA-0924) | **one click, straight from TCIA** through the NCI Imaging Data Commons public bucket | expert DICOM-SEG: liver, mass, portal vein, aorta | external test set for all models |
-| MSD Task03 Liver (LiTS, CC BY-SA 4.0) | download (29 GB tar) or `scripts/bench/data/fetch_msd_cases.py` (pinned byte ranges) | liver, tumour | training data of nnU-Net (resubstitution, flagged † in reports), external for LMS3D |
+| **HCC-TACE-Seg** (TCIA, CC BY 4.0, doi:10.7937/TCIA.5FNA-0924) — 82 of 105 patients pass the pre-specified QC (flow log `scripts/bench/data/hcc_flow.csv`) | **one click, straight from TCIA** through the NCI Imaging Data Commons public bucket (`fetch_hcc_tace_seg.py --n all`) | expert DICOM-SEG: liver, mass, portal vein, aorta | external test set for all models |
+| **Colorectal-Liver-Metastases** (CRLM, TCIA/MSKCC, CC BY 4.0, doi:10.7937/QXK2-QG03; Simpson 2024 Sci Data) — first 50 PatientIDs passing QC (`crlm_flow.csv`) | **one click, straight from TCIA** via IDC (`fetch_crlm.py --n 50`) | expert DICOM-SEG: liver, tumours, hepatic + portal veins, future liver remnant (liver = Liver ∪ Tumor_k, tumour = ∪ Tumor_k; veins/remnant unused) | external test set for all models (MSKCC is not a LiTS centre) |
+| MSD Task03 Liver (LiTS, CC BY-SA 4.0) — 30 pinned labelled cases (10 original + 20 seeded draw) | download (29 GB tar) or `scripts/bench/data/fetch_msd_cases.py` (pinned byte ranges) | liver, tumour | training data of nnU-Net (resubstitution, flagged † in reports; benchmarked on the original 10 only), external for LMS3D (all 30) |
 | BTCV (Synapse syn3193805, Landman 2015; Synapse terms) | download | 13 organs (liver = 6) | in-distribution for LMS3D |
 
 The PyTorch checkpoints can't run in a browser. `.github/workflows/zenodo-models.yml` downloads
