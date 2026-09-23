@@ -188,8 +188,8 @@ export function MaskCompareGrid({ size = 170 }: { size?: number }) {
       ) : (
         <>
           <p className="text-[10px] text-slate-500">
-            {ks.caseKey} · axial slice {ks.z} (most ground-truth liver) · radiological view (patient right on image left) · orange = ground
-            truth outline, blue = prediction (whole liver)
+            {ks.caseKey} · axial slice {ks.z} (most ground-truth liver) · radiological view (patient right on image left) · orange = ground-truth
+            whole-liver outline, yellow = ground-truth tumour outline, blue = prediction (whole liver)
           </p>
           <div className="flex flex-wrap gap-3">
             <Tile ks={ks} pred={null} title="Ground truth" size={size} />

@@ -137,11 +137,13 @@ export function buildKeySlice(input: KeySliceInput): KeySlice {
 
 const PRED_RGB = [42, 120, 214]; // categorical slot 1
 const GT_RGB = [235, 104, 52]; // categorical slot 2
+const TUMOUR_RGB = [250, 204, 21]; // tumour outline, distinct from the orange liver outline
 
 /**
  * RGBA pixels for one comparison tile: CT in a soft-tissue window
- * (W 400 / L 40), prediction as a translucent fill, ground truth as a
- * 1-px outline (any GT voxel with a 4-neighbour outside the GT).
+ * (W 400 / L 40), prediction as a translucent fill, ground-truth whole
+ * liver as an orange outline and tumour (label 2) as a yellow outline,
+ * `outline` px thick.
  */
 export function composeTile(
   ct: Float32Array,
@@ -168,19 +170,20 @@ export function composeTile(
         b = 0.55 * b + 0.45 * PRED_RGB[2]!;
       }
       if (gt[i]) {
-        // Edge = a GT pixel within `outline` px (Chebyshev) of a non-GT pixel or the border.
-        let edge = false;
-        for (let dy = -outline; dy <= outline && !edge; dy++) {
-          for (let dx = -outline; dx <= outline; dx++) {
-            const xx = x + dx;
-            const yy = y + dy;
-            if (xx < 0 || yy < 0 || xx >= width || yy >= height || !gt[yy * width + xx]) {
-              edge = true;
-              break;
+        // Edge = a pixel within `outline` px (Chebyshev) of a pixel outside the region or the border.
+        // Whole-liver outline in orange; the tumour (label 2) outline on top in yellow.
+        const isEdge = (inside: (v: number) => boolean) => {
+          for (let dy = -outline; dy <= outline; dy++) {
+            for (let dx = -outline; dx <= outline; dx++) {
+              const xx = x + dx;
+              const yy = y + dy;
+              if (xx < 0 || yy < 0 || xx >= width || yy >= height || !inside(gt[yy * width + xx]!)) return true;
             }
           }
-        }
-        if (edge) [r, g, b] = GT_RGB as [number, number, number];
+          return false;
+        };
+        if (gt[i] === 2 && isEdge((v) => v === 2)) [r, g, b] = TUMOUR_RGB as [number, number, number];
+        else if (isEdge((v) => v !== 0)) [r, g, b] = GT_RGB as [number, number, number];
       }
       out[i * 4] = r;
       out[i * 4 + 1] = g;

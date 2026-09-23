@@ -128,9 +128,11 @@ export function mapSegFramesToGrid(seg: SegGeom, grid: GridAffine, labelOf: (seg
 /** Segment description → catalogue label (1 liver, 2 tumour, 0 ignore). */
 export function classifySegment(description: string): number {
   const d = description.toLowerCase();
-  if (/(tumou?r|mass|lesion|neoplasm|carcinoma|hcc|metasta)/.test(d)) return 2;
-  if (/(vein|vessel|arter|aorta|portal|hepatic v|ivc|cava)/.test(d)) return 0;
-  if (/liver/.test(d)) return 1;
+  // Word-anchored; lesion terms win over vessel terms, so e.g. "portal vein tumour
+  // thrombus" counts as tumour (macrovascular invasion is part of the tumour burden).
+  if (/\b(tumou?rs?|mass(es)?|lesions?|neoplasms?|carcinoma|hcc|metasta\w*)\b/.test(d)) return 2;
+  if (/\b(veins?|vessels?|arter\w*|aorta|portal|ivc|cava)\b/.test(d)) return 0;
+  if (/\bliver\b/.test(d)) return 1;
   return 0;
 }
 
@@ -169,6 +171,8 @@ export function parseDicomSegGeometry(bytes: Uint8Array): ParsedSeg {
   const columns = Number(ds.Columns);
   const n = Number(ds.NumberOfFrames);
   const bits = Number(ds.BitsAllocated ?? 1);
+  // FRACTIONAL SEG: occupancy/probability scaled to MaximumFractionalValue (default 255).
+  const fracThreshold = Number(ds.MaximumFractionalValue ?? 255) / 2;
   const pd = arr(ds.PixelData)[0];
   const pixelData = pd instanceof ArrayBuffer ? new Uint8Array(pd) : pd instanceof Uint8Array ? pd : null;
   if (!rows || !columns || !n || !pixelData) throw new Error('DICOM-SEG missing Rows/Columns/NumberOfFrames/PixelData.');
@@ -204,7 +208,7 @@ export function parseDicomSegGeometry(bytes: Uint8Array): ParsedSeg {
         const b = f * px + p;
         pixels[p] = ((pixelData[b >> 3] ?? 0) >> (b & 7)) & 1;
       } else {
-        pixels[p] = (pixelData[f * px + p] ?? 0) > 127 ? 1 : 0;
+        pixels[p] = (pixelData[f * px + p] ?? 0) > fracThreshold ? 1 : 0;
       }
     }
     frames.push({ segment: Number(segId?.ReferencedSegmentNumber ?? 1), ipp: ipp as [number, number, number], pixels });

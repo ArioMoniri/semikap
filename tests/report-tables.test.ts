@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildReportFiles } from '../src/lib/benchmark/report-tables';
+import { buildReportFiles, minWilcoxonP, bootstrapMedianCI } from '../src/lib/benchmark/report-tables';
 import type { BenchmarkRecord } from '../src/lib/benchmark/types';
 
 function rec(model: string, ds: string, caseId: string, dice: number): BenchmarkRecord {
@@ -30,5 +30,25 @@ describe('buildReportFiles', () => {
   it('REPORT.md has the Friedman line and methods', () => {
     expect(files['REPORT.md']).toMatch(/2 models × 3 complete cases\. Friedman χ²\(1\) = 3\.00/);
     expect(files['REPORT.md']).toMatch(/## Methods/);
+  });
+});
+
+describe('report-tables verifier fixes', () => {
+  const build = buildReportFiles;
+  it('minWilcoxonP(10) ≈ 0.0059 (> 0.05/45) — the power note is emitted', () => {
+    expect(minWilcoxonP(10)).toBeCloseTo(0.0059, 3);
+    expect(minWilcoxonP(10)).toBeGreaterThan(0.05 / 45);
+  });
+  it('bootstrap CI is deterministic and brackets the median', () => {
+    const d = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07];
+    const [lo, hi] = bootstrapMedianCI(d);
+    expect(bootstrapMedianCI(d)).toEqual([lo, hi]);
+    expect(lo).toBeLessThanOrEqual(0.04);
+    expect(hi).toBeGreaterThanOrEqual(0.04);
+  });
+  it('neutralises spreadsheet formulas in text cells', () => {
+    const files = build([rec('=HYPERLINK("x")', 'hcc', 'c1', 0.9), rec('B', 'hcc', 'c1', 0.8)]);
+    expect(files['per_case.csv']).toContain(`"'=HYPERLINK(""x"")@1"`);
+    expect(files['nemenyi_pairs.csv']).toBeDefined();
   });
 });

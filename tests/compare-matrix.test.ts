@@ -90,3 +90,33 @@ describe('dataset id normalisation (runner folder names ↔ catalogue ids)', () 
     expect(m.values).toEqual([[0.9, 0.8]]);
   });
 });
+
+describe('verifier fixes: failures and re-runs', () => {
+  const withHd = (r: BenchmarkRecord, dice: number, hd: number): BenchmarkRecord => ({
+    ...r,
+    segmentation: [{ ...r.segmentation![0]!, dice, hd95Mm: hd }],
+  });
+  it('a surface metric undefined by an empty prediction scores as the worst value, not a dropped case', () => {
+    const rs = [
+      withHd(rec('A', 'hcc', 'c1', 0.9), 0.9, 5),
+      withHd(rec('B', 'hcc', 'c1', 0.8), 0.8, 9),
+      withHd(rec('A', 'hcc', 'c2', 0.9), 0.9, 4),
+      withHd(rec('B', 'hcc', 'c2', 0), 0, NaN), // B predicted nothing
+    ];
+    const m = recordsToMatrix(rs, { dataset: 'hcc', label: 1, metric: 'hd95Mm' });
+    expect(m.cases).toEqual(['c1', 'c2']);
+    expect(m.values[1]).toEqual([4, 9]);
+    expect(m.failures).toEqual([0, 1]);
+  });
+  it('both masks empty (Dice 1, no surface) is not a failure — the case is not measurable', () => {
+    const rs = [withHd(rec('A', 'hcc', 'c1', 1), 1, NaN), withHd(rec('B', 'hcc', 'c1', 1), 1, NaN)];
+    expect(recordsToMatrix(rs, { dataset: 'hcc', label: 1, metric: 'hd95Mm' }).cases).toEqual([]);
+  });
+  it('crossDatasetSummary counts a re-run model/case once (latest wins)', () => {
+    const rerun = { ...rec('A', 'hcc', 'c1', 0.5), id: 'rerun' };
+    const s = crossDatasetSummary([...recs, rerun], { label: 1, metric: 'dice', datasets: ['hcc', 'msd'] });
+    const a = s.find((r) => r.model === 'A@1')!;
+    expect(a.n).toEqual([3, 1]);
+    expect(a.median[0]).toBeCloseTo(0.7, 9); // {0.5, 0.95, 0.7}
+  });
+});

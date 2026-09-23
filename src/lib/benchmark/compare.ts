@@ -30,10 +30,34 @@ export function modelKey(r: BenchmarkRecord): string {
     : `${r.model.name}@${r.model.version}`;
 }
 
-function metricOf(r: BenchmarkRecord, label: number, metric: SegMetricKey): number | null {
+type MetricValue = number | 'fail' | null;
+
+/**
+ * A finite metric, `'fail'` for a surface distance that is undefined because
+ * exactly one of prediction / reference is empty (Dice < 1: a segmentation
+ * failure, which must not be silently dropped), or null when absent / both
+ * masks empty (no structure to measure).
+ */
+function metricOf(r: BenchmarkRecord, label: number, metric: SegMetricKey): MetricValue {
   const m = r.segmentation?.find((s: SegMetrics) => s.label === label);
   const v = m ? m[metric] : undefined;
-  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (m && LOWER_IS_BETTER.has(metric) && typeof m.dice === 'number' && m.dice < 1) return 'fail';
+  return null;
+}
+
+/** Latest record per (dataset, case, model) — re-runs replace, never double-count. */
+function latestPerPair(records: readonly BenchmarkRecord[]): BenchmarkRecord[] {
+  const m = new Map<string, BenchmarkRecord>();
+  for (const r of records) m.set(JSON.stringify([canonicalDatasetId(r.datasetName), r.case.caseId, modelKey(r)]), r);
+  return [...m.values()];
+}
+
+/** Failures score as the worst finite value observed (tied last in rank tests). */
+function worstFinite(values: MetricValue[], higherIsBetter: boolean): number {
+  const xs = values.filter((v): v is number => typeof v === 'number');
+  if (!xs.length) return NaN;
+  return higherIsBetter ? Math.min(...xs) : Math.max(...xs);
 }
 
 export interface MatrixQuery {
@@ -49,35 +73,47 @@ export interface ScoreMatrix {
   /** cases × models */
   values: number[][];
   droppedCases: string[];
+  /** Per model: cases where the metric was undefined because the prediction or reference was empty (scored as the worst observed value). */
+  failures: number[];
   higherIsBetter: boolean;
 }
 
 export function recordsToMatrix(records: readonly BenchmarkRecord[], q: MatrixQuery): ScoreMatrix {
-  const seg = records.filter((r) => r.task === 'segmentation');
+  const seg = latestPerPair(records.filter((r) => r.task === 'segmentation'));
   const datasets = [...new Set(seg.map((r) => canonicalDatasetId(r.datasetName)))].sort();
   const inDs = q.dataset ? seg.filter((r) => canonicalDatasetId(r.datasetName) === canonicalDatasetId(q.dataset!)) : seg;
   const models = [...new Set(inDs.map(modelKey))].sort();
   // Rows are keyed by dataset + case so identical case ids from two sources never merge.
   const caseKey = (r: BenchmarkRecord) => (q.dataset ? r.case.caseId : `${canonicalDatasetId(r.datasetName)}/${r.case.caseId}`);
-  const byCase = new Map<string, Map<string, number>>();
+  const higherIsBetter = !LOWER_IS_BETTER.has(q.metric);
+  const byCase = new Map<string, Map<string, MetricValue>>();
   for (const r of inDs) {
     const v = metricOf(r, q.label, q.metric);
     if (v === null) continue;
-    const row = byCase.get(caseKey(r)) ?? new Map<string, number>();
-    row.set(modelKey(r), v); // re-runs of the same model/case: latest record wins
+    const row = byCase.get(caseKey(r)) ?? new Map<string, MetricValue>();
+    row.set(modelKey(r), v);
     byCase.set(caseKey(r), row);
   }
+  const penalty = worstFinite([...byCase.values()].flatMap((row) => [...row.values()]), higherIsBetter);
   const cases: string[] = [];
   const values: number[][] = [];
   const droppedCases: string[] = [];
+  const failures = models.map(() => 0);
   for (const c of [...byCase.keys()].sort()) {
     const row = byCase.get(c)!;
     if (models.every((m) => row.has(m))) {
       cases.push(c);
-      values.push(models.map((m) => row.get(m)!));
+      values.push(
+        models.map((m, j) => {
+          const v = row.get(m)!;
+          if (v !== 'fail') return v;
+          failures[j]!++;
+          return penalty;
+        })
+      );
     } else droppedCases.push(c);
   }
-  return { datasets, models, cases, values, droppedCases, higherIsBetter: !LOWER_IS_BETTER.has(q.metric) };
+  return { datasets, models, cases, values, droppedCases, failures, higherIsBetter };
 }
 
 export interface CrossDatasetRow {
@@ -94,14 +130,18 @@ export function crossDatasetSummary(
   records: readonly BenchmarkRecord[],
   q: { label: number; metric: SegMetricKey; datasets: string[] }
 ): CrossDatasetRow[] {
-  const models = [...new Set(records.filter((r) => r.task === 'segmentation').map(modelKey))].sort();
+  const seg = latestPerPair(records.filter((r) => r.task === 'segmentation'));
+  const models = [...new Set(seg.map(modelKey))].sort();
+  const higherIsBetter = !LOWER_IS_BETTER.has(q.metric);
   return models.map((model) => {
-    const per = q.datasets.map((ds) =>
-      records
+    const raw = q.datasets.map((ds) =>
+      seg
         .filter((r) => canonicalDatasetId(r.datasetName) === canonicalDatasetId(ds) && modelKey(r) === model)
         .map((r) => metricOf(r, q.label, q.metric))
-        .filter((v): v is number => v !== null)
+        .filter((v): v is number | 'fail' => v !== null)
     );
+    const penalty = worstFinite(raw.flat(), higherIsBetter);
+    const per = raw.map((xs) => xs.map((v) => (v === 'fail' ? penalty : v)).filter(Number.isFinite));
     const med = per.map((xs) => {
       if (!xs.length) return NaN;
       const s = [...xs].sort((a, b) => a - b);

@@ -88,4 +88,15 @@ describe('composeTile', () => {
     expect(orange(thick, 3 * w + 3)).toBe(true);
     expect(orange(thick, 4 * w + 4)).toBe(false); // centre stays CT
   });
+
+  it('outlines the tumour (label 2) in yellow inside the orange liver outline', () => {
+    const w = 8;
+    const gt = new Uint8Array(64);
+    for (let y = 1; y < 7; y++) for (let x = 1; x < 7; x++) gt[y * w + x] = 1;
+    for (let y = 3; y < 5; y++) for (let x = 3; x < 5; x++) gt[y * w + x] = 2;
+    const px = composeTile(new Float32Array(64), gt, null, w, w);
+    expect([px[(3 * w + 3) * 4], px[(3 * w + 3) * 4 + 1]]).toEqual([250, 204]);
+    expect(px[(1 * w + 1) * 4]).toBe(235);
+    expect(px[(2 * w + 2) * 4]).toBe(102); // liver interior: plain CT (0 HU at W400/L40)
+  });
 });

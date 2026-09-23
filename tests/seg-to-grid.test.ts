@@ -87,4 +87,11 @@ describe('classifySegment', () => {
     expect(classifySegment('Aorta')).toBe(0);
     expect(classifySegment('Blood vessel')).toBe(0);
   });
+  it('is word-anchored and documents tumour-thrombus precedence', () => {
+    expect(classifySegment('Portal vein tumour thrombus')).toBe(2);
+    expect(classifySegment('HCC')).toBe(2);
+    expect(classifySegment('Masseter')).toBe(0);
+    expect(classifySegment('Deliverable')).toBe(0);
+    expect(classifySegment('Hepatic arteries')).toBe(0);
+  });
 });
