@@ -82,5 +82,10 @@ via `tauri-driver`).
   - HCC_001: SEG/CT slice mismatch;
   - HCC_008, HCC_010, HCC_011: phases on different z-grids;
   - HCC_012: arterial phase only.
+- **Known issue: 3D inference in the Linux desktop app.** On Linux the desktop webview
+  (WebKitGTK) runs single-threaded WASM. During 3D inference its web process passes WebKit's
+  8 GB memory limit and gets killed. Everything else works there: catalogue, native model
+  download, TCIA case + GT, scoring of imported results. For now, run models in the browser
+  build (SegFormer on HCC_002: 28.6 s) or with the headless runner.
 - Raw model outputs are scored as-is (no largest-connected-component post-processing), so
   distant false positives show up in HD95.

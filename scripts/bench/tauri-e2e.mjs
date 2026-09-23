@@ -18,6 +18,8 @@ const out = arg('out', 'shots-desktop');
 const caseId = arg('case', 'HCC_002');
 const modelId = arg('model', 'lms3d_segformer');
 const records = arg('records');
+// Skip in-app inference (Linux WebKitGTK: the web process hits its 8 GB kill threshold — see docs/CATALOGUE.md).
+const skipInference = process.argv.includes('--skip-inference');
 const WD = arg('driver', 'http://127.0.0.1:4444');
 mkdirSync(out, { recursive: true });
 
@@ -45,14 +47,23 @@ const elemId = (v) => {
   ELEM = k;
   return v[k];
 };
-const find = async (xpath) => elemId(await wd('POST', S('/element'), { using: 'xpath', value: xpath }));
-const findAll = async (xpath) => (await wd('POST', S('/elements'), { using: 'xpath', value: xpath })).map(elemId);
+const find = async (xpath) =>
+  elemId(await wd('POST', S('/element'), { using: 'xpath', value: xpath }));
+const findAll = async (xpath) =>
+  (await wd('POST', S('/elements'), { using: 'xpath', value: xpath })).map(elemId);
 // Scroll into view first, then a JS click (WebKitWebDriver native clicks can miss off-screen targets).
 const click = async (id) => {
-  await wd('POST', S('/execute/sync'), { script: 'arguments[0].scrollIntoView({block:"center"}); arguments[0].click();', args: [{ [ELEM]: id }] });
+  await wd('POST', S('/execute/sync'), {
+    script: 'arguments[0].scrollIntoView({block:"center"}); arguments[0].click();',
+    args: [{ [ELEM]: id }],
+  });
 };
 const js = (script, args = []) => wd('POST', S('/execute/sync'), { script, args });
-const text = async (xpath) => js(`const n=document.evaluate(arguments[0],document,null,9,null).singleNodeValue;return n?n.innerText:''`, [xpath]);
+const text = async (xpath) =>
+  js(
+    `const n=document.evaluate(arguments[0],document,null,9,null).singleNodeValue;return n?n.innerText:''`,
+    [xpath]
+  );
 const shot = async (name) => {
   const b64 = await wd('GET', S('/screenshot'));
   writeFileSync(join(out, `${name}.png`), Buffer.from(b64, 'base64'));
@@ -80,14 +91,22 @@ const openSection = async (title) => {
 const panel = "//*[@data-testid='catalogue-panel']";
 
 try {
-  await waitFor(() => find("//button[contains(normalize-space(.), 'Catalogue')]"), 180_000, 'app ready');
+  await waitFor(
+    () => find("//button[contains(normalize-space(.), 'Catalogue')]"),
+    180_000,
+    'app ready'
+  );
   await js('window.resizeTo?.(1600,1000)');
   await openSection('Catalogue');
   await js(`document.querySelector('[data-testid=catalogue-panel]').scrollIntoView()`);
-  const idx = await waitFor(async () => {
-    const t = await text(panel);
-    return /index: (GitHub release|HF mirror)/.test(t) ? t.match(/index: [^\n]+/)[0] : null;
-  }, 120_000, 'release index');
+  const idx = await waitFor(
+    async () => {
+      const t = await text(panel);
+      return /index: (GitHub release|HF mirror)/.test(t) ? t.match(/index: [^\n]+/)[0] : null;
+    },
+    120_000,
+    'release index'
+  );
   log('catalogue', idx);
   await shot('d01_catalogue_index_loaded_natively');
 
@@ -97,56 +116,83 @@ try {
     [caseId]
   );
   await click(await find(`${panel}//button[contains(., 'Load CT + GT')]`));
-  const note = await waitFor(async () => {
-    const t = await text(panel);
-    return /GT set as the Benchmark reference|failed|cannot|Error/i.test(t) ? t : null;
-  }, 900_000, 'case load');
+  const note = await waitFor(
+    async () => {
+      const t = await text(panel);
+      return /GT set as the Benchmark reference|failed|cannot|Error/i.test(t) ? t : null;
+    },
+    900_000,
+    'case load'
+  );
   log('case', (note.match(/Loaded [^\n]+/) || ['?'])[0]);
   await shot('d02_hcc_case_with_gt_from_tcia');
 
   // Zenodo model through the native downloader
-  await click(await find(`//*[@data-testid='catalog-model-${modelId}']//button[contains(., 'Load')]`));
+  await click(
+    await find(`//*[@data-testid='catalog-model-${modelId}']//button[contains(., 'Load')]`)
+  );
   await waitFor(
-    async () => /Loaded LightningMedSeg3D|Loaded nnU-Net|could not|mismatch|blocked/i.test(await text(panel)),
+    async () =>
+      /Loaded LightningMedSeg3D|Loaded nnU-Net|could not|mismatch|blocked/i.test(await text(panel)),
     900_000,
     'model load'
   );
   await shot('d03_model_downloaded_natively');
 
-  // Inference
-  await openSection('Inference');
-  await click(await find("//button[normalize-space(.)='Run']"));
-  const t0 = Date.now();
-  let lastSnap = 0;
-  const doneMsg = await waitFor(async () => {
-    const b = await js('return document.body.innerText');
-    if (Date.now() - lastSnap > 120_000) {
-      lastSnap = Date.now();
-      log('progress', (b.match(/(inference|preprocessing|postprocessing)[^\n]*/) || ['?'])[0]);
-    }
-    return b.match(/done · via [^\n]+|Inference failed: [^\n]+/)?.[0] ?? null;
-  }, 3_600_000, 'inference');
-  log('inference', doneMsg, `${((Date.now() - t0) / 1000).toFixed(0)}s wall`);
-  await new Promise((r) => setTimeout(r, 4000));
-  await shot('d04_inference_overlay');
+  if (!skipInference) {
+    // Inference
+    await openSection('Inference');
+    await click(await find("//button[normalize-space(.)='Run']"));
+    const t0 = Date.now();
+    let lastSnap = 0;
+    const doneMsg = await waitFor(
+      async () => {
+        const b = await js('return document.body.innerText');
+        if (Date.now() - lastSnap > 120_000) {
+          lastSnap = Date.now();
+          log('progress', (b.match(/(inference|preprocessing|postprocessing)[^\n]*/) || ['?'])[0]);
+        }
+        return b.match(/done · via [^\n]+|Inference failed: [^\n]+/)?.[0] ?? null;
+      },
+      3_600_000,
+      'inference'
+    );
+    log('inference', doneMsg, `${((Date.now() - t0) / 1000).toFixed(0)}s wall`);
+    await new Promise((r) => setTimeout(r, 4000));
+    await shot('d04_inference_overlay');
 
-  // Score vs catalogue GT
-  await openSection('Benchmark');
-  const score = await find("//button[contains(., 'Score vs reference')]");
-  await js('arguments[0].scrollIntoView({block:"center"})', [{ [ELEM]: score }]);
-  await click(score);
-  await waitFor(async () => /Scored: macro Dice/.test(await js('return document.body.innerText')), 600_000, 'score');
-  log('score', (await js('return document.body.innerText')).match(/Scored: macro Dice [^\n]+/)?.[0]);
-  await shot('d05_scored_vs_tcia_gt');
+    // Score vs catalogue GT
+    await openSection('Benchmark');
+    const score = await find("//button[contains(., 'Score vs reference')]");
+    await js('arguments[0].scrollIntoView({block:"center"})', [{ [ELEM]: score }]);
+    await click(score);
+    await waitFor(
+      async () => /Scored: macro Dice/.test(await js('return document.body.innerText')),
+      600_000,
+      'score'
+    );
+    log(
+      'score',
+      (await js('return document.body.innerText')).match(/Scored: macro Dice [^\n]+/)?.[0]
+    );
+    await shot('d05_scored_vs_tcia_gt');
+  }
 
   if (records) {
+    await openSection('Benchmark');
     const input = await find("//*[@data-testid='compare-panel']//input[@type='file']");
     await wd('POST', S(`/element/${input}/value`), { text: resolve(records) });
-    await waitFor(async () => /Imported \d+ records/.test(await text("//*[@data-testid='compare-panel']")), 60_000, 'import');
+    await waitFor(
+      async () => /Imported \d+ records/.test(await text("//*[@data-testid='compare-panel']")),
+      60_000,
+      'import'
+    );
     await click(await find("//*[@data-testid='compare-open-report']"));
     await new Promise((r) => setTimeout(r, 2500));
     await shot('d06_comparison_report');
-    const blocks = await findAll("//*[@data-testid='compare-report']//*[starts-with(@data-testid,'compare-')]");
+    const blocks = await findAll(
+      "//*[@data-testid='compare-report']//*[starts-with(@data-testid,'compare-')]"
+    );
     for (let i = 0; i < blocks.length; i++) {
       await js('arguments[0].scrollIntoView({block:"start"})', [{ [ELEM]: blocks[i] }]);
       await new Promise((r) => setTimeout(r, 800));
