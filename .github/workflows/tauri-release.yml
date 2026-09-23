@@ -215,7 +215,10 @@ jobs:
           # matrix. We reassemble it once in alias-assets after all builds are
           # done — see "Reassemble latest.json from all .sig files" below.
           includeUpdaterJson: false
-          args: --target ${{ matrix.target }}
+          # ort-static: link ONNX Runtime (pyke prebuilt, fetched by ort-sys)
+          # into the binary for the native inference backend; the default
+          # ort-dynamic feature (dlopen) is for dev builds only.
+          args: --target ${{ matrix.target }} --features custom-protocol,ort-static -- --no-default-features
 
   # Republish each platform-specific bundle under a stable, version-less alias
   # so the README download buttons always point at

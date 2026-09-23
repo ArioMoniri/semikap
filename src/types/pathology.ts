@@ -224,7 +224,7 @@ export interface PathologyRunOutput {
     score: number;
   }>;
   /** ONNX provider that serviced the run. */
-  provider: 'webgpu' | 'webnn' | 'wasm';
+  provider: 'webgpu' | 'webnn' | 'wasm' | 'native';
   attempted: string[];
   /** Wall-clock duration in milliseconds. */
   durationMs: number;

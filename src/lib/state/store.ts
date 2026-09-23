@@ -58,7 +58,7 @@ export interface ProgressState {
 
 export interface RunMeta {
   /** Resolved EP. */
-  provider: 'webgpu' | 'webnn' | 'wasm';
+  provider: 'webgpu' | 'webnn' | 'wasm' | 'native';
   /** EPs attempted, in order. */
   attempted: string[];
   /** ISO timestamp the run started. */

@@ -1,4 +1,5 @@
 import * as ort from 'onnxruntime-web';
+import { createNativeSession, inTauriOrigin } from './native-backend';
 
 let configured = false;
 
@@ -21,7 +22,8 @@ export function configureOrt(): void {
   ort.env.logLevel = 'error';
 }
 
-export type Provider = 'webgpu' | 'webnn' | 'wasm';
+/** `native`: ONNX Runtime in the desktop app's Rust process (see native-backend.ts). */
+export type Provider = 'webgpu' | 'webnn' | 'wasm' | 'native';
 
 export interface CreatedSession {
   session: ort.InferenceSession;
@@ -41,20 +43,40 @@ export interface CreatedSession {
  *
  * If a manifest specifies `preferredEP`, that provider is tried first; the
  * remaining providers from the chain still serve as fallbacks.
+ *
+ * With `opts.native` (radiology inference worker) and inside the desktop app,
+ * the native ONNX Runtime backend is tried before all of them — unless the
+ * manifest explicitly asks for a GPU provider. The returned object then only
+ * implements the InferenceSession surface our loops use (inputNames,
+ * outputNames, run → float32 tensors with data/dims, release).
  */
 export async function createSession(
   bytes: Uint8Array,
-  preferred: 'auto' | Provider = 'auto'
+  preferred: 'auto' | Provider = 'auto',
+  opts: { native?: boolean } = {}
 ): Promise<CreatedSession> {
+  const attempted: Provider[] = [];
+
+  if (opts.native && inTauriOrigin() && preferred !== 'webgpu' && preferred !== 'webnn') {
+    attempted.push('native');
+    const native = await createNativeSession(bytes);
+    if (native) {
+      console.info(`[TAMIAS] native backend: ${native.description}`);
+      return {
+        session: native as unknown as ort.InferenceSession,
+        provider: 'native',
+        attempted,
+      };
+    }
+  }
+
   configureOrt();
 
   const baseChain: Provider[] = ['webgpu', 'webnn', 'wasm'];
   const chain: Provider[] =
-    preferred === 'auto' || !baseChain.includes(preferred)
+    preferred === 'auto' || preferred === 'native' || !baseChain.includes(preferred)
       ? baseChain
       : [preferred, ...baseChain.filter((p) => p !== preferred)];
-
-  const attempted: Provider[] = [];
 
   const tryProvider = async (provider: Provider): Promise<ort.InferenceSession | null> => {
     attempted.push(provider);
