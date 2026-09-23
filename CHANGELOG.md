@@ -6,6 +6,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.16.1] — Native desktop inference, 5-fold nnU-Net, CRLM external test set, exportable figures
+
+### Added
+
+- **Every benchmark figure in the report, exportable**: volume Bland–Altman (whole liver, tumour),
+  tumour inclusion, lesion detection, bootstrap rank uncertainty, Demšar critical-difference diagrams,
+  power / sample size, runtime, metric vs case attribute, post-processing effect, per-case strip plots,
+  Holm heatmap, cross-dataset dumbbell, and the mask grid with a failures list — each as SVG or
+  300-dpi PNG, or all at once ("Export all figures (.zip)"). One colour and marker per model across all
+  plots (colour-blind-safe), † for models scored on their own training data.
+- **nnU-Net 5-fold ensemble** (`nnunet_liver_lits_ens5`): folds 1–4 of Zenodo 11582728 exported and
+  parity-checked alongside fold 0; ensemble inference averages the members' logits per tile like
+  `nnUNetv2_predict`, with optional mirror test-time augmentation (8 flips).
+- **TCIA Colorectal-Liver-Metastases** (CRLM, IDC) as an external test set for every catalogue model,
+  and all 82 QC-passing HCC-TACE-Seg cases (QC flow log for both), usable in-app and in CI.
+- Records carry `tumourInclusion` (share of the reference tumour a model labels as liver) and
+  per-lesion detection details.
+- **Your own Hugging Face account** (Catalogue → "Your Hugging Face account"): each user can point the
+  catalogue at their own model mirror and use their own token (private/gated mirrors). Stored only on the
+  device, sent only to huggingface.co (web and desktop); public mirrors need no token, and models stay
+  sha256-pinned.
+
+### Fixed
+
+- **3D inference in the Linux desktop app no longer gets killed.** The desktop app now runs
+  3D models with native ONNX Runtime in its Rust process, one sliding-window tile per
+  binary IPC call. Before, WebKitGTK's web process grew past ~9 GB and was killed. SegFormer
+  on HCC_002 now finishes in 64–91 s (Dice 0.948) and UNETR (371 MB) in 196–206 s (Dice 0.945).
+  Both match the headless runner, and the webview stays under 4 GB. The browser keeps
+  WebGPU/WASM.
+
+### Changed
+
+- Release notes are generated from the CHANGELOG with download links for the attached installers; old
+  releases were backfilled and leftover drafts removed.
+- CI builds every desktop target with the release features before a release (desktop build check).
+
 ## [0.16.0] — Model & dataset catalogue, multi-model statistics, orientation-correct inference
 
 TAMIAS becomes a model benchmarking platform for published models: pick models and
@@ -52,10 +89,6 @@ the right statistics — per dataset and across datasets.
 - Benchmark kits live in the example loader's Bundle picker (dataset + model rows, Open kit).
 - Hugging Face mirror owner is a build setting (`VITE_HF_MIRROR_OWNER`, repo variable `HF_MIRROR_OWNER`),
   so forks mirror to and trust their own account; downloads stay sha256-pinned.
-- **Your own Hugging Face account** (Catalogue → "Your Hugging Face account"): each user can point the
-  catalogue at their own model mirror and use their own token (private/gated mirrors). Stored only on the
-  device, sent only to huggingface.co (web and desktop); public mirrors need no token, and models stay
-  sha256-pinned.
 - Records carry the hardware/runtime (runner, cores, CPU model, RAM, OS, onnxruntime version, peak RSS);
   the report's Methods states the runtime recorded, and repeats Friedman/Nemenyi on external models only
   when a model is scored on its own training data.
@@ -87,12 +120,6 @@ the right statistics — per dataset and across datasets.
 - Sliding-window inference keeps only one patch depth of class sums (rolling z-window,
   bit-identical output), so large CTs at fine model spacing no longer run out of memory.
 - ONNX sessions and tensors are released after every run (batch memory growth).
-- **3D inference in the Linux desktop app no longer gets killed.** The desktop app now runs
-  3D models with native ONNX Runtime in its Rust process, one sliding-window tile per
-  binary IPC call. Before, WebKitGTK's web process grew past ~9 GB and was killed. SegFormer
-  on HCC_002 now finishes in 64–91 s (Dice 0.948) and UNETR (371 MB) in 196–206 s (Dice 0.945).
-  Both match the headless runner, and the webview stays under 4 GB. The browser keeps
-  WebGPU/WASM.
 - Surface metrics undefined by an empty prediction are scored as failures (worst value)
   instead of silently dropping the case; re-runs no longer double-count in cross-dataset tests.
 - BTCV ground truth is remapped (liver = 6) before scoring; BTCV citation corrected to the

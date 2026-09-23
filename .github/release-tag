@@ -1,3 +1,2 @@
-v0.16.0
-retag
-# request 3: demos removed, post-processing + NSD/lesion/volume metrics, per-fork HF mirror owner
+v0.16.1
+# 0.16.1: native desktop ORT, 5-fold nnU-Net, CRLM, exportable figures, per-user HF
