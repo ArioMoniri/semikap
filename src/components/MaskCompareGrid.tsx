@@ -95,6 +95,22 @@ export function MaskCompareGrid({ size = 170 }: { size?: number }) {
     return m;
   }, [records]);
 
+  /** Volumetric whole-liver Dice of this model on the loaded case, from the records (catalogue id or ONNX sha256). */
+  function recordDice(model: { id: string; sha256?: string }): number | undefined {
+    const cat = reference?.catalog;
+    if (!cat) return undefined;
+    const r = [...records]
+      .reverse()
+      .find(
+        (x) =>
+          canonicalDatasetId(x.datasetName) === canonicalDatasetId(cat.datasetId) &&
+          x.case.caseId === cat.caseId &&
+          (x.model.catalogId === model.id || (!!model.sha256 && x.model.sha256 === model.sha256))
+      );
+    const d = r?.segmentation?.find((s) => s.label === 1)?.dice;
+    return typeof d === 'number' ? d : undefined;
+  }
+
   async function onImport(files: File[]) {
     setMsg(null);
     if (!files.length) return;
