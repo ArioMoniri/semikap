@@ -297,8 +297,8 @@ export const CATALOG_ENSEMBLES: readonly CatalogModel[] = [
       'nnU-Net v2 Dataset006_Liver (Zenodo 11582728, BAMF Health), run in nnU-Net\'s published inference ' +
       'configuration: the 5 cross-validation folds (fold 0 = nnunet_liver_lits, folds 1–4 = nnunet_liver_lits_f1…f4, ' +
       'each exported to ONNX and parity-checked on its own) as an ensemble with mirroring test-time augmentation ' +
-      '(each 128³ tile run by every fold on all 8 flips over the 3 spatial axes, flipped back; softmax ' +
-      'probabilities averaged, then Gaussian-blended). No nnU-Net post-processing. Training data stated as LiTS 2017, ' +
+      '(each 128³ tile run by every fold on all 8 flips over the 3 spatial axes, flipped back; logits ' +
+      'averaged as in nnUNetv2_predict, then Gaussian-blended). No nnU-Net post-processing. Training data stated as LiTS 2017, ' +
       'of which MSD Task03 imagesTr is a subset (MSD scores are resubstitution); the 10-class output (organs, liver 8, ' +
       'tumour 9, an unnamed class 7 left unscored) implies additional organ labels; overlap with HCC-TACE-Seg cannot ' +
       'be fully excluded.',

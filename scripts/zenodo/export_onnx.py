@@ -930,8 +930,10 @@ def run_keep_published(args) -> int:
 # ensemble manifest
 # ----------------------------------------------------------------------------
 # nnU-Net's published inference configuration: every fold of the configuration,
-# with mirroring over all three spatial axes (8 variants) averaged.
-ENSEMBLE_AGGREGATION = "softmax-mean"
+# with mirroring over all three spatial axes (8 variants) averaged. nnUNetv2_predict
+# averages LOGITS across folds and mirror variants (softmax averaging is what
+# nnUNetv2_ensemble does for separately saved probabilities), so match predict.
+ENSEMBLE_AGGREGATION = "logit-mean"
 ENSEMBLE_TTA = "mirror"
 
 
