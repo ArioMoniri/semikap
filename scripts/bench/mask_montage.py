@@ -31,7 +31,8 @@ def liver_labels(manifest):
 
 
 def short(name):
-    return name.replace("LightningMedSeg3D ", "").replace(" (BTCV 13-organ)", "").replace(" (BTCV, 14-class)", "")
+    base = re.sub(r"\s*\(.*\)\s*$", "", name).replace("LightningMedSeg3D ", "")
+    return "nnU-Net (LiTS)" if base.startswith("nnU-Net") else base
 
 
 def main():
@@ -78,7 +79,7 @@ def main():
         n = len(preds) + 1
         cols = min(6, n)
         rows = (n + cols - 1) // cols
-        fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.6, rows * 2.9), facecolor="white")
+        fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.6, rows * 3.1), facecolor="white", layout="constrained")
         axes = np.atleast_1d(axes).ravel()
         for ax in axes:
             ax.axis("off")
@@ -93,7 +94,6 @@ def main():
             ax.set_title(f"{short(name)}\nDice {dv:.3f}" if dv is not None else short(name), fontsize=8, color="#0b0b0b")
         fig.suptitle(f"{c['source']} · {c['case_id']} · axial slice {z} — fill = prediction (whole liver), outline = ground truth · radiological view (R on left)",
                      fontsize=9, color="#52514e")
-        fig.tight_layout()
         out = os.path.join(a.out, f"masks_{c['source']}_{c['case_id']}.png")
         fig.savefig(out, dpi=160)
         plt.close(fig)

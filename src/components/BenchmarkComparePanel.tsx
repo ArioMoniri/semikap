@@ -37,7 +37,9 @@ const LABELS = [
 ];
 
 function short(model: string): string {
-  const s = model.replace(/@.*$/, '').replace(/^LightningMedSeg3D /, 'LMS3D ').replace(/ \(liver\)$/, '');
+  // "LightningMedSeg3D UNet (BTCV, 14-class)@1.0.0" → "UNet"; nnU-Net → "nnU-Net (LiTS)"
+  const base = model.replace(/@[^@]*$/, '').replace(/\s*\(.*\)\s*$/, '').replace(/^LightningMedSeg3D /, '');
+  const s = base.startsWith('nnU-Net') ? 'nnU-Net (LiTS)' : base;
   return s.length > 26 ? `${s.slice(0, 25)}…` : s;
 }
 const f = (v: number, d = 3) => (Number.isFinite(v) ? v.toFixed(d) : '—');
