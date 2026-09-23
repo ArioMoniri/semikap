@@ -236,7 +236,8 @@ export function CatalogBatchPanel({ viewerRef }: Props) {
               ct: ct.data,
               reference: gt.data,
               dims: gt.dims,
-              predictions: [{ model: r.loadedModel.rec.manifest.name, mask: pr.data, liverLabels, dice: whole?.dice }],
+              // Catalogue name (not the manifest name) so batch and imported masks of one model share a tile.
+              predictions: [{ model: r.model.name, mask: pr.data, liverLabels, dice: whole?.dice }],
             });
             const { preds, ...base } = ks;
             putKeySlice(base, preds[0]);
