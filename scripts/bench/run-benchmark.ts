@@ -11,6 +11,12 @@
  *   ORT_NODE=/path/to/node_modules/onnxruntime-node \
  *   npx vite-node --config scripts/bench/vite.config.ts scripts/bench/run-benchmark.ts -- \
  *     --data <dir with cases.csv> --models <dir with *.onnx + *.json> --out <dir> [--only id,id] [--cases id,id]
+ *     [--postprocess none|fov|lcc|fov,lcc] [--min-lesion-ml 0.5]
+ *
+ * --postprocess is applied to the prediction before scoring and stored in each
+ * record; one setting = one records file (records.ndjson for none, else
+ * records_<ops>.ndjson). Saved masks are always the raw model output, so
+ * scripts/bench/rescore.ts can derive any other variant without re-inference.
  *
  * cases.csv columns used: source, case_id; files <data>/<source>/<case_id>/{ct,gt_liver,gt_tumor}.nii.gz
  */
@@ -27,7 +33,9 @@ import { resampleNearest } from '../../src/lib/inference/postprocess';
 import { axisCodes, planReorientation, invertReorientation, isIdentityPlan } from '../../src/lib/inference/orient';
 import { niftiDataToVolume } from '../../src/lib/datasets/nifti-volume';
 import { niftiDataToMask, parseNiftiHeader } from '../../src/lib/datasets/nifti-mask';
-import { scoreLabelGroupsMapped, groupsForModelLabels } from '../../src/lib/metrics/label-groups';
+import { scoreLiverTumourCase, groupsForModelLabels } from '../../src/lib/metrics/label-groups';
+import { applyPostprocess, parsePostprocess } from '../../src/lib/metrics/postprocess';
+import { DEFAULT_MIN_LESION_ML } from '../../src/lib/metrics/lesions';
 import type { BenchmarkRecord } from '../../src/lib/benchmark/types';
 import { canonicalDatasetId } from '../../src/lib/benchmark/compare';
 import type { ModelManifest } from '../../src/types';
@@ -43,6 +51,8 @@ const only = arg('only')?.split(',');
 const onlyCases = arg('cases')?.split(',');
 const threads = Number(arg('threads', '4'));
 const saveMasks = arg('save-masks', '1') === '1';
+const postprocess = parsePostprocess(arg('postprocess', 'none')!);
+const minLesionMl = Number(arg('min-lesion-ml', String(DEFAULT_MIN_LESION_ML)));
 if (!dataDir || !modelsDir || !outDir) throw new Error('need --data --models --out');
 mkdirSync(join(outDir, 'masks'), { recursive: true });
 
@@ -122,12 +132,12 @@ const models = readdirSync(modelsDir)
   .map((f) => basename(f, '.onnx'))
   .filter((id) => existsSync(join(modelsDir, `${id}.json`)) && (!only || only.includes(id)));
 
-const ndjson = join(outDir, 'records.ndjson');
+const ndjson = join(outDir, postprocess.length ? `records_${postprocess.join('_')}.ndjson` : 'records.ndjson');
 const log = (s: string) => {
   console.log(s);
   appendFileSync(join(outDir, 'run.log'), s + '\n');
 };
-log(`models=${models.join(',')} cases=${cases.length} threads=${threads}`);
+log(`models=${models.join(',')} cases=${cases.length} threads=${threads} postprocess=${postprocess.join('+') || 'none'}`);
 
 for (const id of models) {
   const bytes = new Uint8Array(readFileSync(join(modelsDir, `${id}.onnx`)));
@@ -181,7 +191,8 @@ for (const id of models) {
       // whole liver (1) and tumour (2); the tumour group only exists for models with a tumour class.
       const groups = groupsForModelLabels(manifest.output.labels);
       const tm = performance.now();
-      const seg = scoreLabelGroupsMapped(ref, pred, vol.dims, vol.spacing, groups);
+      const scored = applyPostprocess(pred, vol.voxels, vol.dims, groups[0]!.predMembers, postprocess);
+      const { segmentation: seg, lesions } = scoreLiverTumourCase(ref, scored, vol.dims, vol.spacing, groups, { minLesionMl });
       const metricMs = performance.now() - tm;
 
       const rec: BenchmarkRecord = {
@@ -200,6 +211,8 @@ for (const id of models) {
         },
         runtime: { provider: 'cpu (onnxruntime-node)', loadMs, inferMs, metricMs, totalMs: performance.now() - t0 },
         segmentation: seg,
+        ...(postprocess.length ? { postprocess: [...postprocess] } : {}),
+        ...(lesions ? { lesions } : {}),
         env: {
           provider: 'cpu',
           wasmThreads: threads,

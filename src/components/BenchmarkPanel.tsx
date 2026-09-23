@@ -23,7 +23,9 @@ import { listRegistry, registerModel, removeModel, type RegistryEntry } from '..
 import { validateOnnx } from '../lib/registry/onnx-validate';
 import { parseManifest } from '../lib/inference/manifest';
 import { cacheModel, sha256Hex } from '../lib/fs/opfs';
-import { scoreSegmentation, type ScoreInputs } from '../lib/metrics/score';
+import { scoreLesions, scoreSegmentation, type ScoreInputs } from '../lib/metrics/score';
+import { applyPostprocess, parsePostprocess, POSTPROCESS_CHOICES } from '../lib/metrics/postprocess';
+import type { LesionDetection } from '../lib/metrics/lesions';
 import type { MultiLabelResult } from '../lib/metrics/segmentation';
 import type { MetricsApi } from '../workers/metrics.worker';
 import { captureEnv } from '../lib/benchmark/env';
@@ -35,7 +37,7 @@ import { readNiftiMask } from '../lib/datasets/nifti-mask';
 import { alignToPrediction } from '../lib/metrics/align';
 import { diffVolume, maxDisagreementSlice, type DiffSlice } from '../lib/metrics/mask-diff';
 import { MaskDiffCanvas } from './MaskDiffCanvas';
-import { canonicalGroupMasks } from '../lib/metrics/label-groups';
+import { canonicalGroupMasks, groupsForModelLabels } from '../lib/metrics/label-groups';
 import { readDicomSeg } from '../lib/datasets/dicom-seg-import';
 import { readRtStruct } from '../lib/datasets/rtstruct-import';
 import { asBytes } from '../types';
@@ -118,6 +120,7 @@ export function BenchmarkPanel() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [surface, setSurface] = useState(true);
+  const [postSpec, setPostSpec] = useState<string>('none');
   const [mode, setMode] = useState<'image' | 'excel'>('image');
   const [diffSlice, setDiffSlice] = useState<DiffSlice | null>(null);
   const [sourceUrl, setSourceUrl] = useState('');
@@ -299,10 +302,25 @@ export function BenchmarkPanel() {
       const t0 = performance.now();
       let metrics: MultiLabelResult;
       let labels: number[];
+      let post: ReturnType<typeof parsePostprocess> = [];
+      let lesions: LesionDetection | undefined;
       if (reference.catalog?.labelSpace === 'liver-tumour' && model) {
-        // Catalogue GT: map the model's own labels (e.g. BTCV liver=6, nnU-Net
-        // liver=8 / tumour=9) onto whole liver (1) + tumour (2) and score each.
-        const groups = canonicalGroupMasks(reference.mask, result.mask, model.manifest.output.labels);
+        // Recorded post-processing (FOV mask needs the loaded CT on the result grid), then
+        // map the model's own labels (e.g. BTCV liver=6, nnU-Net liver=8 / tumour=9)
+        // onto whole liver (1) + tumour (2) and score each.
+        post = parsePostprocess(postSpec);
+        const labelsOut = model.manifest.output.labels;
+        const predMask = post.length
+          ? applyPostprocess(result.mask, volume?.voxels ?? null, result.dims, groupsForModelLabels(labelsOut)[0]!.predMembers, post)
+          : result.mask;
+        lesions = scoreLesions({
+          refMask: reference.mask,
+          refGrid: { dims: reference.dims, spacing: reference.spacing },
+          predMask,
+          predGrid: { dims: result.dims, spacing: result.spacing },
+          predLabels: labelsOut,
+        });
+        const groups = canonicalGroupMasks(reference.mask, predMask, labelsOut);
         const perLabel: MultiLabelResult['perLabel'] = [];
         for (const g of groups) {
           const r = await runScoring({
@@ -355,6 +373,8 @@ export function BenchmarkPanel() {
           totalMs: result.elapsedMs + metricMs,
         },
         segmentation: metrics.perLabel,
+        ...(post.length ? { postprocess: [...post] } : {}),
+        ...(lesions ? { lesions } : {}),
         env: captureEnv(backend, __APP_VERSION__),
         createdAt: new Date().toISOString(),
         appVersion: __APP_VERSION__,
@@ -564,8 +584,25 @@ export function BenchmarkPanel() {
         <div className="font-semibold text-tamias-ink dark:text-slate-100">Score current result</div>
         <label className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
           <input type="checkbox" checked={surface} onChange={(e) => setSurface(e.target.checked)} />
-          Compute surface metrics (HD95 / ASSD) — slower on large volumes
+          Compute surface metrics (HD95 / ASSD / NSD) — slower on large volumes
         </label>
+        {reference?.catalog?.labelSpace === 'liver-tumour' && (
+          <label className="flex items-center gap-2 text-slate-500 dark:text-slate-400" title="Applied before scoring and stored in the record; variants are reported as separate datasets">
+            Post-processing
+            <select
+              aria-label="Post-processing"
+              value={postSpec}
+              onChange={(e) => setPostSpec(e.currentTarget.value)}
+              className="rounded border border-slate-300 bg-white px-1 py-0.5 dark:border-slate-700 dark:bg-slate-900"
+            >
+              {POSTPROCESS_CHOICES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={() => void onScore()} disabled={!!busy || !result || !reference}>
             <Play className="h-3 w-3" /> Score vs reference

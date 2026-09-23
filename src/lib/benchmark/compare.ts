@@ -20,7 +20,31 @@ export function canonicalDatasetId(name: string): string {
   return DATASET_ALIASES[name] ?? name;
 }
 
-export type SegMetricKey = 'dice' | 'iou' | 'hd95Mm' | 'assdMm' | 'volumetricSimilarity' | 'precision' | 'recall';
+/**
+ * Dataset key used for grouping: canonical dataset id plus the recorded
+ * post-processing ("hcc-tace-seg [fov+lcc]"), so raw and post-processed scores
+ * of the same cases are never pooled or ranked together.
+ */
+export function datasetKey(r: Pick<BenchmarkRecord, 'datasetName' | 'postprocess'>): string {
+  const base = canonicalDatasetId(r.datasetName);
+  return r.postprocess?.length ? `${base} [${r.postprocess.join('+')}]` : base;
+}
+
+/** Catalogue dataset id of a dataset key (strips the post-processing suffix). */
+export function baseDatasetId(key: string): string {
+  return canonicalDatasetId(key.replace(/ \[[^\]]*\]$/, ''));
+}
+
+export type SegMetricKey =
+  | 'dice'
+  | 'iou'
+  | 'hd95Mm'
+  | 'assdMm'
+  | 'volumetricSimilarity'
+  | 'precision'
+  | 'recall'
+  | 'nsd2Mm'
+  | 'nsd5Mm';
 const LOWER_IS_BETTER = new Set<SegMetricKey>(['hd95Mm', 'assdMm']);
 
 /** Display key for a model; JSON tuple under the hood so names can't collide via the separator. */
@@ -46,10 +70,10 @@ function metricOf(r: BenchmarkRecord, label: number, metric: SegMetricKey): Metr
   return null;
 }
 
-/** Latest record per (dataset, case, model) — re-runs replace, never double-count. */
-function latestPerPair(records: readonly BenchmarkRecord[]): BenchmarkRecord[] {
+/** Latest record per (dataset key, case, model) — re-runs replace, never double-count. */
+export function latestPerPair(records: readonly BenchmarkRecord[]): BenchmarkRecord[] {
   const m = new Map<string, BenchmarkRecord>();
-  for (const r of records) m.set(JSON.stringify([canonicalDatasetId(r.datasetName), r.case.caseId, modelKey(r)]), r);
+  for (const r of records) m.set(JSON.stringify([datasetKey(r), r.case.caseId, modelKey(r)]), r);
   return [...m.values()];
 }
 
@@ -80,11 +104,11 @@ export interface ScoreMatrix {
 
 export function recordsToMatrix(records: readonly BenchmarkRecord[], q: MatrixQuery): ScoreMatrix {
   const seg = latestPerPair(records.filter((r) => r.task === 'segmentation'));
-  const datasets = [...new Set(seg.map((r) => canonicalDatasetId(r.datasetName)))].sort();
-  const inDs = q.dataset ? seg.filter((r) => canonicalDatasetId(r.datasetName) === canonicalDatasetId(q.dataset!)) : seg;
+  const datasets = [...new Set(seg.map(datasetKey))].sort();
+  const inDs = q.dataset ? seg.filter((r) => datasetKey(r) === canonicalDatasetId(q.dataset!)) : seg;
   const models = [...new Set(inDs.map(modelKey))].sort();
   // Rows are keyed by dataset + case so identical case ids from two sources never merge.
-  const caseKey = (r: BenchmarkRecord) => (q.dataset ? r.case.caseId : `${canonicalDatasetId(r.datasetName)}/${r.case.caseId}`);
+  const caseKey = (r: BenchmarkRecord) => (q.dataset ? r.case.caseId : `${datasetKey(r)}/${r.case.caseId}`);
   const higherIsBetter = !LOWER_IS_BETTER.has(q.metric);
   const byCase = new Map<string, Map<string, MetricValue>>();
   for (const r of inDs) {
@@ -136,7 +160,7 @@ export function crossDatasetSummary(
   return models.map((model) => {
     const raw = q.datasets.map((ds) =>
       seg
-        .filter((r) => canonicalDatasetId(r.datasetName) === canonicalDatasetId(ds) && modelKey(r) === model)
+        .filter((r) => datasetKey(r) === canonicalDatasetId(ds) && modelKey(r) === model)
         .map((r) => metricOf(r, q.label, q.metric))
         .filter((v): v is number | 'fail' => v !== null)
     );

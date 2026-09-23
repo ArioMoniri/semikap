@@ -7,6 +7,8 @@
 
 import { alignToPrediction, type Grid } from './align';
 import { multiLabelMetrics, type MultiLabelResult, type SegMetricsOptions } from './segmentation';
+import { groupMask, groupsForModelLabels } from './label-groups';
+import { lesionDetection, type LesionDetection } from './lesions';
 
 export interface ScoreInputs {
   refMask: Uint8Array;
@@ -29,4 +31,24 @@ export function scoreSegmentation(input: ScoreInputs): MultiLabelResult {
     input.labels,
     input.options ?? {}
   );
+}
+
+/**
+ * Lesion-wise detection of a liver/tumour prediction against the catalogue
+ * reference (1 liver, 2 tumour), reference aligned onto the prediction grid.
+ * Undefined for models without a tumour class.
+ */
+export function scoreLesions(input: {
+  refMask: Uint8Array;
+  refGrid: Grid;
+  predMask: Uint8Array;
+  predGrid: Grid;
+  predLabels: Record<number, string>;
+  minVolumeMl?: number;
+}): LesionDetection | undefined {
+  const t = groupsForModelLabels(input.predLabels).find((g) => g.id === 2);
+  if (!t) return undefined;
+  const pred = groupMask(input.predMask, t.predMembers);
+  const a = alignToPrediction(groupMask(input.refMask, t.refMembers), input.refGrid, pred, input.predGrid);
+  return lesionDetection(a.ref, pred, a.dims, a.spacing, input.minVolumeMl);
 }

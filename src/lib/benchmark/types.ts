@@ -9,6 +9,7 @@
  */
 
 import type { SegMetrics } from '../metrics/segmentation';
+import type { LesionDetection } from '../metrics/lesions';
 import type { ClassificationMetrics } from '../metrics/classification';
 import type { BenchmarkTask, CaseMeta } from '../datasets/manifest';
 
@@ -94,6 +95,14 @@ export interface BenchmarkRecord {
   runtime: BenchmarkRuntime;
   /** Per-label segmentation metrics (task === "segmentation"). */
   segmentation?: SegMetrics[];
+  /**
+   * Prediction post-processing applied before scoring, canonical order
+   * (e.g. ["fov", "lcc"]); absent/empty = raw model output. Part of the
+   * dataset key in comparisons so variants are never mixed.
+   */
+  postprocess?: string[];
+  /** Lesion-wise detection of the tumour structure (tumour-capable models only). */
+  lesions?: LesionDetection;
   /** Classification metrics (task === "classification"). */
   classification?: ClassificationMetrics;
   /** Reproducibility environment (Phase 3). */

@@ -22,7 +22,8 @@ import {
 } from '../lib/benchmark/compare';
 import { friedmanTest, nemenyiCriticalDifference, pairwiseWilcoxonHolm } from '../lib/stats/multi-model';
 import { appendRecord } from '../lib/benchmark/store';
-import { buildReportFiles } from '../lib/benchmark/report-tables';
+import { buildReportFiles, lesionDetectionRows, volumeAgreementRows } from '../lib/benchmark/report-tables';
+import { Scatter } from './plots/Plots';
 import { makeZip } from '../lib/fs/zip';
 import { downloadBlob } from '../lib/ui/download';
 import { MaskCompareGrid } from './MaskCompareGrid';
@@ -34,6 +35,8 @@ const METRICS: { key: SegMetricKey; label: string }[] = [
   { key: 'hd95Mm', label: 'HD95 (mm)' },
   { key: 'assdMm', label: 'ASSD (mm)' },
   { key: 'volumetricSimilarity', label: 'Volumetric similarity' },
+  { key: 'nsd2Mm', label: 'NSD @ 2 mm' },
+  { key: 'nsd5Mm', label: 'NSD @ 5 mm' },
 ];
 const LABELS = [
   { id: 1, name: 'Whole liver (liver ∪ tumour)' },
@@ -424,6 +427,108 @@ function Report({ records, label, metric }: { records: BenchmarkRecord[]; label:
   );
 }
 
+/** Lesion detection + whole-liver volume agreement (sections omitted when records lack the data). */
+function AgreementBlocks({ records }: { records: BenchmarkRecord[] }) {
+  const lesions = useMemo(() => lesionDetectionRows(records), [records]);
+  const volumes = useMemo(() => volumeAgreementRows(records), [records]);
+  const th = 'py-1 pr-2';
+  return (
+    <div className="mt-6 space-y-6">
+      {lesions.length > 0 && (
+        <section className="space-y-2" data-testid="compare-lesions">
+          <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Lesion detection (tumour)</h4>
+          <p className="text-[11px] text-slate-500">
+            Reference lesions = 26-connected tumour components ≥ {[...new Set(lesions.map((l) => l.minVolumeMl))].join('/')} mL; detected when
+            any voxel is predicted tumour. Sensitivity pooled over lesions (Wilson 95% CI); FP = predicted components of that size touching no
+            reference tumour.
+          </p>
+          <table className="w-full text-[11px]">
+            <thead className="text-slate-500">
+              <tr className="text-left">
+                <th className={th}>Dataset</th>
+                <th className={th}>Model</th>
+                <th className={th}>Cases</th>
+                <th className={th}>Detected / lesions</th>
+                <th className={th}>Sensitivity [95% CI]</th>
+                <th className={th}>FP / case</th>
+              </tr>
+            </thead>
+            <tbody className="text-slate-700 dark:text-slate-200">
+              {lesions.map((l) => (
+                <tr key={l.dataset + l.model} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className={th}>{l.dataset}</td>
+                  <td className={th}>{short(l.model)}</td>
+                  <td className={`${th} tabular-nums`}>{l.cases}</td>
+                  <td className={`${th} tabular-nums`}>
+                    {l.tp} / {l.refLesions}
+                  </td>
+                  <td className={`${th} tabular-nums`}>
+                    {f(l.sensitivity)} [{f(l.ciLow)}, {f(l.ciHigh)}]
+                  </td>
+                  <td className={`${th} tabular-nums`}>{f(l.fpPerCase, 2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+      {volumes.length > 0 && (
+        <section className="space-y-2" data-testid="compare-volumes">
+          <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Volume agreement — whole liver (mL)</h4>
+          <p className="text-[11px] text-slate-500">
+            Bland–Altman bias (pred − ref) with 95% limits of agreement; ICC(A,1) two-way random, absolute agreement, single rater.
+          </p>
+          <table className="w-full text-[11px]">
+            <thead className="text-slate-500">
+              <tr className="text-left">
+                <th className={th}>Dataset</th>
+                <th className={th}>Model</th>
+                <th className={th}>n</th>
+                <th className={th}>Bias</th>
+                <th className={th}>95% LoA</th>
+                <th className={th}>ICC(A,1)</th>
+              </tr>
+            </thead>
+            <tbody className="text-slate-700 dark:text-slate-200">
+              {volumes.map((v) => (
+                <tr key={v.dataset + v.model} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className={th}>{v.dataset}</td>
+                  <td className={th}>{short(v.model)}</td>
+                  <td className={`${th} tabular-nums`}>{v.n}</td>
+                  <td className={`${th} tabular-nums`}>{f(v.bias, 1)}</td>
+                  <td className={`${th} tabular-nums`}>
+                    {f(v.loaLow, 1)} to {f(v.loaHigh, 1)}
+                  </td>
+                  <td className={`${th} tabular-nums`}>{f(v.icc)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="flex flex-wrap gap-4">
+            {volumes.map((v) => (
+              <figure key={v.dataset + v.model} className="text-center">
+                <Scatter
+                  points={v.points.map((p) => ({ x: p.mean, y: p.diff }))}
+                  xLabel="mean volume (mL)"
+                  yLabel="pred − ref (mL)"
+                  refLines={[
+                    { y: v.bias, color: '#2563eb' },
+                    { y: v.loaLow, color: '#94a3b8', dash: true },
+                    { y: v.loaHigh, color: '#94a3b8', dash: true },
+                  ]}
+                />
+                <figcaption className="text-[10px] text-slate-500">
+                  {short(v.model)} · {v.dataset}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 export function BenchmarkComparePanel({
   records,
   profileId,
@@ -548,9 +653,11 @@ export function BenchmarkComparePanel({
               </div>
               <Dialog.Description className="mb-4 text-[11px] text-slate-500">
                 Friedman omnibus + Nemenyi CD (Demšar 2006), Holm-corrected pairwise Wilcoxon signed-rank, Mann-Whitney U across
-                datasets. Complete cases only (every model scored on the case).
+                datasets. Complete cases only (every model scored on the case). Post-processed variants appear as separate datasets
+                (e.g. “hcc-tace-seg [lcc]”).
               </Dialog.Description>
               <Report records={seg} label={label} metric={metric} />
+              <AgreementBlocks records={seg} />
               <div className="mt-8 border-t border-slate-200 pt-4 dark:border-slate-800">
                 <MaskCompareGrid size={200} />
               </div>
