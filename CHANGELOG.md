@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.16.2] — Reliable multi-file record import, faster reports, complete figure export
+
 ### Fixed
 
 - **Importing several record files keeps every record.** Imports in the comparison panel now run one
