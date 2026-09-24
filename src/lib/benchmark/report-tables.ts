@@ -9,7 +9,7 @@
  * post-processing variant ("hcc-tace-seg [lcc]") is analysed separately, never pooled.
  */
 import type { BenchmarkRecord } from './types';
-import { recordsToMatrix, crossDatasetSummary, modelKey, datasetKey, baseDatasetId, latestPerPair, type SegMetricKey } from './compare';
+import { recordsToMatrix, crossDatasetSummary, crossDatasetPairs, modelKey, datasetKey, baseDatasetId, latestPerPair, type SegMetricKey } from './compare';
 import type { SegMetrics } from '../metrics/segmentation';
 import { iccA1, wilsonInterval } from '../metrics/agreement';
 import { blandAltman } from '../plots/agreement';
@@ -392,49 +392,32 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
           ''
         );
       }
-      if (datasets.length >= 2) {
-        const cross = crossDatasetSummary(records, {
-          label,
-          metric,
-          datasets: datasets.slice(0, 2),
-        }).filter((r) => r.median.some(Number.isFinite));
-        if (cross.length) {
-          if (cross.some((r) => datasets.slice(0, 2).some((d) => inTraining(r.model, d)))) anyDagger = true;
-          files[`cross_dataset_${LABELS[label]}_${metric}.csv`] = csv([
-            [
-              'model',
-              `n_${datasets[0]}`,
-              `n_${datasets[1]}`,
-              `median_${datasets[0]}`,
-              `median_${datasets[1]}`,
-              'delta_median',
-              'mann_whitney_p',
-              'rank_biserial',
-            ],
-            ...cross.map((r) => [
-              r.model,
-              r.n[0]!,
-              r.n[1]!,
-              r.median[0]!,
-              r.median[1]!,
-              r.median[0]! - r.median[1]!,
-              r.pValue,
-              r.effectSize,
-            ]),
-          ]);
-          md.push(
-            `## Across datasets — ${datasets[0]} vs ${datasets[1]} — ${LABELS[label]} — ${metric}`,
-            '',
-            `| Model | Median ${datasets[0]} (n) | Median ${datasets[1]} (n) | Δ | Mann-Whitney p | r |`,
-            '|---|---|---|---|---|---|',
-            ...cross.map(
-              (r) =>
-                `| ${r.model.replace(/@.*/, '')}${datasets.slice(0, 2).some((d) => inTraining(r.model, d)) ? ' †' : ''} | ${fmt(r.median[0]!)} (${r.n[0]}) | ${fmt(r.median[1]!)} (${r.n[1]}) | ${fmt(r.median[0]! - r.median[1]!)} | ${fp(r.pValue)} | ${fmt(r.effectSize, 2)} |`
-            ),
-            ''
-          );
-        }
+      const crossRows: (string | number)[][] = [];
+      for (const pair of crossDatasetPairs(datasets)) {
+        const cross = crossDatasetSummary(records, { label, metric, datasets: pair }).filter((r) => r.median.some(Number.isFinite));
+        if (!cross.length) continue;
+        const dagger = (model: string) => pair.some((d) => inTraining(model, d));
+        if (cross.some((r) => dagger(r.model))) anyDagger = true;
+        crossRows.push(
+          ...cross.map((r) => [pair[0], pair[1], r.model, r.n[0]!, r.n[1]!, r.median[0]!, r.median[1]!, r.median[0]! - r.median[1]!, r.pValue, r.effectSize])
+        );
+        md.push(
+          `## Across datasets — ${pair[0]} vs ${pair[1]} — ${LABELS[label]} — ${metric}`,
+          '',
+          `| Model | Median ${pair[0]} (n) | Median ${pair[1]} (n) | Δ | Mann-Whitney p | r |`,
+          '|---|---|---|---|---|---|',
+          ...cross.map(
+            (r) =>
+              `| ${r.model.replace(/@.*/, '')}${dagger(r.model) ? ' †' : ''} | ${fmt(r.median[0]!)} (${r.n[0]}) | ${fmt(r.median[1]!)} (${r.n[1]}) | ${fmt(r.median[0]! - r.median[1]!)} | ${fp(r.pValue)} | ${fmt(r.effectSize, 2)} |`
+          ),
+          ''
+        );
       }
+      if (crossRows.length)
+        files[`cross_dataset_${LABELS[label]}_${metric}.csv`] = csv([
+          ['dataset_a', 'dataset_b', 'model', 'n_a', 'n_b', 'median_a', 'median_b', 'delta_median', 'mann_whitney_p', 'rank_biserial'],
+          ...crossRows,
+        ]);
     }
   }
   files['summary.csv'] = csv(summary);

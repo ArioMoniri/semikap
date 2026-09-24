@@ -99,3 +99,17 @@ describe('report runtime + external-only analysis', () => {
     expect(row.split(',').slice(3, 5)).toEqual(['2', '6']);
   });
 });
+
+describe('cross-dataset tables', () => {
+  it('compare every pair of raw datasets, never a dataset with its own post-processed variant', () => {
+    const rs = ['c1', 'c2', 'c3'].flatMap((c, i) =>
+      ['crlm', 'hcc', 'msd'].flatMap((ds) => [rec('A', ds, c, 0.9 + i / 100), rec('B', ds, c, 0.8 + i / 100)])
+    );
+    const lcc = rs.filter((r) => r.datasetName === 'crlm').map((r) => ({ ...r, id: `${r.id}-lcc`, postprocess: ['lcc' as const] }));
+    const csvText = buildReportFiles([...rs, ...lcc])['cross_dataset_whole_liver_dice.csv']!;
+    const [head, ...rows] = csvText.trim().split('\n');
+    expect(head!.split(',').slice(0, 3)).toEqual(['dataset_a', 'dataset_b', 'model']);
+    const pairs = [...new Set(rows.map((l) => l.split(',').slice(0, 2).join(' vs ')))];
+    expect(pairs).toEqual(['crlm vs hcc', 'crlm vs msd', 'hcc vs msd']);
+  });
+});

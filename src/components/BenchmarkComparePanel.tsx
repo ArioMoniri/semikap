@@ -21,6 +21,7 @@ import type { BenchmarkRecord } from '../lib/benchmark/types';
 import {
   recordsToMatrix,
   crossDatasetSummary,
+  crossDatasetPairs,
   importRecordsText,
   datasetKey,
   baseDatasetId,
@@ -255,12 +256,19 @@ function DatasetBlock({
 function Report({ records, label, metric, full = false }: { records: BenchmarkRecord[]; label: number; metric: SegMetricKey; full?: boolean }) {
   const st = useModelStyle(records);
   const datasets = useMemo(() => recordsToMatrix(records, { label, metric }).datasets, [records, label, metric]);
+  // Raw-dataset pairs first, then each post-processed variant against its raw dataset.
+  const pairs = useMemo(() => {
+    const variants = datasets
+      .filter((d) => / \[[^\]]*\]$/.test(d))
+      .map((d) => [d.replace(/ \[[^\]]*\]$/, ''), d] as [string, string])
+      .filter(([base]) => datasets.includes(base));
+    return [...crossDatasetPairs(datasets), ...variants];
+  }, [datasets]);
+  const [pairIdx, setPairIdx] = useState(0);
+  const pair = pairs[Math.min(pairIdx, pairs.length - 1)];
   const cross = useMemo(
-    () =>
-      datasets.length >= 2
-        ? crossDatasetSummary(records, { label, metric, datasets: datasets.slice(0, 2) }).filter((r) => r.median.some(Number.isFinite))
-        : [],
-    [records, label, metric, datasets]
+    () => (pair ? crossDatasetSummary(records, { label, metric, datasets: pair }).filter((r) => r.median.some(Number.isFinite)) : []),
+    [records, label, metric, pair]
   );
   const metricLabel = metricLabelOf(metric);
   const crossSorted = useMemo(() => {
@@ -272,21 +280,38 @@ function Report({ records, label, metric, full = false }: { records: BenchmarkRe
       {datasets.map((d) => (
         <DatasetBlock key={d} records={records} dataset={d} label={label} metric={metric} st={st} full={full} />
       ))}
-      {cross.length > 0 && (
+      {pair && cross.length > 0 && (
         <section className="space-y-2" data-testid="compare-cross-dataset">
-          <h4 className={h4}>
-            Across datasets — {datasetLabel(datasets[0]!)} vs {datasetLabel(datasets[1]!)} ({metricLabel})
-          </h4>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className={h4}>
+              Across datasets — {datasetLabel(pair[0])} vs {datasetLabel(pair[1])} ({metricLabel})
+            </h4>
+            {pairs.length > 1 && (
+              <select
+                value={Math.min(pairIdx, pairs.length - 1)}
+                onChange={(e) => setPairIdx(Number(e.currentTarget.value))}
+                className="rounded border border-slate-300 bg-white px-1 py-0.5 text-[11px] dark:border-slate-700 dark:bg-slate-900"
+                data-testid="cross-dataset-pair"
+                aria-label="Datasets to compare"
+              >
+                {pairs.map(([a, b], i) => (
+                  <option key={`${a}|${b}`} value={i}>
+                    {datasetLabel(a)} vs {datasetLabel(b)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
           <FigureCard
-            name={`figS_cross_dataset_${labelOf(label).slug}_${metric}`}
-            render={(t) => <CrossDatasetFigure rows={crossSorted} datasets={[datasets[0]!, datasets[1]!]} metricLabel={metricLabel} st={st} theme={t} />}
+            name={`figS_cross_dataset_${pair[0]}_vs_${pair[1]}_${labelOf(label).slug}_${metric}`}
+            render={(t) => <CrossDatasetFigure rows={crossSorted} datasets={pair} metricLabel={metricLabel} st={st} theme={t} />}
           />
           <table className="w-full text-[11px]">
             <thead className="text-slate-500">
               <tr className="text-left">
                 <th className="py-1 pr-2">Model</th>
-                <th className="py-1 pr-2">Median {datasets[0]} (n)</th>
-                <th className="py-1 pr-2">Median {datasets[1]} (n)</th>
+                <th className="py-1 pr-2">Median {pair[0]} (n)</th>
+                <th className="py-1 pr-2">Median {pair[1]} (n)</th>
                 <th className="py-1 pr-2">Δ median</th>
                 <th className="py-1 pr-2">Mann-Whitney p</th>
                 <th className="py-1 pr-2">Rank-biserial r</th>

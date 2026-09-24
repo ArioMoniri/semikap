@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recordsToMatrix, crossDatasetSummary, importRecordsText, canonicalDatasetId } from '../src/lib/benchmark/compare';
+import { recordsToMatrix, crossDatasetSummary, importRecordsText, canonicalDatasetId, crossDatasetPairs } from '../src/lib/benchmark/compare';
 import type { BenchmarkRecord } from '../src/lib/benchmark/types';
 
 function rec(model: string, ds: string, caseId: string, dice: number, label = 1): BenchmarkRecord {
@@ -118,5 +118,19 @@ describe('verifier fixes: failures and re-runs', () => {
     const a = s.find((r) => r.model === 'A@1')!;
     expect(a.n).toEqual([3, 1]);
     expect(a.median[0]).toBeCloseTo(0.7, 9); // {0.5, 0.95, 0.7}
+  });
+});
+
+describe('crossDatasetPairs', () => {
+  it('pairs raw datasets only, ignoring post-processed variants', () => {
+    expect(crossDatasetPairs(['crlm', 'crlm [lcc]', 'hcc-tace-seg', 'hcc-tace-seg [fov]', 'msd-task03-liver'])).toEqual([
+      ['crlm', 'hcc-tace-seg'],
+      ['crlm', 'msd-task03-liver'],
+      ['hcc-tace-seg', 'msd-task03-liver'],
+    ]);
+  });
+  it('falls back to the first two keys when fewer than two raw datasets exist', () => {
+    expect(crossDatasetPairs(['crlm', 'crlm [lcc]'])).toEqual([['crlm', 'crlm [lcc]']]);
+    expect(crossDatasetPairs(['crlm'])).toEqual([]);
   });
 });

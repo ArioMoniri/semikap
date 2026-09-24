@@ -31,6 +31,19 @@ export function datasetKey(r: Pick<BenchmarkRecord, 'datasetName' | 'postprocess
   return r.postprocess?.length ? `${base} [${r.postprocess.join('+')}]` : base;
 }
 
+/**
+ * Dataset pairs for across-dataset comparisons: every pair of raw (not post-processed)
+ * datasets, so a dataset is never compared with its own post-processed variant. With fewer
+ * than two raw datasets, falls back to the first two keys.
+ */
+export function crossDatasetPairs(datasets: readonly string[]): [string, string][] {
+  const raw = datasets.filter((d) => !/ \[[^\]]*\]$/.test(d));
+  const pool = raw.length >= 2 ? raw : datasets.slice(0, 2);
+  const pairs: [string, string][] = [];
+  for (let a = 0; a < pool.length; a++) for (let b = a + 1; b < pool.length; b++) pairs.push([pool[a]!, pool[b]!]);
+  return pairs;
+}
+
 /** Catalogue dataset id of a dataset key (strips the post-processing suffix). */
 export function baseDatasetId(key: string): string {
   return canonicalDatasetId(key.replace(/ \[[^\]]*\]$/, ''));
