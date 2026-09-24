@@ -23,6 +23,8 @@ import { groupsForModelLabels, scoreLiverTumourCase } from '../../src/lib/metric
 import { applyPostprocess, fillHoles2D, type PostprocessOp } from '../../src/lib/metrics/postprocess';
 import { parseMaskFileName } from '../../src/lib/benchmark/mask-compare';
 import type { BenchmarkRecord } from '../../src/lib/benchmark/types';
+import { ensembleDigestInput } from '../../src/lib/inference/manifest';
+import type { EnsembleSpec } from '../../src/types';
 
 const arg = (n: string) => {
   const i = process.argv.indexOf(`--${n}`);
@@ -49,13 +51,23 @@ const records: BenchmarkRecord[] = readFileSync(recordsPath, 'utf8')
 // Latest record per (model sha, case).
 const byKey = new Map(records.filter((r) => r.task === 'segmentation').map((r) => [`${r.model.sha256}|${r.case.caseId}`, r]));
 
-const manifests = new Map<string, { labels: Record<number, string>; sha: string }>();
+// Model id → labels + the sha256s its records may carry (ensembles: digest of the member sha256s, with and without TTA).
+const manifests = new Map<string, { labels: Record<number, string>; shas: string[] }>();
 for (const f of readdirSync(modelsDir).filter((f) => f.endsWith('.json') && !f.startsWith('zenodo'))) {
   const id = f.replace(/\.json$/, '');
+  const m = JSON.parse(readFileSync(join(modelsDir, f), 'utf8')) as {
+    output: { labels: Record<number, string> };
+    sha256?: string;
+    ensemble?: EnsembleSpec;
+  };
+  const digest = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
+  if (m.ensemble) {
+    manifests.set(id, { labels: m.output.labels, shas: [false, true].map((tta) => digest(ensembleDigestInput(m.ensemble!, tta))) });
+    continue;
+  }
   const onnx = join(modelsDir, `${id}.onnx`);
   if (!existsSync(onnx)) continue;
-  const m = JSON.parse(readFileSync(join(modelsDir, f), 'utf8')) as { output: { labels: Record<number, string> }; sha256?: string };
-  manifests.set(id, { labels: m.output.labels, sha: m.sha256 ?? sha(readFileSync(onnx)) });
+  manifests.set(id, { labels: m.output.labels, shas: [m.sha256 ?? sha(readFileSync(onnx))] });
 }
 
 const VARIANTS: Record<string, PostprocessOp[]> = { raw: [], lcc: ['lcc'], fov: ['fov'], fov_lcc: ['fov', 'lcc'] };
@@ -65,7 +77,7 @@ for (const f of readdirSync(masksDir).sort()) {
   const p = parseMaskFileName(f);
   const man = p && manifests.get(p.modelId);
   if (!p || !man) continue;
-  const rec = byKey.get(`${man.sha}|${p.caseId}`);
+  const rec = man.shas.map((s) => byKey.get(`${s}|${p.caseId}`)).find(Boolean);
   if (!rec) {
     console.warn(`no record for ${f}`);
     continue;
