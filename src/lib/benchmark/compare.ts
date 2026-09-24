@@ -171,10 +171,17 @@ export function crossDatasetSummary(
   const seg = latestPerPair(records.filter((r) => r.task === 'segmentation'));
   const models = [...new Set(seg.map(modelKey))].sort();
   const higherIsBetter = !LOWER_IS_BETTER.has(q.metric);
+  // Group once (record order kept) instead of scanning every record per model × dataset.
+  const groups = new Map<string, BenchmarkRecord[]>();
+  for (const r of seg) {
+    const k = JSON.stringify([datasetKey(r), modelKey(r)]);
+    const g = groups.get(k);
+    if (g) g.push(r);
+    else groups.set(k, [r]);
+  }
   return models.map((model) => {
     const raw = q.datasets.map((ds) =>
-      seg
-        .filter((r) => datasetKey(r) === canonicalDatasetId(ds) && modelKey(r) === model)
+      (groups.get(JSON.stringify([canonicalDatasetId(ds), model])) ?? [])
         .map((r) => metricOf(r, q.label, q.metric))
         .filter((v): v is number | 'fail' => v !== null)
     );

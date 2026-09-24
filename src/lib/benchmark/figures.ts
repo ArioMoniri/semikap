@@ -15,7 +15,16 @@
  *  - runtime per model × dataset, failure list, case covariates, post-processing effect
  */
 import type { BenchmarkRecord } from './types';
-import { baseDatasetId, datasetKey, latestPerPair, modelKey, type SegMetricKey } from './compare';
+import {
+  baseDatasetId,
+  crossDatasetPairs,
+  crossDatasetSummary,
+  datasetKey,
+  latestPerPair,
+  modelKey,
+  type CrossDatasetRow,
+  type SegMetricKey,
+} from './compare';
 import { volumesMl } from './report-tables';
 import { catalogModelForRecord } from '../catalog/catalog';
 import { studentTCdf, logGamma } from '../stats/corrected-tests';
@@ -489,17 +498,29 @@ export function pairedTPower(delta: number, sd: number, n: number, alpha: number
   return Math.min(1, Math.max(0, (acc * h) / 3));
 }
 
-/** Smallest mean paired difference detectable with the given power. */
+const UNIT_MDD = new Map<string, number>();
+
+/**
+ * Smallest mean paired difference detectable with the given power. Power depends on Δ/sd only,
+ * so the MDD is sd × the MDD at sd = 1, which is cached per (n, α, power): every dataset of a
+ * report shares its power curve instead of re-integrating it.
+ */
 export function minDetectableDiff(sd: number, n: number, alpha: number, power = 0.8): number {
   if (!(sd > 0) || n < 2) return NaN;
-  let lo = 0;
-  let hi = 50 * sd;
-  for (let i = 0; i < 40; i++) {
-    const mid = (lo + hi) / 2;
-    if (pairedTPower(mid, sd, n, alpha) < power) lo = mid;
-    else hi = mid;
+  const key = `${n}|${alpha}|${power}`;
+  let unit = UNIT_MDD.get(key);
+  if (unit === undefined) {
+    let lo = 0;
+    let hi = 50;
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2;
+      if (pairedTPower(mid, 1, n, alpha) < power) lo = mid;
+      else hi = mid;
+    }
+    unit = hi;
+    UNIT_MDD.set(key, unit);
   }
-  return hi;
+  return sd * unit;
 }
 
 /** Smallest n (≥ 3) reaching `power` for a mean paired difference Δ, or NaN beyond `maxN`. */
@@ -802,3 +823,30 @@ export function postprocessComparison(records: readonly BenchmarkRecord[], label
 
 /** "headless", "cpu", 4 cores … one line per distinct environment (uses report-tables runtimeSummary). */
 export { runtimeSummary } from './report-tables';
+
+/* ------------------------------------------------------------------ */
+/* Cross-dataset pairs                                                 */
+/* ------------------------------------------------------------------ */
+
+/** Report pairs: raw-dataset pairs first, then each post-processed variant against its raw dataset. */
+export function reportCrossPairs(datasets: readonly string[]): [string, string][] {
+  const variants = datasets
+    .filter((d) => / \[[^\]]*\]$/.test(d))
+    .map((d) => [d.replace(/ \[[^\]]*\]$/, ''), d] as [string, string])
+    .filter(([base]) => datasets.includes(base));
+  const pairs = crossDatasetPairs(datasets);
+  return [...pairs, ...variants.filter(([a, b]) => !pairs.some(([x, y]) => x === a && y === b))];
+}
+
+/** Per pair, the models scored on either dataset (canonical order); pairs with none are left out. */
+export function crossDatasetFigures(
+  records: readonly BenchmarkRecord[],
+  q: { label: number; metric: SegMetricKey; pairs: readonly [string, string][] }
+): { pair: [string, string]; rows: CrossDatasetRow[] }[] {
+  return q.pairs
+    .map((pair) => {
+      const rows = crossDatasetSummary(records, { label: q.label, metric: q.metric, datasets: pair }).filter((r) => r.median.some(Number.isFinite));
+      return { pair, rows: canonicalModelOrder(rows.map((r) => r.model)).map((m) => rows.find((r) => r.model === m)!) };
+    })
+    .filter((x) => x.rows.length > 0);
+}

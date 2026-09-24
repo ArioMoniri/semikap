@@ -20,8 +20,6 @@ import { GitCompareArrows, Upload, Maximize2, X, Download, Images } from 'lucide
 import type { BenchmarkRecord } from '../lib/benchmark/types';
 import {
   recordsToMatrix,
-  crossDatasetSummary,
-  crossDatasetPairs,
   importRecordsText,
   datasetKey,
   baseDatasetId,
@@ -36,6 +34,7 @@ import {
   canonicalModelOrder,
   covariatePoints,
   covariateTest,
+  crossDatasetFigures,
   datasetLabel,
   displayModel,
   kendallW,
@@ -43,6 +42,7 @@ import {
   modelSlots,
   postprocessComparison,
   powerAnalysis,
+  reportCrossPairs,
   runtimeGroups,
   segRecords,
   shortModelName,
@@ -64,7 +64,7 @@ import {
   TumourInclusionFigure,
   type ModelStyle,
 } from './plots/BenchmarkFigures';
-import { FigureCard } from './plots/FigureCard';
+import { FigureCard, RegisteredFigure } from './plots/FigureCard';
 import { FigureRegistry, FigureRegistryProvider } from './plots/figure-registry';
 import { makeZip } from '../lib/fs/zip';
 import { downloadBlob } from '../lib/ui/download';
@@ -257,30 +257,23 @@ function Report({ records, label, metric, full = false }: { records: BenchmarkRe
   const st = useModelStyle(records);
   const datasets = useMemo(() => recordsToMatrix(records, { label, metric }).datasets, [records, label, metric]);
   // Raw-dataset pairs first, then each post-processed variant against its raw dataset.
-  const pairs = useMemo(() => {
-    const variants = datasets
-      .filter((d) => / \[[^\]]*\]$/.test(d))
-      .map((d) => [d.replace(/ \[[^\]]*\]$/, ''), d] as [string, string])
-      .filter(([base]) => datasets.includes(base));
-    return [...crossDatasetPairs(datasets), ...variants];
-  }, [datasets]);
+  const pairs = useMemo(() => reportCrossPairs(datasets), [datasets]);
   const [pairIdx, setPairIdx] = useState(0);
   const pair = pairs[Math.min(pairIdx, pairs.length - 1)];
-  const cross = useMemo(
-    () => (pair ? crossDatasetSummary(records, { label, metric, datasets: pair }).filter((r) => r.median.some(Number.isFinite)) : []),
-    [records, label, metric, pair]
+  const crossSorted = useMemo(() => (pair ? (crossDatasetFigures(records, { label, metric, pairs: [pair] })[0]?.rows ?? []) : []), [records, label, metric, pair]);
+  // The full report shows the selected pair but registers every other pair's figure too, so "Export all figures" has them all.
+  const otherPairs = useMemo(
+    () => (full ? crossDatasetFigures(records, { label, metric, pairs: pairs.filter((p) => p !== pair) }) : []),
+    [full, records, label, metric, pairs, pair]
   );
   const metricLabel = metricLabelOf(metric);
-  const crossSorted = useMemo(() => {
-    const order = canonicalModelOrder(cross.map((r) => r.model));
-    return order.map((m) => cross.find((r) => r.model === m)!);
-  }, [cross]);
+  const crossName = (p: [string, string]) => `figS_cross_dataset_${p[0]}_vs_${p[1]}_${labelOf(label).slug}_${metric}`;
   return (
     <div className="space-y-6">
       {datasets.map((d) => (
         <DatasetBlock key={d} records={records} dataset={d} label={label} metric={metric} st={st} full={full} />
       ))}
-      {pair && cross.length > 0 && (
+      {pair && crossSorted.length > 0 && (
         <section className="space-y-2" data-testid="compare-cross-dataset">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h4 className={h4}>
@@ -303,7 +296,7 @@ function Report({ records, label, metric, full = false }: { records: BenchmarkRe
             )}
           </div>
           <FigureCard
-            name={`figS_cross_dataset_${pair[0]}_vs_${pair[1]}_${labelOf(label).slug}_${metric}`}
+            name={crossName(pair)}
             render={(t) => <CrossDatasetFigure rows={crossSorted} datasets={pair} metricLabel={metricLabel} st={st} theme={t} />}
           />
           <table className="w-full text-[11px]">
@@ -336,6 +329,13 @@ function Report({ records, label, metric, full = false }: { records: BenchmarkRe
           </table>
         </section>
       )}
+      {otherPairs.map((x) => (
+        <RegisteredFigure
+          key={crossName(x.pair)}
+          name={crossName(x.pair)}
+          render={(t) => <CrossDatasetFigure rows={x.rows} datasets={x.pair} metricLabel={metricLabel} st={st} theme={t} />}
+        />
+      ))}
     </div>
   );
 }
@@ -549,32 +549,37 @@ export function BenchmarkComparePanel({
   const [figMsg, setFigMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const registry = useMemo(() => new FigureRegistry(), []);
-  const seg = records.filter((r) => r.task === 'segmentation');
+  // Memoized so panel-only state (messages, export progress) never recomputes the report.
+  const seg = useMemo(() => records.filter((r) => r.task === 'segmentation'), [records]);
 
   // Imports run one after another against the latest record list, so picking several
-  // files (or importing again before a large file is stored) never drops records.
+  // files (or importing again before a large file is stored) never drops records. The
+  // record list is published once per batch: every publish re-renders the whole report.
   const recordsRef = useRef(records);
   recordsRef.current = records;
   const importQueue = useRef<Promise<void>>(Promise.resolve());
 
   function onImportFiles(files: File[]) {
     importQueue.current = importQueue.current.then(async () => {
-      for (const file of files) await onImport(file);
+      let next = recordsRef.current;
+      const done: string[] = [];
+      for (const file of files) {
+        if (files.length > 1) setMsg(`Importing ${file.name}…`);
+        try {
+          const fresh = importRecordsText(await file.text(), next);
+          if (profileId) await appendRecords(profileId, fresh.map((r) => ({ ...r, profileId })));
+          if (fresh.length) next = [...next, ...fresh];
+          done.push(`Imported ${fresh.length} records from ${file.name}.`);
+        } catch (e) {
+          done.push(`Import failed${files.length > 1 ? ` (${file.name})` : ''}: ${(e as Error).message}`);
+        }
+      }
+      if (next !== recordsRef.current) {
+        recordsRef.current = next;
+        onImported(next);
+      }
+      setMsg(done.join(' '));
     });
-  }
-
-  async function onImport(file: File) {
-    try {
-      const base = recordsRef.current;
-      const fresh = importRecordsText(await file.text(), base);
-      if (profileId) await appendRecords(profileId, fresh.map((r) => ({ ...r, profileId })));
-      const next = [...base, ...fresh];
-      recordsRef.current = next;
-      onImported(next);
-      setMsg(`Imported ${fresh.length} records from ${file.name}.`);
-    } catch (e) {
-      setMsg(`Import failed: ${(e as Error).message}`);
-    }
   }
 
   function onExportTables() {

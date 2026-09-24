@@ -64,3 +64,10 @@ export function FigureCard({
     </figure>
   );
 }
+
+/** Registers a figure for "Export all figures" without showing it (e.g. the options a picker is not showing). */
+export function RegisteredFigure({ name, render }: { name: string; render: (t: FigTheme) => ReactElement }) {
+  const svg = () => renderFigureSvg(render);
+  useRegisterFigure({ name: figSlug(name), svg, png: async () => svgToPng(await svg()) });
+  return null;
+}

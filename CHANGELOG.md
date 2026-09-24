@@ -17,6 +17,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Across-datasets comparisons pair raw datasets.** With post-processed variants loaded, the figure and
   table no longer compare a dataset with its own variant. `cross_dataset_*.csv` covers every pair of raw
   datasets (new `dataset_a`/`dataset_b` columns) and the figure has a pair picker.
+- **"Export all figures" includes every cross-dataset pair.** The report still shows the pair chosen in
+  the picker, but every other pair's figure (raw-dataset pairs and each post-processed variant vs its raw
+  dataset) is registered for the .zip too; the per-figure SVG/PNG buttons are unchanged.
+- **Importing record files is several times faster with the report open.** The power / sample-size curve
+  reuses one integration per (n, α) across datasets (the MDD scales with the SD), a multi-file import
+  re-renders the report once per batch instead of once per file, messages no longer recompute the report,
+  and the cross-dataset summary groups records once. Four ~1,700-record files: ≈ 22 s → ≈ 4.5 s with the
+  report open (≈ 2.8 s → ≈ 1.5 s closed) in Chromium.
 - **Re-scoring saved masks supports ensembles** (`scripts/bench/rescore.ts`), and it also writes
   `records_raw.ndjson` (unchanged masks, current metric set).
 

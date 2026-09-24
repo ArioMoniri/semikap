@@ -44,6 +44,21 @@ describe('recordsToMatrix', () => {
 });
 
 describe('crossDatasetSummary', () => {
+  it('matches records by canonical dataset id and never pools a post-processed variant with its raw dataset', () => {
+    const r = [
+      rec('A', 'hcc_tace_seg', 'c1', 0.9),
+      rec('A', 'hcc-tace-seg', 'c2', 0.8),
+      { ...rec('A', 'hcc-tace-seg', 'c1', 0.1), id: 'lcc', postprocess: ['lcc'] },
+      rec('B', 'msd', 'm1', 0.5),
+    ];
+    const s = crossDatasetSummary(r, { label: 1, metric: 'dice', datasets: ['hcc-tace-seg', 'hcc-tace-seg [lcc]'] });
+    expect(s.map((x) => [x.model, x.n])).toEqual([
+      ['A@1', [2, 1]],
+      ['B@1', [0, 0]],
+    ]);
+    expect(s[0]!.median[0]).toBeCloseTo(0.85, 12);
+    expect(s[0]!.median[1]).toBeCloseTo(0.1, 12);
+  });
   it('per model: median per dataset and Mann-Whitney between two datasets', () => {
     const s = crossDatasetSummary(recs, { label: 1, metric: 'dice', datasets: ['hcc', 'msd'] });
     const a = s.find((r) => r.model === 'A@1')!;
@@ -60,6 +75,14 @@ describe('importRecordsText', () => {
     expect(importRecordsText(nd, [])).toHaveLength(recs.length);
     expect(importRecordsText(JSON.stringify(recs), recs.slice(0, 2))).toHaveLength(recs.length - 2);
     expect(() => importRecordsText('{"schema":"other"}', [])).toThrow(/schema/);
+  });
+  it('skips ids already present or repeated in the file, in linear time on large imports', () => {
+    const big = Array.from({ length: 20000 }, (_, i) => rec(`M${i % 10}`, 'hcc', `c${i}`, 0.9));
+    const text = [...big, big[5]!].map((r) => JSON.stringify(r)).join('\n');
+    const t0 = performance.now();
+    const fresh = importRecordsText(text, big.slice(0, 7000));
+    expect(performance.now() - t0).toBeLessThan(2000);
+    expect(fresh.map((r) => r.id)).toEqual(big.slice(7000).map((r) => r.id));
   });
 });
 

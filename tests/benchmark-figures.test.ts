@@ -3,6 +3,7 @@ import {
   bootstrapRanks,
   canonicalModelOrder,
   covariatePoints,
+  crossDatasetFigures,
   availableCovariates,
   displayModel,
   failureRows,
@@ -16,6 +17,7 @@ import {
   pairedTPower,
   postprocessComparison,
   powerAnalysis,
+  reportCrossPairs,
   runtimeGroups,
   shortModelName,
   spearman,
@@ -27,6 +29,9 @@ import { iccA1 } from '../src/lib/metrics/agreement';
 import { blandAltman } from '../src/lib/plots/agreement';
 import { tumourInclusion, scoreLiverTumourCase } from '../src/lib/metrics/label-groups';
 import { setPngDpi } from '../src/lib/ui/figure-export';
+import { createElement } from 'react';
+import { CrossDatasetFigure } from '../src/components/plots/BenchmarkFigures';
+import { renderFigureSvg } from '../src/components/plots/figure-registry';
 import type { BenchmarkRecord } from '../src/lib/benchmark/types';
 import type { SegMetrics } from '../src/lib/metrics/segmentation';
 
@@ -161,6 +166,40 @@ describe('power (paired t, noncentral)', () => {
     expect(pairedTPower(0.01, sd, n, alpha)).toBeGreaterThanOrEqual(0.8);
     expect(pairedTPower(0.01, sd, n - 1, alpha)).toBeLessThan(0.8);
     expect(minDetectableDiff(sd, n, alpha)).toBeLessThanOrEqual(0.01 + 1e-9);
+  });
+  it('MDD scales linearly with the SD (same bisection as on the raw SD)', () => {
+    const alpha = 0.05 / 45;
+    // reference: the plain bisection on the given SD
+    const ref = (sd: number, n: number) => {
+      let lo = 0;
+      let hi = 50 * sd;
+      for (let i = 0; i < 40; i++) {
+        const mid = (lo + hi) / 2;
+        if (pairedTPower(mid, sd, n, alpha) < 0.8) lo = mid;
+        else hi = mid;
+      }
+      return hi;
+    };
+    for (const [sd, n] of [
+      [0.02, 50],
+      [0.137, 82],
+      [7.5, 10],
+      [0.001, 3],
+    ] as const) {
+      expect(minDetectableDiff(sd, n, alpha)).toBeCloseTo(ref(sd, n), 12);
+      expect(minDetectableDiff(sd, n, alpha) / sd).toBeCloseTo(minDetectableDiff(1, n, alpha), 12);
+    }
+    expect(minDetectableDiff(0, 10, alpha)).toBeNaN();
+    expect(minDetectableDiff(1, 1, alpha)).toBeNaN();
+  });
+  it('powerAnalysis over many same-shape matrices stays fast (report re-renders)', () => {
+    const t0 = performance.now();
+    for (let d = 0; d < 12; d++) {
+      const v = Array.from({ length: 50 + d }, (_, i) => Array.from({ length: 10 }, (_, j) => 0.9 + (((i * 7 + j * 3 + d) % 11) - 5) * 0.003 * (1 + d)));
+      expect(powerAnalysis(v)!.curve.length).toBeGreaterThan(10);
+    }
+    // was ≈ 3 s (40 bisection steps × 400-point integration per curve point, per SD, per dataset)
+    expect(performance.now() - t0).toBeLessThan(1500);
   });
   it('powerAnalysis summarises pairwise SDs with Bonferroni α', () => {
     const v = Array.from({ length: 10 }, (_, i) => [0.9 + (i % 3) * 0.01, 0.9 + (i % 2) * 0.02, 0.85 + (i % 4) * 0.01]);
@@ -303,6 +342,50 @@ describe('tumourInclusion metric', () => {
     const s = scoreLiverTumourCase(ref, pred, [4, 1, 1], [1, 1, 1], [{ id: 1, name: 'liver', refMembers: [1, 2], predMembers: [6] }]);
     expect(s.tumourInclusion).toBeCloseTo(0.5, 12);
     expect(s.lesions).toBeUndefined();
+  });
+});
+
+describe('cross-dataset figures (every pair, for "Export all figures")', () => {
+  const recs: BenchmarkRecord[] = [];
+  for (const [m, base] of [
+    ['LightningMedSeg3D UNet (BTCV, 14-class)', 0.9],
+    ['nnU-Net v2 Liver+Lesion (LiTS)', 0.95],
+  ] as const)
+    for (let c = 1; c <= 3; c++) {
+      recs.push(rec({ model: m, caseId: `HCC_00${c}`, segs: [seg(1, base - c * 0.02)] }));
+      recs.push(rec({ model: m, caseId: `HCC_00${c}`, post: ['lcc'], segs: [seg(1, base - c * 0.01)] }));
+      recs.push(rec({ model: m, caseId: `CRLM_00${c}`, dataset: 'crlm', segs: [seg(1, base - c * 0.03)] }));
+      recs.push(rec({ model: m, caseId: `MSD_00${c}`, dataset: 'msd-task03-liver', segs: [seg(1, base - c * 0.04)] }));
+    }
+  const datasets = ['crlm', 'hcc-tace-seg', 'hcc-tace-seg [lcc]', 'msd-task03-liver'];
+
+  it('pairs = raw-dataset pairs, then each post-processed variant vs its raw dataset', () => {
+    expect(reportCrossPairs(datasets)).toEqual([
+      ['crlm', 'hcc-tace-seg'],
+      ['crlm', 'msd-task03-liver'],
+      ['hcc-tace-seg', 'msd-task03-liver'],
+      ['hcc-tace-seg', 'hcc-tace-seg [lcc]'],
+    ]);
+    // a variant whose raw dataset is absent gets no pair
+    expect(reportCrossPairs(['crlm [fov]', 'hcc-tace-seg'])).toEqual([['crlm [fov]', 'hcc-tace-seg']]);
+    // one raw dataset: the fallback pair is its variant, listed once
+    expect(reportCrossPairs(['hcc-tace-seg', 'hcc-tace-seg [lcc]'])).toEqual([['hcc-tace-seg', 'hcc-tace-seg [lcc]']]);
+  });
+
+  it('one figure per pair, each with every model (canonical order) and exportable as SVG', async () => {
+    const pairs = reportCrossPairs(datasets);
+    const figs = crossDatasetFigures(recs, { label: 1, metric: 'dice', pairs });
+    expect(figs.map((x) => x.pair)).toEqual(pairs);
+    const st = { slots: modelSlots(recs.map((r) => shortModelName(r.model.name))), name: (m: string) => m };
+    for (const fig of figs) {
+      expect(fig.rows.map((r) => r.model)).toEqual(canonicalModelOrder(fig.rows.map((r) => r.model)));
+      expect(fig.rows).toHaveLength(2);
+      for (const r of fig.rows) expect(r.n).toEqual([3, 3]);
+      const svg = await renderFigureSvg((t) => createElement(CrossDatasetFigure, { rows: fig.rows, datasets: fig.pair, metricLabel: 'Dice', st, theme: t }));
+      expect(svg).toMatch(/^<\?xml[\s\S]*<svg xmlns=/);
+    }
+    // pairs without any scored model are left out
+    expect(crossDatasetFigures(recs, { label: 2, metric: 'dice', pairs })).toEqual([]);
   });
 });
 
