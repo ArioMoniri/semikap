@@ -45,16 +45,30 @@ function fileName(profileId: string): string {
   return `${profileScope(profileId).key('runs')}.ndjson`;
 }
 
+// Appends are read-modify-write of one file, so they are serialized: overlapping
+// calls (e.g. importing several record files in a row) must never drop records.
+let appendChain: Promise<unknown> = Promise.resolve();
+
+/** Append records to a profile's benchmark file in one write (serialized with other appends). */
+export function appendRecords(profileId: string, records: BenchmarkRecord[]): Promise<void> {
+  if (records.length === 0) return appendChain.then(() => undefined);
+  const run = appendChain.then(async () => {
+    const dir = await opfsRoot();
+    if (!dir) return;
+    const existing = await listRecords(profileId);
+    existing.push(...records);
+    const handle = await dir.getFileHandle(fileName(profileId), { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(new TextEncoder().encode(serializeNdjson(existing)));
+    await writable.close();
+  });
+  appendChain = run.catch(() => undefined);
+  return run;
+}
+
 /** Append one record to a profile's benchmark file. */
-export async function appendRecord(profileId: string, record: BenchmarkRecord): Promise<void> {
-  const dir = await opfsRoot();
-  if (!dir) return;
-  const existing = await listRecords(profileId);
-  existing.push(record);
-  const handle = await dir.getFileHandle(fileName(profileId), { create: true });
-  const writable = await handle.createWritable();
-  await writable.write(new TextEncoder().encode(serializeNdjson(existing)));
-  await writable.close();
+export function appendRecord(profileId: string, record: BenchmarkRecord): Promise<void> {
+  return appendRecords(profileId, [record]);
 }
 
 /** List all records for a profile (newest last, as appended). */

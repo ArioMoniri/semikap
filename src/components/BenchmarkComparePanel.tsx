@@ -27,7 +27,7 @@ import {
   type SegMetricKey,
 } from '../lib/benchmark/compare';
 import { friedmanTest, nemenyiCriticalDifference, pairwiseWilcoxonHolm } from '../lib/stats/multi-model';
-import { appendRecord } from '../lib/benchmark/store';
+import { appendRecords } from '../lib/benchmark/store';
 import { buildReportFiles, lesionDetectionRows, volumeAgreementRows, runtimeSummary } from '../lib/benchmark/report-tables';
 import {
   availableCovariates,
@@ -526,12 +526,26 @@ export function BenchmarkComparePanel({
   const registry = useMemo(() => new FigureRegistry(), []);
   const seg = records.filter((r) => r.task === 'segmentation');
 
-  async function onImport(file: File | undefined) {
-    if (!file) return;
+  // Imports run one after another against the latest record list, so picking several
+  // files (or importing again before a large file is stored) never drops records.
+  const recordsRef = useRef(records);
+  recordsRef.current = records;
+  const importQueue = useRef<Promise<void>>(Promise.resolve());
+
+  function onImportFiles(files: File[]) {
+    importQueue.current = importQueue.current.then(async () => {
+      for (const file of files) await onImport(file);
+    });
+  }
+
+  async function onImport(file: File) {
     try {
-      const fresh = importRecordsText(await file.text(), records);
-      if (profileId) for (const r of fresh) await appendRecord(profileId, { ...r, profileId });
-      onImported([...records, ...fresh]);
+      const base = recordsRef.current;
+      const fresh = importRecordsText(await file.text(), base);
+      if (profileId) await appendRecords(profileId, fresh.map((r) => ({ ...r, profileId })));
+      const next = [...base, ...fresh];
+      recordsRef.current = next;
+      onImported(next);
       setMsg(`Imported ${fresh.length} records from ${file.name}.`);
     } catch (e) {
       setMsg(`Import failed: ${(e as Error).message}`);
@@ -611,12 +625,13 @@ export function BenchmarkComparePanel({
           ref={fileRef}
           type="file"
           accept=".ndjson,.json,.jsonl"
+          multiple
           className="hidden"
           data-testid="compare-import-input"
           onChange={(e) => {
-            const file = e.currentTarget.files?.[0];
+            const files = [...(e.currentTarget.files ?? [])];
             e.currentTarget.value = ''; // re-picking the same file fires onChange again
-            void onImport(file);
+            onImportFiles(files);
           }}
         />
         <Button size="sm" variant="outline" className="h-6 gap-1 px-2 text-[11px]" onClick={() => fileRef.current?.click()}>

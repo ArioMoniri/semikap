@@ -26,7 +26,7 @@ import { pairImagesAndMasks, type BatchCase } from '../lib/benchmark/batch';
 import { runBatch, summarizeBatch, type BatchCaseOutcome, type BatchProgress } from '../lib/benchmark/batch-runner';
 import { diffVolume, maxDisagreementSlice, type DiffSlice } from '../lib/metrics/mask-diff';
 import { scoreSegmentation } from '../lib/metrics/score';
-import { appendRecord } from '../lib/benchmark/store';
+import { appendRecords } from '../lib/benchmark/store';
 import type { BenchmarkRecord } from '../lib/benchmark/types';
 import type { InferenceApi, InferenceInputs, InferenceProgressEvent } from '../workers/inference.worker';
 import type { Bytes, ModelManifest } from '../types';
@@ -202,7 +202,7 @@ export function BenchmarkBatchPanel({ profileId, entries }: Props) {
       setPreviews(newPreviews);
 
       // Persist + merge scored records into the store (dedupe by id).
-      for (const r of collected) await appendRecord(profileId, r);
+      await appendRecords(profileId, collected);
       const byId = new Map(records.map((r) => [r.id, r]));
       for (const r of collected) byId.set(r.id, r);
       setRecords([...byId.values()]);

@@ -13,7 +13,7 @@ import { FileSpreadsheet, Trash2 } from 'lucide-react';
 import { useBenchmarkStore } from '../lib/state/benchmarkStore';
 import { parseSegResultsCsv } from '../lib/stats/results-import';
 import { segRowsToRecords } from '../lib/benchmark/import-records';
-import { appendRecord } from '../lib/benchmark/store';
+import { appendRecords } from '../lib/benchmark/store';
 import { Button } from './ui/Button';
 
 // Header-only template: every row the user imports must be their own measured result.
@@ -58,7 +58,7 @@ export function BenchmarkResultsImportPanel() {
       });
       // Persist + merge into the store, de-duplicating by record id so a
       // re-import of the same file replaces rather than doubles.
-      for (const r of recs) await appendRecord(profileId, r);
+      await appendRecords(profileId, recs);
       const byId = new Map(records.map((r) => [r.id, r]));
       for (const r of recs) byId.set(r.id, r);
       setRecords([...byId.values()]);
