@@ -82,7 +82,20 @@ describe('report runtime + external-only analysis', () => {
       rec('LightningMedSeg3D VNet (BTCV, 14-class)', 'msd-task03-liver', c, 0.85 + i / 100),
     ]);
     const f = buildReportFiles(rs);
-    expect(f['REPORT.md']).toContain('External models only (excluding †)');
+    expect(f['REPORT.md']).toContain('External models only (excluding †; 2 models × 4 complete cases)');
     expect(f['friedman.csv']).toContain('dice (external only)');
+  });
+  it('external-only analysis uses every case the external models share, not just the † model’s cases', () => {
+    const cases = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const rs = cases.flatMap((c, i) => [
+      ...(i < 3 ? [rec('nnU-Net v2 Liver+Lesion (BAMF, LiTS)', 'msd-task03-liver', c, 0.97)] : []),
+      rec('LightningMedSeg3D UNet (BTCV, 14-class)', 'msd-task03-liver', c, 0.9 + i / 100),
+      rec('LightningMedSeg3D VNet (BTCV, 14-class)', 'msd-task03-liver', c, 0.85 + i / 100),
+    ]);
+    const row = buildReportFiles(rs)['friedman.csv']
+      .split('\n')
+      .find((l) => l.startsWith('msd-task03-liver,whole_liver,dice (external only)'))!;
+    // k_models, n_cases follow the metric column.
+    expect(row.split(',').slice(3, 5)).toEqual(['2', '6']);
   });
 });

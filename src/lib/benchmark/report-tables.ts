@@ -287,18 +287,24 @@ export function buildReportFiles(allRecords: readonly BenchmarkRecord[]): Record
         const cd =
           m.models.length <= 10 ? nemenyiCriticalDifference(m.models.length, m.cases.length) : NaN;
         // Models trained on this dataset (†) inflate the omnibus test and shift everyone's mean ranks:
-        // repeat Friedman / Nemenyi on the external models only.
-        const extIdx = m.models.map((n, j) => (inTraining(n, ds) ? -1 : j)).filter((j) => j >= 0);
+        // repeat Friedman / Nemenyi on the external models only, over every case THEY share (the †
+        // model may cover fewer cases, which would otherwise shrink the external analysis too).
+        const nExternal = m.models.filter((n) => !inTraining(n, ds)).length;
         let externalNote = '';
-        if (extIdx.length >= 2 && extIdx.length < m.models.length && m.cases.length >= 2) {
-          const ev = m.values.map((row) => extIdx.map((j) => row[j]!));
-          const efr = friedmanTest(ev, m.higherIsBetter);
-          const ecd = extIdx.length <= 10 ? nemenyiCriticalDifference(extIdx.length, m.cases.length) : NaN;
-          const order = extIdx.map((j, i) => ({ n: m.models[j]!.replace(/@.*/, ''), r: efr.meanRanks[i]! })).sort((a, b) => a.r - b.r);
-          let pairs = 0;
-          for (let a = 0; a < order.length; a++) for (let b = a + 1; b < order.length; b++) if (order[b]!.r - order[a]!.r > ecd) pairs++;
-          externalNote = ` External models only (excluding †): Friedman χ²(${efr.df}) = ${efr.statistic.toFixed(2)}, p = ${fp(efr.pValue)}; Nemenyi CD = ${fmt(ecd, 2)} → ${pairs} pair(s) differ; best mean rank ${order[0]!.n} (${order[0]!.r.toFixed(2)}).`;
-          friedman.push([ds, LABELS[label]!, `${metric} (external only)`, extIdx.length, m.cases.length, efr.statistic, efr.df, efr.pValue, ecd, NaN, NaN, pairs]);
+        if (nExternal >= 2 && nExternal < m.models.length) {
+          const em = recordsToMatrix(
+            records.filter((r) => !inTraining(modelKey(r), ds)),
+            { dataset: ds, label, metric }
+          );
+          if (em.models.length >= 2 && em.cases.length >= 2) {
+            const efr = friedmanTest(em.values, em.higherIsBetter);
+            const ecd = em.models.length <= 10 ? nemenyiCriticalDifference(em.models.length, em.cases.length) : NaN;
+            const order = em.models.map((n, i) => ({ n: n.replace(/@.*/, ''), r: efr.meanRanks[i]! })).sort((a, b) => a.r - b.r);
+            let pairs = 0;
+            for (let a = 0; a < order.length; a++) for (let b = a + 1; b < order.length; b++) if (order[b]!.r - order[a]!.r > ecd) pairs++;
+            externalNote = ` External models only (excluding †; ${em.models.length} models × ${em.cases.length} complete cases): Friedman χ²(${efr.df}) = ${efr.statistic.toFixed(2)}, p = ${fp(efr.pValue)}; Nemenyi CD = ${fmt(ecd, 2)} → ${pairs} pair(s) differ; best mean rank ${order[0]!.n} (${order[0]!.r.toFixed(2)}).`;
+            friedman.push([ds, LABELS[label]!, `${metric} (external only)`, em.models.length, em.cases.length, efr.statistic, efr.df, efr.pValue, ecd, NaN, NaN, pairs]);
+          }
         }
         const pw = pairwiseWilcoxonHolm(m.values, m.models);
         const minP = minWilcoxonP(m.cases.length);
