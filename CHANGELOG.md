@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+
+- **Importing several record files keeps every record.** Imports in the comparison panel now run one
+  after another against the latest record list, and the picker accepts several files at once. Store
+  appends are serialized and batched (one write per import instead of one full rewrite per record).
+- **External-only Friedman/Nemenyi uses every case the external models share.** When a model evaluated
+  on its own training data (†) covers fewer cases, the external-only analysis is no longer cut down to
+  that model's cases; the note states models × complete cases.
+- **Across-datasets comparisons pair raw datasets.** With post-processed variants loaded, the figure and
+  table no longer compare a dataset with its own variant. `cross_dataset_*.csv` covers every pair of raw
+  datasets (new `dataset_a`/`dataset_b` columns) and the figure has a pair picker.
+- **Re-scoring saved masks supports ensembles** (`scripts/bench/rescore.ts`), and it also writes
+  `records_raw.ndjson` (unchanged masks, current metric set).
+
 ## [0.16.1] — Native desktop inference, 5-fold nnU-Net, CRLM external test set, exportable figures
 
 ### Added
