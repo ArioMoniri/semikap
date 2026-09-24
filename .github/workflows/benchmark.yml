@@ -99,7 +99,7 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      max-parallel: 20
+      max-parallel: 16  # leave 4 of the 20 free concurrent jobs for release / build workflows
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
