@@ -16,7 +16,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Full history: from a shallow clone the tag push cannot negotiate with the remote once the
+      # branch has moved past the tagged commit, so git uploads the whole tree (workflow files
+      # included) and GitHub rejects it for a token without the workflows permission.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Create tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

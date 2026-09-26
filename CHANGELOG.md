@@ -27,6 +27,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   re-renders the report once per batch instead of once per file, messages no longer recompute the report,
   and the cross-dataset summary groups records once. Four ~1,700-record files: ≈ 22 s → ≈ 4.5 s with the
   report open (≈ 2.8 s → ≈ 1.5 s closed) in Chromium.
+- **Release tagging works when the branch has moved on.** The tag workflow checks out full history, so
+  creating the release tag no longer fails once newer commits land on the branch.
 - **Re-scoring saved masks supports ensembles** (`scripts/bench/rescore.ts`), and it also writes
   `records_raw.ndjson` (unchanged masks, current metric set).
 
